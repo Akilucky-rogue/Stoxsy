@@ -40,7 +40,7 @@ Multi-factor ML signal generation for Indian equities (NSE Nifty 200/500), with 
 - Until the model beats all three baselines on 30+ paper sessions, the risk cap stays at 1% per trade
 - Goal: never deploy real money on edge that isn't proven over baselines net of cost
 
-**Dashboard** (Next.js, port 3000)
+**Dashboard** (Next.js, port 5273)
 - Live Validation panel: tier, cap %, drift verdict, model vs baselines per horizon
 - Paper journal: open trades, recent closures, full scorecard
 - Per-symbol research with live minute-bar chart
@@ -65,7 +65,7 @@ copy .env.example .env
 notepad .env
 #   KITE_API_KEY=<your key>
 #   KITE_API_SECRET=<your secret>
-#   KITE_REDIRECT_URL=http://127.0.0.1:8000/api/kite/callback
+#   KITE_REDIRECT_URL=http://127.0.0.1:8700/api/kite/callback
 
 # 2. Bootstrap everything: venv, deps, Docker, migrations, frontend, Task Scheduler
 .\scripts\setup.ps1
@@ -78,10 +78,10 @@ notepad .env
 
 # 4. Launch the stack
 .\scripts\start.ps1
-#   Opens FastAPI :8000, Next.js :3000, and the Kite live tick streamer
+#   Opens FastAPI :8700, Next.js :5273, and the Kite live tick streamer
 ```
 
-Open `http://127.0.0.1:8000/api/kite/login_url` once to authenticate with Zerodha. Token persists in the `kite_tokens` table and expires daily at 06:00 IST.
+Open `http://127.0.0.1:8700/api/kite/login_url` once to authenticate with Zerodha. Token persists in the `kite_tokens` table and expires daily at 06:00 IST.
 
 ## Daily operation
 
@@ -190,7 +190,7 @@ REDIS_URL=redis://localhost:6379/0
 # Zerodha Kite Connect
 KITE_API_KEY=<from developers.kite.trade>
 KITE_API_SECRET=<from developers.kite.trade>
-KITE_REDIRECT_URL=http://127.0.0.1:8000/api/kite/callback
+KITE_REDIRECT_URL=http://127.0.0.1:8700/api/kite/callback
 MARKET_DATA_SOURCE=kite   # or yfinance
 
 # Auto-taker tuning (optional)
@@ -209,12 +209,12 @@ QSDE_FORCE_PROMOTE=false                # bypass DSR gate during retraining
 ## Troubleshooting
 
 **Kite token expired** (`No active Kite access_token in DB`)
-- Open `http://127.0.0.1:8000/api/kite/login_url`, authenticate
+- Open `http://127.0.0.1:8700/api/kite/login_url`, authenticate
 - Restart the streamer: `.\scripts\start_live_stream.ps1`
 - Tokens expire daily at 06:00 IST — script the re-login if you want to avoid the manual step
 
-**Backend won't start: port 8000 in use**
-- `start.ps1` auto-kills whatever owns the port. If that fails, manually: `Stop-Process -Id (Get-NetTCPConnection -LocalPort 8000).OwningProcess`
+**Backend won't start: port 8700 in use**
+- `start.ps1` auto-kills whatever owns the port. If that fails, manually: `Stop-Process -Id (Get-NetTCPConnection -LocalPort 8700).OwningProcess`
 
 **EOD runs but signals stay zero**
 - Check Kite token (step above)

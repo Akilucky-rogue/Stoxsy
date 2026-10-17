@@ -66,7 +66,7 @@ def refresh_daily_ohlcv(days: int = 7, exchange: str = "NSE") -> dict:
     client = get_kite_client()
     if not client.is_authenticated:
         raise RuntimeError(
-            "No active Kite token. Re-login at http://localhost:8000/api/kite/login_url"
+            "No active Kite token. Re-login at http://localhost:8700/api/kite/login_url"
         )
 
     # Refresh the instrument map if it's stale (>24h old or empty).

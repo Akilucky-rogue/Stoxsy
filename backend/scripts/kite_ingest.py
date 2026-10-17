@@ -7,7 +7,7 @@ Source of truth:
   * fundamentals            -> yfinance (OPTIONAL; Kite has no fundamentals)
 
 PREREQUISITE: an active Kite session. Start the backend, then open
-http://localhost:8000/api/kite/login_url in a browser and log in (Zerodha
+http://localhost:8700/api/kite/login_url in a browser and log in (Zerodha
 issues a fresh token daily at 06:00 IST).
 
 Usage (qsde/backend, venv active):
@@ -53,8 +53,8 @@ def main() -> None:
     client = get_kite_client()
     if not client.is_authenticated:
         log.error(
-            "No active Kite token. Start the backend (uvicorn api.main:app --port 8000), "
-            "open http://localhost:8000/api/kite/login_url to log in, then re-run."
+            "No active Kite token. Start the backend (uvicorn api.main:app --port 8700), "
+            "open http://localhost:8700/api/kite/login_url to log in, then re-run."
         )
         sys.exit(1)
 

@@ -7,7 +7,7 @@ Real-time Indian-market (NSE/BSE) quant signal + research platform on the Zerodh
 From the project root (`C:\Users\NEW\Documents\stockscreener\stoxsy`):
 
 ```powershell
-.\run.ps1            # core app:  DB + backend(:8000) + frontend(:3000)
+.\run.ps1            # core app:  DB + backend(:8700) + frontend(:5273)
 .\run.ps1 all        # core app + live market windows (Kite stream + live feed)
 .\run.ps1 live       # live market windows only (Kite must be logged in)
 .\run.ps1 stop       # stop the database containers
@@ -29,8 +29,8 @@ Live feed on specific names / size:
 
 Kite's access token expires ~06:00 IST, so log in once each morning:
 
-1. Browser → **http://localhost:8000/api/kite/login_url** → Zerodha login (redirects back, stores token).
-2. `curl -X POST http://localhost:8000/api/kite/refresh_instruments`
+1. Browser → **http://localhost:8700/api/kite/login_url** → Zerodha login (redirects back, stores token).
+2. `curl -X POST http://localhost:8700/api/kite/refresh_instruments`
 3. Start the live windows: `.\run.ps1 live`
 
 ## Manual commands (if you prefer separate terminals)
@@ -38,13 +38,13 @@ Kite's access token expires ~06:00 IST, so log in once each morning:
 | Window | Commands |
 |---|---|
 | **DB** | `cd stoxsy` → `docker compose up -d` |
-| **Backend** | `cd stoxsy\backend` → `..\.venv\Scripts\Activate.ps1` → `uvicorn api.main:app --reload --port 8000` |
+| **Backend** | `cd stoxsy\backend` → `..\.venv\Scripts\Activate.ps1` → `uvicorn api.main:app --reload --port 8700` |
 | **Frontend** | `cd stoxsy\frontend` → `npm run dev` |
 | **Kite stream** | `cd stoxsy\backend` → `..\.venv\Scripts\Activate.ps1` → `python scripts\kite_stream.py` |
 | **Live feed** | `cd stoxsy\backend` → `..\.venv\Scripts\Activate.ps1` → `python scripts\live_watch.py` |
 
-- API: http://localhost:8000/docs · Health: http://localhost:8000/api/health
-- UI: http://localhost:3000
+- API: http://localhost:8700/docs · Health: http://localhost:8700/api/health
+- UI: http://localhost:5273
 
 ## Notes / current honest state
 

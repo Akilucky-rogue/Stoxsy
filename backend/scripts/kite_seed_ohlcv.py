@@ -13,7 +13,7 @@ Prerequisites:
     2. You've completed the OAuth flow at least once today
        (GET /api/kite/login_url -> browser login -> /api/kite/callback)
     3. kite_instruments table populated:
-       curl -X POST http://localhost:8000/api/kite/refresh_instruments
+       curl -X POST http://localhost:8700/api/kite/refresh_instruments
 
 Notes:
     * Kite's free historical-data API serves daily bars; intraday requires
@@ -67,7 +67,7 @@ def main():
     if not client.is_authenticated:
         log.error(
             "No active Kite token. Log in first: "
-            "open http://localhost:8000/api/kite/login_url in a browser."
+            "open http://localhost:8700/api/kite/login_url in a browser."
         )
         sys.exit(1)
 

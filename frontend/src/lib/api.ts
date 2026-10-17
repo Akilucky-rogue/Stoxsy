@@ -4,7 +4,7 @@
 // NEXT_PUBLIC_* var into the browser bundle at build time). Falls back to the
 // local dev backend so `npm run dev` works with zero config.
 export const API_BASE: string =
-  process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000/api";
+  process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8700/api";
 
 /**
  * Thin GET helper that THROWS on a non-2xx response, so callers can render a

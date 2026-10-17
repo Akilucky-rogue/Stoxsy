@@ -66,7 +66,7 @@ yfinance / FMP / FRED / NSE Bhavcopy / NSE Bulk Deals
 docker compose up -d
 
 # Backend
-cd backend && uvicorn api.main:app --reload --port 8000
+cd backend && uvicorn api.main:app --reload --port 8700
 
 # Frontend
 cd frontend && npm run dev

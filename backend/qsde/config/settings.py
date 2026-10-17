@@ -54,7 +54,7 @@ class Settings(BaseSettings):
     # and update the .env file. Never commit either to git.
     kite_api_key: str = ""
     kite_api_secret: str = ""
-    kite_redirect_url: str = "http://127.0.0.1:8000/api/kite/callback"
+    kite_redirect_url: str = "http://127.0.0.1:8700/api/kite/callback"
     # Either "kite" or "yfinance". Lets the ingestion layer fall back
     # to yfinance if a Kite outage hits or you let the subscription lapse.
     market_data_source: str = "yfinance"

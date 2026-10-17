@@ -1,7 +1,7 @@
 """
 QSDE FastAPI application entry point.
 
-Run with: uvicorn api.main:app --reload --port 8000
+Run with: uvicorn api.main:app --reload --port 8700
 """
 
 import logging
@@ -64,7 +64,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_origins=["http://localhost:5273", "http://127.0.0.1:5273"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

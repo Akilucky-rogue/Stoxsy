@@ -4,7 +4,7 @@
 
   Run from anywhere (paths resolve relative to this file's location):
 
-    .\run.ps1                 core app: DB + backend(:8000) + frontend(:3000)
+    .\run.ps1                 core app: DB + backend(:8700) + frontend(:5273)
     .\run.ps1 all             core app + live market windows (stream + feed)
     .\run.ps1 live            live market windows only (Kite must be logged in)
     .\run.ps1 live -Symbols RELIANCE,TCS,KEI    live feed on specific names
@@ -16,7 +16,7 @@
     .\run.ps1 retrain         retrain ML models, net-DSR gated (foreground)
 
   Daily during market hours, log in to Kite ONCE (token expires ~06:00 IST):
-    http://localhost:8000/api/kite/login_url
+    http://localhost:8700/api/kite/login_url
 #>
 param(
   [ValidateSet("app", "all", "live", "stop", "status", "test", "eod", "retrain")]
@@ -59,9 +59,9 @@ switch ($Mode) {
   "status" {
     Push-Location $root; docker compose ps; Pop-Location
     try {
-      $h = Invoke-WebRequest "http://localhost:8000/api/health" -TimeoutSec 3 -UseBasicParsing
-      Write-Host "[stoxsy] backend :8000 -> HTTP $($h.StatusCode)" -ForegroundColor Green
-    } catch { Write-Host "[stoxsy] backend :8000 -> down" -ForegroundColor Yellow }
+      $h = Invoke-WebRequest "http://localhost:8700/api/health" -TimeoutSec 3 -UseBasicParsing
+      Write-Host "[stoxsy] backend :8700 -> HTTP $($h.StatusCode)" -ForegroundColor Green
+    } catch { Write-Host "[stoxsy] backend :8700 -> down" -ForegroundColor Yellow }
     return
   }
   "test"    { Push-Location $backend; & $py -m pytest -q; Pop-Location; return }
@@ -71,12 +71,12 @@ switch ($Mode) {
 
 if ($Mode -eq "app" -or $Mode -eq "all") {
   Start-Db
-  Open-Window "stoxsy-backend"  "cd '$backend'; & '$py' -m uvicorn api.main:app --reload --port 8000"
+  Open-Window "stoxsy-backend"  "cd '$backend'; & '$py' -m uvicorn api.main:app --reload --port 8700"
   Open-Window "stoxsy-frontend" "cd '$frontend'; npm run dev"
   Write-Host ""
-  Write-Host "[stoxsy] API   -> http://localhost:8000/docs" -ForegroundColor Green
-  Write-Host "[stoxsy] UI    -> http://localhost:3000"       -ForegroundColor Green
-  Write-Host "[stoxsy] Kite  -> log in once (market hours): http://localhost:8000/api/kite/login_url" -ForegroundColor Green
+  Write-Host "[stoxsy] API   -> http://localhost:8700/docs" -ForegroundColor Green
+  Write-Host "[stoxsy] UI    -> http://localhost:5273"       -ForegroundColor Green
+  Write-Host "[stoxsy] Kite  -> log in once (market hours): http://localhost:8700/api/kite/login_url" -ForegroundColor Green
 }
 
 if ($Mode -eq "live" -or $Mode -eq "all") {
