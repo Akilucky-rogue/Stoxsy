@@ -1,0 +1,459 @@
+{
+  "as_of": "2026-07-01",
+  "costs_bps": [
+    0.0,
+    24.0,
+    30.0
+  ],
+  "price_col": "adj_close",
+  "entry_gap": 1,
+  "n_trials": 20,
+  "horizons": [
+    {
+      "horizon": "swing",
+      "sessions_held": 5,
+      "rebalances": 350,
+      "benchmark_equal_weight": {
+        "sharpe": 1.2657449348153635,
+        "avg_period_bps": 45.90577900511511,
+        "period_win": 0.5942028985507246,
+        "turnover": 0.003149147737303012
+      },
+      "n_trials": 20,
+      "strategies": {
+        "tier1_jt": {
+          "n_periods": 298,
+          "n_picks": 4420,
+          "avg_picks_per_period": 14.832214765100671,
+          "turnover": 0.13401746220373673,
+          "pick_win_gross": 0.548868778280543,
+          "pick_avg_gross_bps": 60.71994820304499,
+          "spread_sharpe_gross": 0.48857492306918326,
+          "by_cost": {
+            "0.0": {
+              "sharpe_net": 1.6372053410253533,
+              "dsr_net": 0.9253557570645705,
+              "avg_period_net_bps": 68.84966331047397,
+              "pick_win_net": 0.548868778280543,
+              "pick_avg_net_bps": 60.71994820304499,
+              "excess_vs_bench_sharpe": 0.6852732135549251,
+              "excess_vs_bench_avg_bps": 16.243513454634627
+            },
+            "24.0": {
+              "sharpe_net": 1.5607207474245335,
+              "dsr_net": 0.897431608502016,
+              "avg_period_net_bps": 65.6332442175843,
+              "pick_win_net": 0.5239819004524887,
+              "pick_avg_net_bps": 36.71994820304498,
+              "excess_vs_bench_sharpe": 0.5527690471516764,
+              "excess_vs_bench_avg_bps": 13.102673907440206
+            },
+            "30.0": {
+              "sharpe_net": 1.5415995990243285,
+              "dsr_net": 0.8893669901076509,
+              "avg_period_net_bps": 64.82913944436189,
+              "pick_win_net": 0.5192307692307693,
+              "pick_avg_net_bps": 30.719948203044954,
+              "excess_vs_bench_sharpe": 0.5196430055508642,
+              "excess_vs_bench_avg_bps": 12.3174640206416
+            }
+          }
+        },
+        "tier1_mop": {
+          "n_periods": 298,
+          "n_picks": 4420,
+          "avg_picks_per_period": 14.832214765100671,
+          "turnover": 0.144298375916023,
+          "pick_win_gross": 0.5617647058823529,
+          "pick_avg_gross_bps": 57.87933425858374,
+          "spread_sharpe_gross": 0.7716706567853016,
+          "by_cost": {
+            "0.0": {
+              "sharpe_net": 1.7317905047258177,
+              "dsr_net": 0.9452935967374752,
+              "avg_period_net_bps": 67.6720588790053,
+              "pick_win_net": 0.5617647058823529,
+              "pick_avg_net_bps": 57.87933425858374,
+              "excess_vs_bench_sharpe": 0.6979804459713794,
+              "excess_vs_bench_avg_bps": 15.06590902316595
+            },
+            "24.0": {
+              "sharpe_net": 1.6431650147738628,
+              "dsr_net": 0.9198915472630695,
+              "avg_period_net_bps": 64.20889785702076,
+              "pick_win_net": 0.5323529411764706,
+              "pick_avg_net_bps": 33.87933425858372,
+              "excess_vs_bench_sharpe": 0.5410389945163705,
+              "excess_vs_bench_avg_bps": 11.678327546876664
+            },
+            "30.0": {
+              "sharpe_net": 1.6210086422858738,
+              "dsr_net": 0.9122920420252716,
+              "avg_period_net_bps": 63.34310760152462,
+              "pick_win_net": 0.5269230769230769,
+              "pick_avg_net_bps": 27.87933425858371,
+              "excess_vs_bench_sharpe": 0.5018036316526183,
+              "excess_vs_bench_avg_bps": 10.831432177804343
+            }
+          }
+        },
+        "tier1_bab": {
+          "n_periods": 298,
+          "n_picks": 4420,
+          "avg_picks_per_period": 14.832214765100671,
+          "turnover": 0.05624298540965207,
+          "pick_win_gross": 0.5210407239819005,
+          "pick_avg_gross_bps": 22.686637958158688,
+          "spread_sharpe_gross": -0.871490518882525,
+          "by_cost": {
+            "0.0": {
+              "sharpe_net": 1.203246177261129,
+              "dsr_net": 0.6842116292818053,
+              "avg_period_net_bps": 29.31702614161245,
+              "pick_win_net": 0.5210407239819005,
+              "pick_avg_net_bps": 22.686637958158688,
+              "excess_vs_bench_sharpe": -0.960622786762563,
+              "excess_vs_bench_avg_bps": -23.289123714226914
+            },
+            "24.0": {
+              "sharpe_net": 1.147845613617306,
+              "dsr_net": 0.6352349957555073,
+              "avg_period_net_bps": 27.967194491780802,
+              "pick_win_net": 0.4852941176470588,
+              "pick_avg_net_bps": -1.313362041841321,
+              "excess_vs_bench_sharpe": -1.013182755198206,
+              "excess_vs_bench_avg_bps": -24.563375818363294
+            },
+            "30.0": {
+              "sharpe_net": 1.1339954727063504,
+              "dsr_net": 0.6225877785335855,
+              "avg_period_net_bps": 27.629736579322884,
+              "pick_win_net": 0.47760180995475116,
+              "pick_avg_net_bps": -7.313362041841332,
+              "excess_vs_bench_sharpe": -1.026322747307117,
+              "excess_vs_bench_avg_bps": -24.8819388443974
+            }
+          }
+        },
+        "tier1_rsi2": {
+          "n_periods": 309,
+          "n_picks": 4589,
+          "avg_picks_per_period": 14.851132686084142,
+          "turnover": 0.6820666799777763,
+          "pick_win_gross": 0.5186315101329265,
+          "pick_avg_gross_bps": 33.81527347818835,
+          "spread_sharpe_gross": -0.4302603200205535,
+          "by_cost": {
+            "0.0": {
+              "sharpe_net": 1.136214996602533,
+              "dsr_net": 0.6821426399726015,
+              "avg_period_net_bps": 47.684186382130925,
+              "pick_win_net": 0.5186315101329265,
+              "pick_avg_net_bps": 33.81527347818835,
+              "excess_vs_bench_sharpe": -0.523284490453841,
+              "excess_vs_bench_avg_bps": -11.473249625600127
+            },
+            "24.0": {
+              "sharpe_net": 0.7461614635021444,
+              "dsr_net": 0.2916640411288094,
+              "avg_period_net_bps": 31.314586062664297,
+              "pick_win_net": 0.4907387230333406,
+              "pick_avg_net_bps": 9.815273478188336,
+              "excess_vs_bench_sharpe": -1.2664399726654691,
+              "excess_vs_bench_avg_bps": -27.767270399371487
+            },
+            "30.0": {
+              "sharpe_net": 0.648648080227047,
+              "dsr_net": 0.21143054832237457,
+              "avg_period_net_bps": 27.222185982797626,
+              "pick_win_net": 0.48311178906079755,
+              "pick_avg_net_bps": 3.81527347818833,
+              "excess_vs_bench_sharpe": -1.4522288432183765,
+              "excess_vs_bench_avg_bps": -31.840775592814335
+            }
+          }
+        },
+        "tier1_composite": {
+          "n_periods": 298,
+          "n_picks": 4391,
+          "avg_picks_per_period": 14.734899328859061,
+          "turnover": 0.42076813890539383,
+          "pick_win_gross": 0.5374629924846277,
+          "pick_avg_gross_bps": 46.08792949943459,
+          "spread_sharpe_gross": -0.46025252582079734,
+          "by_cost": {
+            "0.0": {
+              "sharpe_net": 1.5345577409935356,
+              "dsr_net": 0.8784924402417024,
+              "avg_period_net_bps": 49.08900556125953,
+              "pick_win_net": 0.5374629924846277,
+              "pick_avg_net_bps": 46.08792949943459,
+              "excess_vs_bench_sharpe": -0.1892770351736078,
+              "excess_vs_bench_avg_bps": -3.51714429457982
+            },
+            "24.0": {
+              "sharpe_net": 1.218873364499934,
+              "dsr_net": 0.6735691230658724,
+              "avg_period_net_bps": 38.990570227530085,
+              "pick_win_net": 0.5069460259621954,
+              "pick_avg_net_bps": 22.087929499434573,
+              "excess_vs_bench_sharpe": -0.7286624764974999,
+              "excess_vs_bench_avg_bps": -13.540000082614009
+            },
+            "30.0": {
+              "sharpe_net": 1.1399522703765337,
+              "dsr_net": 0.605601357530253,
+              "avg_period_net_bps": 36.46596139409773,
+              "pick_win_net": 0.4985196993851059,
+              "pick_avg_net_bps": 16.087929499434562,
+              "excess_vs_bench_sharpe": -0.8635088368284729,
+              "excess_vs_bench_avg_bps": -16.045714029622552
+            }
+          }
+        },
+        "tier1_mom": {
+          "n_periods": 298,
+          "n_picks": 4393,
+          "avg_picks_per_period": 14.741610738255034,
+          "turnover": 0.13252294183666732,
+          "pick_win_gross": 0.5554290917368541,
+          "pick_avg_gross_bps": 57.79665504574778,
+          "spread_sharpe_gross": 0.5182391745833581,
+          "by_cost": {
+            "0.0": {
+              "sharpe_net": 1.6560507534871474,
+              "dsr_net": 0.9245498389868019,
+              "avg_period_net_bps": 67.15296624716721,
+              "pick_win_net": 0.5554290917368541,
+              "pick_avg_net_bps": 57.79665504574778,
+              "excess_vs_bench_sharpe": 0.6516282174120513,
+              "excess_vs_bench_avg_bps": 14.546816391327848
+            },
+            "24.0": {
+              "sharpe_net": 1.577615599855897,
+              "dsr_net": 0.8964071860131417,
+              "avg_period_net_bps": 63.97241564308718,
+              "pick_win_net": 0.5276576371500113,
+              "pick_avg_net_bps": 33.79665504574776,
+              "excess_vs_bench_sharpe": 0.5125402753178996,
+              "excess_vs_bench_avg_bps": 11.4418453329431
+            },
+            "30.0": {
+              "sharpe_net": 1.5580068114480847,
+              "dsr_net": 0.888278013149985,
+              "avg_period_net_bps": 63.1772779920672,
+              "pick_win_net": 0.5224220350557706,
+              "pick_avg_net_bps": 27.79665504574776,
+              "excess_vs_bench_sharpe": 0.4777682897943619,
+              "excess_vs_bench_avg_bps": 10.665602568346916
+            }
+          }
+        }
+      }
+    },
+    {
+      "horizon": "long",
+      "sessions_held": 20,
+      "rebalances": 88,
+      "benchmark_equal_weight": {
+        "sharpe": 1.164063310516019,
+        "avg_period_bps": 191.71091817647167,
+        "period_win": 0.6511627906976745,
+        "turnover": 0.010756921755836797
+      },
+      "n_trials": 20,
+      "strategies": {
+        "tier1_jt": {
+          "n_periods": 74,
+          "n_picks": 1099,
+          "avg_picks_per_period": 14.85135135135135,
+          "turnover": 0.2508058017727639,
+          "pick_win_gross": 0.5768880800727935,
+          "pick_avg_gross_bps": 248.70522400040346,
+          "spread_sharpe_gross": 0.6980778966562852,
+          "by_cost": {
+            "0.0": {
+              "sharpe_net": 1.6555958032518188,
+              "dsr_net": 0.8689943970851184,
+              "avg_period_net_bps": 294.19421452473966,
+              "pick_win_net": 0.5768880800727935,
+              "pick_avg_net_bps": 248.70522400040346,
+              "excess_vs_bench_sharpe": 0.9114271599019189,
+              "excess_vs_bench_avg_bps": 78.00195473018262
+            },
+            "24.0": {
+              "sharpe_net": 1.6217216062204203,
+              "dsr_net": 0.8549626148223894,
+              "avg_period_net_bps": 288.1748752821934,
+              "pick_win_net": 0.5659690627843494,
+              "pick_avg_net_bps": 224.7052240004034,
+              "excess_vs_bench_sharpe": 0.8441097487806393,
+              "excess_vs_bench_avg_bps": 72.24078160977636
+            },
+            "30.0": {
+              "sharpe_net": 1.61325305696257,
+              "dsr_net": 0.8512859450379748,
+              "avg_period_net_bps": 286.6700404715568,
+              "pick_win_net": 0.5641492265696088,
+              "pick_avg_net_bps": 218.7052240004034,
+              "excess_vs_bench_sharpe": 0.8272803960003194,
+              "excess_vs_bench_avg_bps": 70.8004883296748
+            }
+          }
+        },
+        "tier1_mop": {
+          "n_periods": 74,
+          "n_picks": 1099,
+          "avg_picks_per_period": 14.85135135135135,
+          "turnover": 0.27798146655922645,
+          "pick_win_gross": 0.5768880800727935,
+          "pick_avg_gross_bps": 220.36047097036433,
+          "spread_sharpe_gross": 0.8356403762134402,
+          "by_cost": {
+            "0.0": {
+              "sharpe_net": 1.593074658588733,
+              "dsr_net": 0.8254046080803046,
+              "avg_period_net_bps": 256.63116131437005,
+              "pick_win_net": 0.5768880800727935,
+              "pick_avg_net_bps": 220.36047097036433,
+              "excess_vs_bench_sharpe": 0.47391757931860024,
+              "excess_vs_bench_avg_bps": 40.438901519813
+            },
+            "24.0": {
+              "sharpe_net": 1.5516600249801182,
+              "dsr_net": 0.8050967890103053,
+              "avg_period_net_bps": 249.9596061169487,
+              "pick_win_net": 0.5623293903548681,
+              "pick_avg_net_bps": 196.3604709703643,
+              "excess_vs_bench_sharpe": 0.3987568377663965,
+              "excess_vs_bench_avg_bps": 34.02551244453167
+            },
+            "30.0": {
+              "sharpe_net": 1.5413063665779643,
+              "dsr_net": 0.7997740116490994,
+              "avg_period_net_bps": 248.2917173175933,
+              "pick_win_net": 0.5605095541401274,
+              "pick_avg_net_bps": 190.36047097036436,
+              "excess_vs_bench_sharpe": 0.37996665237834526,
+              "excess_vs_bench_avg_bps": 32.422165175711314
+            }
+          }
+        },
+        "tier1_bab": {
+          "n_periods": 74,
+          "n_picks": 1099,
+          "avg_picks_per_period": 14.85135135135135,
+          "turnover": 0.12550362610797747,
+          "pick_win_gross": 0.5550500454959054,
+          "pick_avg_gross_bps": 90.64788669161803,
+          "spread_sharpe_gross": -0.8960772043210328,
+          "by_cost": {
+            "0.0": {
+              "sharpe_net": 0.9785584927305139,
+              "dsr_net": 0.40452736755945384,
+              "avg_period_net_bps": 114.8215533558181,
+              "pick_win_net": 0.5550500454959054,
+              "pick_avg_net_bps": 90.64788669161803,
+              "excess_vs_bench_sharpe": -1.037807939098853,
+              "excess_vs_bench_avg_bps": -101.370706438739
+            },
+            "24.0": {
+              "sharpe_net": 0.9528881960434408,
+              "dsr_net": 0.38362901632361956,
+              "avg_period_net_bps": 111.80946632922665,
+              "pick_win_net": 0.5395814376706096,
+              "pick_avg_net_bps": 66.64788669161803,
+              "excess_vs_bench_sharpe": -1.0660018925465105,
+              "excess_vs_bench_avg_bps": -104.12462734319038
+            },
+            "30.0": {
+              "sharpe_net": 0.9464706218716722,
+              "dsr_net": 0.37844119172030294,
+              "avg_period_net_bps": 111.05644457257877,
+              "pick_win_net": 0.5332120109190173,
+              "pick_avg_net_bps": 60.64788669161801,
+              "excess_vs_bench_sharpe": -1.0730503809084244,
+              "excess_vs_bench_avg_bps": -104.81310756930321
+            }
+          }
+        },
+        "tier1_composite": {
+          "n_periods": 74,
+          "n_picks": 1094,
+          "avg_picks_per_period": 14.783783783783784,
+          "turnover": 0.23911496105291433,
+          "pick_win_gross": 0.5850091407678245,
+          "pick_avg_gross_bps": 193.62142084820294,
+          "spread_sharpe_gross": -0.19873643681882777,
+          "by_cost": {
+            "0.0": {
+              "sharpe_net": 1.4723634607370684,
+              "dsr_net": 0.7317651709017703,
+              "avg_period_net_bps": 208.73439324415176,
+              "pick_win_net": 0.5850091407678245,
+              "pick_avg_net_bps": 193.62142084820294,
+              "excess_vs_bench_sharpe": -0.08001101987171846,
+              "excess_vs_bench_avg_bps": -7.45786655040538
+            },
+            "24.0": {
+              "sharpe_net": 1.4318836000569266,
+              "dsr_net": 0.7073693125923182,
+              "avg_period_net_bps": 202.99563417888177,
+              "pick_win_net": 0.5685557586837294,
+              "pick_avg_net_bps": 169.62142084820292,
+              "excess_vs_bench_sharpe": -0.1388090458108829,
+              "excess_vs_bench_avg_bps": -12.938459493535229
+            },
+            "30.0": {
+              "sharpe_net": 1.4217636348868912,
+              "dsr_net": 0.701076845694953,
+              "avg_period_net_bps": 201.56094441256425,
+              "pick_win_net": 0.56672760511883,
+              "pick_avg_net_bps": 163.62142084820292,
+              "excess_vs_bench_sharpe": -0.15350855229567423,
+              "excess_vs_bench_avg_bps": -14.30860772931771
+            }
+          }
+        },
+        "tier1_mom": {
+          "n_periods": 74,
+          "n_picks": 1095,
+          "avg_picks_per_period": 14.797297297297296,
+          "turnover": 0.2491785298594324,
+          "pick_win_gross": 0.5771689497716895,
+          "pick_avg_gross_bps": 232.77391293385386,
+          "spread_sharpe_gross": 0.7398456188569928,
+          "by_cost": {
+            "0.0": {
+              "sharpe_net": 1.616678625354488,
+              "dsr_net": 0.8398430023127967,
+              "avg_period_net_bps": 268.89626642694486,
+              "pick_win_net": 0.5771689497716895,
+              "pick_avg_net_bps": 232.77391293385386,
+              "excess_vs_bench_sharpe": 0.5874389423146229,
+              "excess_vs_bench_avg_bps": 52.704006632387745
+            },
+            "24.0": {
+              "sharpe_net": 1.5807235018290722,
+              "dsr_net": 0.8231582641541233,
+              "avg_period_net_bps": 262.9159817103185,
+              "pick_win_net": 0.5634703196347032,
+              "pick_avg_net_bps": 208.77391293385386,
+              "excess_vs_bench_sharpe": 0.5236601992981819,
+              "excess_vs_bench_avg_bps": 46.981888037901456
+            },
+            "30.0": {
+              "sharpe_net": 1.5717347209477182,
+              "dsr_net": 0.8188004404854256,
+              "avg_period_net_bps": 261.4209105311619,
+              "pick_win_net": 0.5616438356164384,
+              "pick_avg_net_bps": 202.77391293385386,
+              "excess_vs_bench_sharpe": 0.5077155135440716,
+              "excess_vs_bench_avg_bps": 45.55135838927989
+            }
+          }
+        }
+      }
+    }
+  ]
+}
