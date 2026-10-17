@@ -86,7 +86,7 @@ class TestTripleBarrier:
         vol = get_daily_volatility(px, span=50)
         # Skip the first 50 obs while vol warms up.
         t_events = px.index[60:n - 30]
-        t1 = get_t1_barriers(px, t_events, num_days=5)
+        t1 = get_t1_barriers(px, t_events, num_sessions=5)
         return px, vol, t_events, t1
 
     def test_get_t1_barriers_within_index(self):
@@ -98,8 +98,11 @@ class TestTripleBarrier:
 
     def test_events_have_pt_or_sl_or_t1(self):
         px, vol, t_events, t1 = self._setup_events()
+        # Stage 2C.1 (H4): get_events takes `bars` (OHLC) not `close`.
+        # Degrade to close-only by wrapping close as high=low=close.
+        bars = pd.DataFrame({"high": px, "low": px, "close": px})
         events = get_events(
-            close=px, t_events=t_events, pt_sl=(2.0, 1.0),
+            bars=bars, t_events=t_events, pt_sl=(2.0, 1.0),
             target=vol, t1=t1, min_ret=0.0,
         )
         # Every event row should carry a non-null t1 (the first barrier hit
@@ -108,8 +111,10 @@ class TestTripleBarrier:
 
     def test_bins_labels_are_in_set(self):
         px, vol, t_events, t1 = self._setup_events()
+        # Stage 2C.1 (H4): degrade to close-only via OHLC wrap.
+        bars = pd.DataFrame({"high": px, "low": px, "close": px})
         events = get_events(
-            close=px, t_events=t_events, pt_sl=(2.0, 1.0),
+            bars=bars, t_events=t_events, pt_sl=(2.0, 1.0),
             target=vol, t1=t1,
         )
         bins = get_bins(events, close=px)

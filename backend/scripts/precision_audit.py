@@ -85,7 +85,7 @@ def check_atr_fallback() -> bool:
 def check_trade_levels() -> bool:
     """Synthetic case: BUY at 100, ATR 2%, swing → stop below, target above."""
     lv = compute_trade_levels(
-        price=100.0, atr_pct=0.02, predicted_return=0.04,
+        price=100.0, atr_pct=2.0, predicted_return=0.04,
         direction=1, horizon="swing",
     )
     ok = (

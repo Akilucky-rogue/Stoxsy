@@ -50,8 +50,9 @@ def build_training_dataset(
     end_date: Optional[str] = None,
     intraday_target: IntradayTarget = "open_to_close",
     label_method: LabelMethod = "triple_barrier",
-    apply_fracdiff: bool = True,
+    apply_fracdiff: bool = False,
     fracdiff_d: float = 0.4,
+    factor_version: str = "ffd_v1",
 ) -> pd.DataFrame:
     """
     Build a labeled (factors, target) dataset for training.
@@ -172,13 +173,15 @@ def build_training_dataset(
         t_chunk = time.time()
         df_chunk = read_sql(
             """
-            SELECT symbol, as_of_date, factor_name, factor_value
+            SELECT DISTINCT ON (symbol, as_of_date, factor_name) symbol, as_of_date, factor_name, factor_value
               FROM factor_pit
              WHERE as_of_date >= CAST(:s AS DATE)
                AND as_of_date <= CAST(:e AS DATE)
+               AND factor_version = :fv
+               ORDER BY symbol, as_of_date, factor_name, valid_from ASC
                AND valid_to = 'infinity'::timestamptz
             """,
-            params={"s": cur, "e": nxt},
+            params={"s": cur, "e": nxt, "fv": factor_version},
         )
         n = len(df_chunk)
         total_rows += n

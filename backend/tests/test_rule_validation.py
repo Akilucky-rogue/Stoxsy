@@ -93,11 +93,14 @@ class TestAttachRealizedReturns:
         })
         resolved = _attach_realized_returns(sigs, close, horizon="swing")
         # swing = 5 sessions. A return = 1.01^5 - 1 = 5.1% gross, minus cost.
-        # cost for swing = 15 bps default. So ~5.1% - 0.15% = ~5.0%.
+        # Derive the cost from the single source of truth (qsde.risk.costs) rather
+        # than hardcoding, so the assertion survives cost recalibration.
+        from qsde.risk.costs import cost_bps as _cb
+        cost = _cb("swing", paper_default=True) / 1e4
         a_ret = resolved[resolved["symbol"] == "A"]["realized_ret_net"].iloc[0]
         b_ret = resolved[resolved["symbol"] == "B"]["realized_ret_net"].iloc[0]
-        assert a_ret == pytest.approx((1.01 ** 5) - 1.0 - 15e-4, abs=1e-6)
-        assert b_ret == pytest.approx((0.99 ** 5) - 1.0 - 15e-4, abs=1e-6)
+        assert a_ret == pytest.approx((1.01 ** 5) - 1.0 - cost, abs=1e-6)
+        assert b_ret == pytest.approx((0.99 ** 5) - 1.0 - cost, abs=1e-6)
 
 
 # ──────────────────────────────────────────────────────────────────────

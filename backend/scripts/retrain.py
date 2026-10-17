@@ -1,11 +1,30 @@
 """
-Retrain LightGBM models for all horizons on the COST-AWARE target.
+Retrain LightGBM models for all horizons.
 
-Since the dataset builder (qsde.models.dataset) now subtracts horizon round-trip
-cost from the forward-return target before training, retraining gives you
-models that predict NET-of-cost returns natively. This is the call to make
-after Phase 2 — until you retrain, the live signals still come from the
-gross-trained models.
+Cost handling (AUDIT_v2 C3 / Stage 2C.3 correction):
+  The previous docstring here claimed the dataset builder subtracted
+  round-trip cost from the forward-return target before training. That
+  claim was TRUE only for `label_method="fixed_horizon"` — which nothing
+  uses. Under the default `label_method="triple_barrier"`, targets are
+  categorical (+1 / 0 / -1) and `target_ret` is the GROSS barrier-exit
+  return. The cost subtraction in dataset.py's fwd_returns_pivot path is
+  dead code under the default settings.
+
+  Costs enter the pipeline at THE PROMOTION GATE, not in the labels:
+    qsde.models.lgbm_model.train_lightgbm_model()
+        -> _evaluate_oos_with_costs(oos, cost_bps_round_trip=...)
+        -> should_promote(dsr_net)
+
+  So `dsr_net` is what decides whether new weights are promoted. Set the
+  cost via QSDE_PROMOTION_COST_BPS (default 10 bps for intraday MIS;
+  bump to 25-30 for CNC delivery).
+
+  If you want cost-aware LABELS too (belt-and-braces), pass
+  `cost_bps=<n>` to apply_triple_barrier_labels via a dataset builder
+  option — it shifts PT/SL barriers so a +1 label means the trade
+  cleared its target NET of cost. Off by default because it changes
+  the label distribution and would require re-tuning downstream
+  thresholds; use for research experiments, not the main gate.
 
 Sequence per horizon:
   1. build_training_dataset(horizon, ...)        -> labelled rows
@@ -47,6 +66,23 @@ def _banner(s: str) -> None:
     log.info("=" * 70)
     log.info(s)
     log.info("=" * 70)
+
+
+def _was_promoted(horizon: str) -> bool:
+    """The gate's OWN audit truth: did this horizon's latest run clear the DSR
+    gate and become active? (model_runs.promoted, written by lgbm_model). The
+    training function returns a model object whether or not it promoted, so this
+    is the only honest source for the summary."""
+    try:
+        from qsde.db.connection import read_sql
+        df = read_sql(
+            "SELECT promoted FROM model_runs WHERE horizon = :h "
+            "ORDER BY created_at DESC LIMIT 1",
+            params={"h": horizon},
+        )
+        return bool(df.iloc[0]["promoted"]) if not df.empty else False
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def main() -> None:
@@ -109,14 +145,21 @@ def main() -> None:
             results[horizon] = {"ok": False, "error": str(e), "stage": "train"}
             continue
 
+        # `model is not None` only means training SUCCEEDED — the candidate is
+        # saved whether or not it cleared the DSR gate. Promotion truth is the
+        # gate's own audit row (model_runs.promoted), NOT "did we get a model".
+        trained = model is not None
         results[horizon] = {
-            "ok":        model is not None,
+            "ok":        trained,
             "n_samples": n_samples,
-            "promoted":  model is not None,
+            "promoted":  _was_promoted(horizon) if trained else False,
         }
-        if model is None:
-            log.warning("%s: model did not promote (DSR below threshold). "
-                        "Use QSDE_FORCE_PROMOTE=true to force.", horizon)
+        if not trained:
+            log.warning("%s: training failed (no dataset/model).", horizon)
+        elif not results[horizon]["promoted"]:
+            log.info("%s: trained + candidate saved, but NOT promoted (DSR below "
+                     "gate; active model unchanged). This is the expected honest "
+                     "outcome until net edge clears the gate.", horizon)
 
     # Regenerate fresh signals so dashboard & paper-taker pick up new weights.
     if not args.no_regen_signals:
@@ -134,11 +177,13 @@ def main() -> None:
 
     elapsed = time.time() - t0
     _banner(f"Retrain complete in {elapsed:.0f}s")
+    trained  = [h for h, r in results.items() if r.get("ok")]
     promoted = [h for h, r in results.items() if r.get("promoted")]
     failed   = [h for h, r in results.items() if not r.get("ok")]
-    log.info("Promoted: %s", promoted or "[]")
+    log.info("Trained:  %s", trained or "[]")
+    log.info("Promoted (cleared net-DSR gate): %s", promoted or "[] — none cleared the gate")
     if failed:
-        log.warning("Failed/not promoted: %s", failed)
+        log.warning("Training FAILED: %s", failed)
 
     log.info(
         "Next step: re-run scripts/simulate_strategies.py and "
@@ -146,7 +191,9 @@ def main() -> None:
         "The drift report's backtest comparison reads from there."
     )
 
-    sys.exit(0 if promoted else 2)
+    # Exit non-zero only on a real TRAINING failure. A clean run that promotes
+    # nothing (DSR below gate) is the EXPECTED honest outcome, not a failure.
+    sys.exit(2 if failed else 0)
 
 
 if __name__ == "__main__":

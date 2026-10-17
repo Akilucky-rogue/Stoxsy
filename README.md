@@ -25,7 +25,7 @@ Multi-factor ML signal generation for Indian equities (NSE Nifty 200/500), with 
 - Intraday (open-to-close next session)
 - Swing (5-day forward return, triple-barrier labels)
 - Long (20-day forward return, triple-barrier labels)
-- Cost-aware target: horizon round-trip cost is subtracted from labels before training, so the model learns to predict NET returns
+- Cost-aware promotion gate: `QSDE_PROMOTION_COST_BPS` (default 10 bps) drives `_evaluate_oos_with_costs` → `dsr_net` → `should_promote`. New weights are only promoted if their OOS Sharpe clears the DSR threshold NET of cost. (Labels themselves are gross-of-cost under the default `label_method=triple_barrier`; opt into cost-aware barriers via `cost_bps=...` on `apply_triple_barrier_labels` for research runs.)
 
 **Risk machinery**
 - Kelly-aware position cap with auto-de-escalation on drift
@@ -130,7 +130,7 @@ Backend Python scripts (`backend/scripts/`):
 |---|---|
 | `daily_eod.py` | The EOD pipeline (steps 1-7 above) |
 | `weekly_drift.py` | Generate the weekly drift report |
-| `retrain.py` | Retrain all 3 horizons on the cost-aware target |
+| `retrain.py` | Retrain all 3 horizons; promotion is gated on `dsr_net` (see `QSDE_PROMOTION_COST_BPS`) |
 | `simulate_strategies.py` | Top-K backtest to refresh `edge_stats.json` |
 | `stress_test_intraday.py` | Liquidity + slippage + concentration stress |
 | `kite_stream.py` | Live tick consumer (started by `start_live_stream.ps1`) |
@@ -263,7 +263,7 @@ qsde/
 │   └── scripts/
 │       ├── daily_eod.py       # the EOD pipeline
 │       ├── weekly_drift.py    # weekly drift report
-│       ├── retrain.py         # retrain on cost-aware target
+│       ├── retrain.py         # retrain; promotion gated on dsr_net
 │       └── kite_stream.py     # live tick consumer
 ├── frontend/
 │   └── src/app/

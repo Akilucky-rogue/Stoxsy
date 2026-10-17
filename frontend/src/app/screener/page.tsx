@@ -23,7 +23,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import SymbolAnalysisPanel from "../../components/SymbolAnalysisPanel";
 
-const API = "http://127.0.0.1:8000/api";
+import { API_BASE as API } from "@/lib/api";
 const mono = "var(--font-mono)";
 
 interface ScreenResult {

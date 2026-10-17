@@ -136,11 +136,14 @@ def sync_sentiment_to_db(
     for i, sym in enumerate(symbols, 1):
         daily = fetch_company_news(sym, from_d, to_d, exchange_suffix=exchange_suffix)
         if not daily.empty:
+            # AUDIT_v2 H7: migration 012 changed news_sentiment PK to
+            # (symbol, date, source). ON CONFLICT must match the unique key
+            # or Postgres rejects the statement outright. Adding "source".
             total += upsert_dataframe(
                 daily[["symbol", "date", "news_count", "avg_polarity", "source"]],
                 table="news_sentiment",
-                conflict_columns=["symbol", "date"],
-                update_columns=["news_count", "avg_polarity", "source"],
+                conflict_columns=["symbol", "date", "source"],
+                update_columns=["news_count", "avg_polarity"],
             )
         if i % 25 == 0:
             log.info("Sentiment sync: %d/%d symbols (%d rows)", i, len(symbols), total)

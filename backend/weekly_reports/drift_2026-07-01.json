@@ -1,0 +1,154 @@
+{
+  "as_of": "2026-07-01",
+  "summary": "At least one horizon shows drift. Cap will auto-de-escalate to T0 on the next signal.",
+  "action": "stop",
+  "horizons": {
+    "intraday": {
+      "vs_backtest": {
+        "rolling_14d": {
+          "n": 0,
+          "hit_rate": null,
+          "avg_net_ret_bps": null,
+          "net_sharpe": null
+        },
+        "backtest_net_sharpe": 0.93,
+        "backtest_hit_band": "0.7-1.0",
+        "drift_flag": false,
+        "drift_reasons": null
+      },
+      "vs_baselines": {
+        "model": {
+          "n": 0,
+          "hit_rate": null,
+          "avg_net_ret_bps": null,
+          "net_sharpe": null
+        },
+        "baselines": {
+          "baseline_top_momentum": {
+            "n": 22,
+            "hit_rate": 0.273,
+            "avg_net_ret_bps": -114.3,
+            "net_sharpe": -13.89
+          },
+          "baseline_nifty": {
+            "n": 43,
+            "hit_rate": 0.651,
+            "avg_net_ret_bps": 64.8,
+            "net_sharpe": 5.0
+          },
+          "baseline_random": {
+            "n": 38,
+            "hit_rate": 0.395,
+            "avg_net_ret_bps": -2.0,
+            "net_sharpe": -0.16
+          }
+        },
+        "edge_over_baselines": false,
+        "issues": null
+      },
+      "recommendation": {
+        "action": "wait",
+        "summary": "Only 0 closed model trades \u2014 need >=15 for a meaningful comparison."
+      }
+    },
+    "swing": {
+      "vs_backtest": {
+        "rolling_14d": {
+          "n": 11,
+          "hit_rate": 0.0,
+          "avg_net_ret_bps": -250.9,
+          "net_sharpe": -9.33
+        },
+        "backtest_net_sharpe": 0.3,
+        "backtest_hit_band": "0.2-0.4",
+        "drift_flag": true,
+        "drift_reasons": [
+          "rolling Sharpe negative (-9.33)",
+          "hit rate 0.00 > 5pp below band low 0.20"
+        ]
+      },
+      "vs_baselines": {
+        "model": {
+          "n": 11,
+          "hit_rate": 0.0,
+          "avg_net_ret_bps": -250.9,
+          "net_sharpe": -9.33
+        },
+        "baselines": {
+          "baseline_top_momentum": {
+            "n": 18,
+            "hit_rate": 0.556,
+            "avg_net_ret_bps": -13.6,
+            "net_sharpe": -0.26
+          },
+          "baseline_nifty": {
+            "n": 34,
+            "hit_rate": 0.588,
+            "avg_net_ret_bps": 150.9,
+            "net_sharpe": 2.81
+          },
+          "baseline_random": {
+            "n": 33,
+            "hit_rate": 0.788,
+            "avg_net_ret_bps": 206.1,
+            "net_sharpe": 4.36
+          }
+        },
+        "edge_over_baselines": false,
+        "issues": null
+      },
+      "recommendation": {
+        "action": "stop",
+        "summary": "Drift detected \u2014 pause new trades, do not escalate cap."
+      }
+    },
+    "long": {
+      "vs_backtest": {
+        "rolling_14d": {
+          "n": 0,
+          "hit_rate": null,
+          "avg_net_ret_bps": null,
+          "net_sharpe": null
+        },
+        "backtest_net_sharpe": 0.43,
+        "backtest_hit_band": "0.4-0.5",
+        "drift_flag": false,
+        "drift_reasons": null
+      },
+      "vs_baselines": {
+        "model": {
+          "n": 0,
+          "hit_rate": null,
+          "avg_net_ret_bps": null,
+          "net_sharpe": null
+        },
+        "baselines": {
+          "baseline_top_momentum": {
+            "n": 0,
+            "hit_rate": null,
+            "avg_net_ret_bps": null,
+            "net_sharpe": null
+          },
+          "baseline_nifty": {
+            "n": 0,
+            "hit_rate": null,
+            "avg_net_ret_bps": null,
+            "net_sharpe": null
+          },
+          "baseline_random": {
+            "n": 0,
+            "hit_rate": null,
+            "avg_net_ret_bps": null,
+            "net_sharpe": null
+          }
+        },
+        "edge_over_baselines": false,
+        "issues": null
+      },
+      "recommendation": {
+        "action": "wait",
+        "summary": "Only 0 closed model trades \u2014 need >=15 for a meaningful comparison."
+      }
+    }
+  }
+}

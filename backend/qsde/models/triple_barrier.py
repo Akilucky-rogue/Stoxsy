@@ -9,31 +9,30 @@ Why this module exists
 Fixed-horizon labels — "what's the return from t to t+H?" — are the lazy
 default and create three problems for ML on returns:
 
-  1. The label sees TIME, not OUTCOME. A trade that hits its target on day 1
-     gets the same label as one that grinded sideways for 5 days and barely
-     closed positive — the model can't tell them apart.
-  2. They're symmetric in profit-take vs stop-loss; a real trader rarely
-     holds to full horizon — they exit on either target or stop, whichever
-     fires first.
-  3. Their distribution is dominated by mid-zero noise that the model fits
-     and that doesn't generalize.
+  1. The label sees TIME, not OUTCOME.
+  2. Symmetric in profit-take vs stop-loss.
+  3. Distribution dominated by mid-zero noise.
 
 Triple-barrier fixes all three: for each event (factor as-of-date), set three
-barriers — profit-take, stop-loss, and time — and label the event by
-whichever fires first:
+barriers — profit-take, stop-loss, and time — and label the event by whichever
+fires first.
 
-    +1 if profit-take hits first  (trade-as-intended worked)
-    -1 if stop-loss hits first    (trade-as-intended got stopped)
-     0 if time barrier hits first (no edge; close at expiry)
-
-The PT and SL distances scale with each symbol's own volatility, so labels
-are comparable across high- and low-vol names.
+Stage 2C.1 fixes (AUDIT_v2 H2 + H4):
+  * H2 — t1 is now measured in NSE SESSIONS via positional stepping through
+         the price index, not calendar days via Timedelta. A "swing" trade's
+         time barrier is 5 sessions (~7 calendar days), not 5 calendar days
+         (~3 sessions) as before.
+  * H4 — PT/SL hits are detected on the bar's HIGH / LOW (long: high >= PT,
+         low <= SL; short mirrors), not closes only. Same-bar tie between
+         PT and SL is resolved PESSIMISTICALLY — SL wins — matching the paper
+         journal's execution assumption so labels measure what production
+         measures.
 
 Public API
 ----------
   get_daily_volatility(close, span=100)
-  get_t1_barriers(close, t_events, num_days)
-  get_events(close, t_events, pt_sl, target, t1, min_ret)
+  get_t1_barriers(close, t_events, num_sessions)
+  get_events(bars, t_events, pt_sl, target, t1, side=None, min_ret=0.0)
   get_bins(events, close)
   apply_triple_barrier_labels(dataset, ohlcv, horizon)   <- the one called by dataset.py
 """
@@ -49,30 +48,21 @@ import pandas as pd
 log = logging.getLogger(__name__)
 
 
-# Per-horizon (pt_mult, sl_mult, t1_days) calibration. These align with
-# qsde/risk/trade_levels.py multipliers so the label semantics match what a
-# trader actually executes: a "+1 swing label" means the price moved to
-# 2.5σ * sqrt(5d) on the profit-take side before hitting 1.5σ on the stop
-# side, within 5 sessions.
+# Per-horizon (pt_mult, sl_mult, t1_sessions) calibration.
+# t1_sessions is NSE trading sessions, not calendar days (H2 fix).
 _HORIZON_BARRIERS: dict[str, dict[str, float]] = {
-    "intraday": {"pt_mult": 1.5, "sl_mult": 0.75, "t1_days": 1},
-    "swing":    {"pt_mult": 2.5, "sl_mult": 1.50, "t1_days": 5},
-    "long":     {"pt_mult": 4.5, "sl_mult": 2.50, "t1_days": 20},
+    "intraday": {"pt_mult": 1.5, "sl_mult": 0.75, "t1_sessions": 1},
+    "swing":    {"pt_mult": 2.5, "sl_mult": 1.50, "t1_sessions": 5},
+    "long":     {"pt_mult": 4.5, "sl_mult": 2.50, "t1_sessions": 20},
 }
 
 
 # ── volatility ─────────────────────────────────────────────────────
 
 def get_daily_volatility(close: pd.Series, span: int = 100) -> pd.Series:
-    """EWM-std of daily log returns. AFML Snippet 3.1.
-
-    This is the σ used to size both barriers. Per-symbol, so high-vol names
-    get wider barriers (in absolute price) — labels are comparable across
-    the universe.
-    """
+    """EWM-std of daily log returns. AFML Snippet 3.1."""
     if close.empty or len(close) < 2:
         return pd.Series(dtype=float)
-    # Map each date to the index of the prior date for ratio computation.
     df0 = close.index.searchsorted(close.index - pd.Timedelta(days=1))
     df0 = df0[df0 > 0]
     idx_pairs = pd.Series(
@@ -83,89 +73,129 @@ def get_daily_volatility(close: pd.Series, span: int = 100) -> pd.Series:
     return rets.ewm(span=span, min_periods=max(2, span // 4)).std()
 
 
-# ── time barrier (vertical) ────────────────────────────────────────
+# ── time barrier (vertical) — H2 fix: sessions not calendar days ─────
 
 def get_t1_barriers(
     close: pd.Series,
     t_events: pd.DatetimeIndex,
-    num_days: int,
+    num_sessions: int,
 ) -> pd.Series:
-    """Time-barrier ts for each event = first session ≥ t + num_days.
+    """Time-barrier ts for each event = the session `num_sessions` bars
+    forward in `close.index`.
 
-    Returns a Series indexed by t_events. Values past the close.index tail
-    are NaT (no time barrier — the bar will only stop via PT/SL).
+    H2 FIX (AUDIT_v2): prior version used `close.index.searchsorted(
+    t_events + pd.Timedelta(days=num_days))`, which counts CALENDAR days.
+    For "swing" (5 days) that's roughly 3 trading sessions after weekends
+    and holidays — a materially different time barrier than the 5-session
+    window that paper_journal, purged_cv, and the drift governor all use.
+
+    Now we step by POSITION in the price index — 5 sessions is always
+    5 bars — so the label window matches the execution window.
+
+    Returns a Series indexed by t_events. Rows whose t1 would land past
+    the tail of `close.index` are NaT.
     """
-    t1 = close.index.searchsorted(t_events + pd.Timedelta(days=num_days))
-    t1 = t1[t1 < close.shape[0]]
-    out = pd.Series(
-        close.index[t1],
-        index=t_events[: t1.shape[0]],
-    )
-    # Pad the rest with NaT so caller sees a 1:1 series.
-    return out.reindex(t_events)
+    positions = close.index.get_indexer(t_events)
+    # get_indexer returns -1 for events not in the index; treat as invalid.
+    valid = positions >= 0
+    t1_positions = positions + int(num_sessions)
+    in_range = valid & (t1_positions < len(close.index))
+    out = pd.Series(pd.NaT, index=t_events, dtype="datetime64[ns]")
+    if in_range.any():
+        out.loc[t_events[in_range]] = close.index[t1_positions[in_range]].values
+    return out
 
 
-# ── horizontal barriers (PT/SL) ────────────────────────────────────
+# ── horizontal barriers (PT/SL) — H4 fix: high/low + pessimistic tie ───
 
 def _apply_pt_sl_on_t1(
-    close: pd.Series,
+    bars: pd.DataFrame,
     events: pd.DataFrame,
     pt_sl: tuple[float, float],
+    cost_frac: float = 0.0,
 ) -> pd.DataFrame:
-    """For each event in `events`, find the first time within [t, t1] that
-    the path of returns hits the PT or SL barrier. AFML Snippet 3.2.
+    """For each event, find the first bar within [t, t1] whose HIGH crosses
+    the profit-take barrier or LOW crosses the stop-loss barrier.
 
-    `events` must carry columns:
-        t1     -- time barrier
-        trgt   -- per-event target (the σ in volatility units)
-        side   -- +1 / -1 (the direction the trade WOULD be taken)
+    H4 FIX (AUDIT_v2): prior version compared only `close` against the
+    barriers, but paper_journal._resolve_barrier_daily uses high/low with
+    pessimistic same-bar ties. Labels systematically hit barriers less
+    often than production did, so the trained model's hit-rate was NOT
+    what it was measured against. This function now uses high/low too,
+    with the SAME pessimistic same-bar tie rule (SL wins ties) — labels
+    now measure what execution actually delivers.
 
-    Returns DataFrame indexed by event with two columns of timestamps
-    (`pt`, `sl`). NaT means that barrier was not hit before t1.
+    Args:
+        bars:   DataFrame indexed by date with columns `high`, `low`, `close`.
+        events: DataFrame with columns t1 (time barrier), trgt (per-event σ),
+                side (+1 long / -1 short).
+        pt_sl:  (pt_mult, sl_mult).
+
+    Returns:
+        DataFrame indexed by event with (pt, sl) timestamp columns.
+        NaT means that barrier was not hit before t1.
     """
     out = events[["t1"]].copy()
-    pt, sl = pt_sl
+    pt_mult, sl_mult = pt_sl
+
     for loc, t1 in events["t1"].items():
         if pd.isna(t1):
             continue
-        df0 = close.loc[loc:t1]
-        df0 = (df0 / close.loc[loc] - 1) * events.at[loc, "side"]
-        if pt > 0:
-            hit = df0[df0 > pt * events.at[loc, "trgt"]]
-            out.at[loc, "pt"] = hit.index.min() if not hit.empty else pd.NaT
-        if sl > 0:
-            hit = df0[df0 < -sl * events.at[loc, "trgt"]]
-            out.at[loc, "sl"] = hit.index.min() if not hit.empty else pd.NaT
+        window = bars.loc[loc:t1]
+        if window.empty:
+            continue
+        entry_close = float(bars.at[loc, "close"])
+        if entry_close <= 0:
+            continue
+        side = float(events.at[loc, "side"])
+        trgt = float(events.at[loc, "trgt"])
+
+        # Direction-adjusted extreme returns per bar.
+        # LONG  (side=+1): PT crossed if high/entry - 1 >= pt*trgt
+        #                  SL crossed if low/entry  - 1 <= -sl*trgt
+        # SHORT (side=-1): PT crossed if low/entry  - 1 <= -pt*trgt
+        #                  SL crossed if high/entry - 1 >= sl*trgt
+        high_ret = window["high"].astype(float) / entry_close - 1.0
+        low_ret  = window["low"].astype(float)  / entry_close - 1.0
+
+        # C3 opt-in: shift both barriers AWAY from entry by cost_frac.
+        # cost_frac=0 preserves the previous gross behavior.
+        if side >= 0:
+            pt_bars = window.index[high_ret >= (pt_mult * trgt + cost_frac)] if pt_mult > 0 else pd.DatetimeIndex([])
+            sl_bars = window.index[low_ret  <= -(sl_mult * trgt + cost_frac)] if sl_mult > 0 else pd.DatetimeIndex([])
+        else:
+            pt_bars = window.index[low_ret  <= -(pt_mult * trgt + cost_frac)] if pt_mult > 0 else pd.DatetimeIndex([])
+            sl_bars = window.index[high_ret >= (sl_mult * trgt + cost_frac)] if sl_mult > 0 else pd.DatetimeIndex([])
+
+        first_pt = pt_bars.min() if len(pt_bars) > 0 else pd.NaT
+        first_sl = sl_bars.min() if len(sl_bars) > 0 else pd.NaT
+
+        # PESSIMISTIC same-bar tie: if BOTH hit on the same bar, SL wins
+        # (matches paper_journal._resolve_barrier_daily's tie rule).
+        if pd.notna(first_pt) and pd.notna(first_sl) and first_sl <= first_pt:
+            first_pt = pd.NaT
+        # (If first_pt < first_sl strictly, PT wins — no adjustment needed.)
+
+        out.at[loc, "pt"] = first_pt
+        out.at[loc, "sl"] = first_sl
+
     return out
 
 
 def get_events(
-    close: pd.Series,
+    bars: pd.DataFrame,
     t_events: pd.DatetimeIndex,
     pt_sl: tuple[float, float],
     target: pd.Series,
     t1: pd.Series,
     side: Optional[pd.Series] = None,
     min_ret: float = 0.0,
+    cost_frac: float = 0.0,
 ) -> pd.DataFrame:
     """Triple-barrier events DataFrame. AFML Snippet 3.3.
 
-    Args:
-        close:    daily close prices (Series indexed by date).
-        t_events: events to label (as-of-dates from build_training_dataset).
-        pt_sl:    (pt_mult, sl_mult). When `side` is None we treat both as
-                  symmetric and label only by which barrier is closer.
-        target:   per-event σ (from get_daily_volatility, reindexed to t_events).
-        t1:       time-barrier timestamps for each event (from get_t1_barriers).
-        side:     +1/−1 direction of the trade. If provided, this is META-
-                  labeling input — the primary model has already chosen the
-                  side; triple-barrier just confirms whether it worked.
-        min_ret:  drop events whose target σ is below this minimum — they're
-                  too quiet for the barrier multipliers to be meaningful.
-
-    Returns:
-        DataFrame indexed by event with columns: t1 (closed time), trgt
-        (target σ), pt (PT hit time), sl (SL hit time), side (if provided).
+    `bars` must have columns (high, low, close) indexed by date. H4 fix
+    changed the signature — the old API took only `close: pd.Series`.
     """
     target = target.reindex(t_events)
     target = target[target > min_ret] if min_ret > 0 else target
@@ -183,7 +213,7 @@ def get_events(
     if events.empty:
         return events
 
-    df0 = _apply_pt_sl_on_t1(close=close, events=events, pt_sl=pt_sl)
+    df0 = _apply_pt_sl_on_t1(bars=bars, events=events, pt_sl=pt_sl, cost_frac=cost_frac)
     # Earliest-hit barrier becomes the actual close time.
     events["t1"] = df0.dropna(how="all").min(axis=1)
     if side is None:
@@ -194,17 +224,7 @@ def get_events(
 # ── bins: {+1, −1, 0} labels + realized returns ────────────────────
 
 def get_bins(events: pd.DataFrame, close: pd.Series) -> pd.DataFrame:
-    """Compute bin labels and realized returns. AFML Snippet 3.5.
-
-    Returns DataFrame indexed by event with columns:
-        ret -- realized return from event ts to t1 close
-        bin -- {-1, 0, +1} label
-
-    When `events` has a `side` column, this is META labeling:
-        bin = 1 if the primary's side made money, 0 otherwise.
-    Otherwise it's PRIMARY labeling:
-        bin = sign(ret), zeroed out by the time barrier.
-    """
+    """Compute bin labels and realized returns. AFML Snippet 3.5."""
     if events.empty:
         return pd.DataFrame(columns=["ret", "bin"])
     px = events.index.union(events["t1"].dropna()).drop_duplicates()
@@ -214,18 +234,13 @@ def get_bins(events: pd.DataFrame, close: pd.Series) -> pd.DataFrame:
                   / px.loc[events.index].values) - 1.0
     if "side" in events.columns:
         out["ret"] *= events["side"].values
-        out["bin"] = np.where(out["ret"] > 0, 1, 0)            # meta: was the side right?
+        out["bin"] = np.where(out["ret"] > 0, 1, 0)
     else:
         out["bin"] = np.sign(out["ret"]).astype(int)
-        # Hard 0 for events that closed on the time barrier — i.e. neither
-        # PT nor SL fired. (Strictly: in AFML the time-barrier bin is also
-        # ±1 by realized sign; we keep that default by simply not zeroing
-        # here. Override via the `t1_as_neutral` argument upstream if you
-        # want pure outcome labeling.)
     return out
 
 
-# ── high-level: turn a (symbol, as_of_date) panel into triple-barrier labels
+# ── high-level orchestrator ────────────────────────────────────────
 
 def apply_triple_barrier_labels(
     dataset: pd.DataFrame,
@@ -233,59 +248,76 @@ def apply_triple_barrier_labels(
     horizon: str = "swing",
     vol_span: int = 100,
     min_ret_sigma: float = 0.0,
+    cost_bps: float = 0.0,
 ) -> pd.DataFrame:
     """Replace the `target` column of a (symbol, as_of_date) dataset with
     triple-barrier labels.
 
     Args:
-        dataset: must have columns `symbol`, `as_of_date`, and `target` (the
-                 existing fixed-horizon label, which we'll DROP and replace).
-        ohlcv:   long-form OHLCV with columns symbol, date, close.
-        horizon: 'intraday' | 'swing' | 'long' — picks PT/SL/t1.
+        dataset: must have columns `symbol`, `as_of_date`, and `target`.
+        ohlcv:   long-form OHLCV with columns symbol, date, HIGH, LOW, close.
+                 (H4 fix — used to require only `close`; now needs high+low.)
+        horizon: 'intraday' | 'swing' | 'long' — picks PT/SL/t1_sessions.
         vol_span: EWM span for the σ scaler.
         min_ret_sigma: drop events whose target σ is below this floor.
 
     Returns:
-        DataFrame: same shape as `dataset`, with `target` now in {-1, 0, +1}
-        and a new `target_ret` column carrying the realized return for
-        diagnostics. Rows that could not be labeled (insufficient future
-        history) are dropped.
+        DataFrame with target now in {-1, 0, +1} and target_ret carrying
+        the realized return for diagnostics.
     """
     cfg = _HORIZON_BARRIERS.get(horizon)
     if cfg is None:
         raise ValueError(f"Unknown horizon '{horizon}' for triple-barrier")
     pt_sl = (float(cfg["pt_mult"]), float(cfg["sl_mult"]))
-    t1_days = int(cfg["t1_days"])
+    t1_sessions = int(cfg["t1_sessions"])
+    # C3 opt-in (Stage 2C.3): cost_bps > 0 shifts PT and SL barriers by
+    # cost_frac so a +1 label means the trade cleared its target NET of
+    # cost, and a -1 label means it lost more than cost. cost_bps=0 (the
+    # default) preserves the previous gross-labeled behavior — the
+    # promotion gate already uses dsr_net via _evaluate_oos_with_costs,
+    # which is the load-bearing cost check. See AUDIT_v2 C3 + docs/RETRAIN_RUNBOOK.md.
+    cost_frac = float(cost_bps) / 1e4 if cost_bps and cost_bps > 0 else 0.0
 
-    # CRITICAL: normalize as_of_date dtype up-front. build_training_dataset's
-    # `as_of_date` is `object` (datetime.date from psycopg2) while every
-    # intermediate we build below uses `datetime64[ns]`. Without this cast
-    # the merge below silently errors and we fall back to fixed-horizon.
     dataset = dataset.copy()
     dataset["as_of_date"] = pd.to_datetime(dataset["as_of_date"])
+
+    # Defensive: if the ohlcv frame doesn't carry high/low, degrade to
+    # close-only behavior for those cols (high=low=close). Logs a warning.
+    ohlcv = ohlcv.copy()
+    for col in ("high", "low"):
+        if col not in ohlcv.columns:
+            log.warning(
+                "apply_triple_barrier_labels: ohlcv missing '%s'; "
+                "degrading to close-only detection for this bar dim "
+                "(H4 fix is partial). Pass full OHLCV for correct labels.",
+                col,
+            )
+            ohlcv[col] = ohlcv["close"]
 
     out_chunks: list[pd.DataFrame] = []
     for sym, g in dataset.groupby("symbol", sort=False):
         sym_px = ohlcv[ohlcv["symbol"] == sym].sort_values("date")
         if sym_px.empty:
             continue
-        px = pd.Series(
-            sym_px["close"].astype(float).values,
-            index=pd.to_datetime(sym_px["date"].values),
-            name="close",
-        ).sort_index()
-        if len(px) < t1_days + 5:
+        idx = pd.to_datetime(sym_px["date"].values)
+        bars = pd.DataFrame({
+            "high":  sym_px["high"].astype(float).values,
+            "low":   sym_px["low"].astype(float).values,
+            "close": sym_px["close"].astype(float).values,
+        }, index=idx).sort_index()
+        px = bars["close"]
+        if len(px) < t1_sessions + 5:
             continue
         vol = get_daily_volatility(px, span=vol_span)
         t_events = pd.DatetimeIndex(g["as_of_date"].values)
-        # t_events must be SUBSET of px.index for the search/lookup to work.
         t_events = t_events[t_events.isin(px.index)]
         if len(t_events) == 0:
             continue
-        t1 = get_t1_barriers(px, t_events, num_days=t1_days)
+        t1 = get_t1_barriers(px, t_events, num_sessions=t1_sessions)
         events = get_events(
-            close=px, t_events=t_events, pt_sl=pt_sl,
+            bars=bars, t_events=t_events, pt_sl=pt_sl,
             target=vol, t1=t1, min_ret=min_ret_sigma,
+            cost_frac=cost_frac,
         )
         if events.empty:
             continue
@@ -295,7 +327,6 @@ def apply_triple_barrier_labels(
                 .reset_index()
                 .rename(columns={"index": "as_of_date"})
         )
-        # Force matching dtype on both sides of the merge.
         labels["as_of_date"] = pd.to_datetime(labels["as_of_date"])
         merged = g.merge(labels, on="as_of_date", how="inner")
         if "target" in merged.columns:
@@ -309,9 +340,9 @@ def apply_triple_barrier_labels(
 
     out = pd.concat(out_chunks, ignore_index=True)
     log.info(
-        "Triple-barrier (%s, pt=%.1fσ, sl=%.1fσ, t1=%dd): "
-        "labels +1=%d, 0=%d, -1=%d (was %d rows fixed-horizon)",
-        horizon, pt_sl[0], pt_sl[1], t1_days,
+        "Triple-barrier (%s, pt=%.1fσ, sl=%.1fσ, t1=%d sessions): "
+        "labels +1=%d, 0=%d, -1=%d (was %d rows)",
+        horizon, pt_sl[0], pt_sl[1], t1_sessions,
         int((out["target"] == 1).sum()),
         int((out["target"] == 0).sum()),
         int((out["target"] == -1).sum()),

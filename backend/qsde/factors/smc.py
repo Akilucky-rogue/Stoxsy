@@ -50,8 +50,20 @@ def _swing_lows(low: pd.Series, left: int = 2, right: int = 2) -> pd.Series:
     return piv.shift(right).fillna(0).astype(int)
 
 
-def _last_value(series: pd.Series, mask: pd.Series) -> pd.Series:
-    """Forward-fill the value of `series` at positions where mask==1."""
+def _last_value(series: pd.Series, mask: pd.Series, pivot_offset: int = 0) -> pd.Series:
+    """Forward-fill the value of `series` at positions where mask==1.
+
+    `pivot_offset` handles the case where `mask` is a swing/pivot flag that has
+    ALREADY been shifted forward by `right` bars (see `_swing_highs`) so it's
+    knowable at the confirmation bar. In that case the value we actually want
+    to capture is the PIVOT bar's price, not the confirmation bar's price —
+    so we shift the series by the same offset before applying the mask.
+
+    AUDIT_v2 M7: prior version captured the confirmation-bar high/low, which
+    produced BOS/CHoCH levels ~`right` bars off. Fix: shift value series too.
+    """
+    if pivot_offset:
+        series = series.shift(pivot_offset)
     s = series.where(mask.astype(bool)).ffill()
     return s
 
@@ -71,8 +83,12 @@ def bos_choch(df: pd.DataFrame, left: int = 2, right: int = 2) -> pd.DataFrame:
     high, low, close = df["high"], df["low"], df["close"]
     sh = _swing_highs(high, left, right)
     sl = _swing_lows(low, left, right)
-    last_sh = _last_value(high, sh)
-    last_sl = _last_value(low, sl)
+    # AUDIT_v2 M7: `sh`/`sl` are already shifted by `right` (see _swing_highs),
+    # so at index t the flag refers to the pivot at t-`right`. We need the
+    # pivot's high/low (t-`right`), NOT the confirmation bar's (t) — pass
+    # pivot_offset=right so _last_value shifts the value series to match.
+    last_sh = _last_value(high, sh, pivot_offset=right)
+    last_sl = _last_value(low, sl, pivot_offset=right)
 
     bos_up = (close > last_sh.shift(1)).astype(int)
     bos_dn = (close < last_sl.shift(1)).astype(int)

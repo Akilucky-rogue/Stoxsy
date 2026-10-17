@@ -15,6 +15,30 @@ from qsde.risk.trade_levels import compute_trade_levels
 router = APIRouter()
 
 
+# Honest per-strategy metadata for the UI. `proven` marks the strategies the
+# full-history, red-team-verified backtest (scripts/backtest_rules.py) showed to
+# have a durable net-of-cost edge that beats the benchmark. Everything else is
+# research/diagnostic only — shown, but never dressed up as a validated edge.
+STRATEGY_META: dict[str, dict] = {
+    "tier1_mom":       {"label": "Momentum (JT+MOP)", "proven": True,
+                        "note": "Proven net-of-cost edge — long-only, swing (see Scorecard for the measured live edge)."},
+    "tier1_jt":        {"label": "JT 12-1 momentum", "proven": True,
+                        "note": "Cross-sectional momentum — a proven component of tier1_mom."},
+    "tier1_mop":       {"label": "Time-series momentum", "proven": True,
+                        "note": "Vol-scaled trend — a proven component of tier1_mom."},
+    "tier1_composite": {"label": "Composite (IC-weighted)", "proven": False,
+                        "note": "Momentum-anchored blend; dilutes to ~benchmark after costs — research only."},
+    "tier1_bab":       {"label": "Betting-against-beta", "proven": False,
+                        "note": "Beta-only on this universe (negative excess) — research only."},
+    "tier1_rsi2":      {"label": "RSI(2) mean-reversion", "proven": False,
+                        "note": "Unreliable / cost-sensitive — research only."},
+    "ml":              {"label": "LightGBM ML", "proven": False,
+                        "note": "No validated net-of-cost edge — diagnostic only, do not trade."},
+}
+# The strategy the UI should feature by default: the proven, actionable one.
+DEFAULT_STRATEGY = "tier1_mom"
+
+
 def _enrich_with_levels(rows: list[dict]) -> list[dict]:
     """Attach close / atr_pct / trade levels to each signal row in-place.
 
@@ -131,10 +155,46 @@ def signals_edge_stats():
     return read_edge_stats()
 
 
+@router.get("/signals/strategies")
+def list_signal_strategies(
+    horizon: str = Query(default="swing", description="Signal horizon: intraday, swing, long"),
+):
+    """The strategies that actually have signals for this horizon, labeled with
+    their honest `proven` status so the UI can default to the proven one and never
+    present a dead strategy as validated edge."""
+    try:
+        from qsde.db import read_sql
+        df = read_sql(
+            """SELECT strategy, count(*) AS n, max(date) AS latest
+                 FROM signals WHERE horizon = :h GROUP BY strategy""",
+            params={"h": horizon},
+        )
+        present = {str(r["strategy"]): {"n": int(r["n"]), "latest": str(r["latest"])}
+                   for _, r in df.iterrows()}
+        out = []
+        for strat, meta in STRATEGY_META.items():
+            if strat in present:
+                out.append({"strategy": strat, **meta, **present[strat]})
+        # Any strategy present but not in STRATEGY_META (forward-compat).
+        for strat, info in present.items():
+            if strat not in STRATEGY_META:
+                out.append({"strategy": strat, "label": strat, "proven": False,
+                            "note": "", **info})
+        out.sort(key=lambda s: (not s["proven"], s["strategy"]))  # proven first
+        default = DEFAULT_STRATEGY if DEFAULT_STRATEGY in present else (
+            out[0]["strategy"] if out else None)
+        return {"strategies": out, "default": default, "horizon": horizon}
+    except Exception as e:
+        return {"strategies": [], "default": None, "horizon": horizon, "error": str(e)}
+
+
 @router.get("/signals")
 def get_signals(
     horizon: str = Query(default="swing", description="Signal horizon: intraday, swing, long"),
     limit: int = Query(default=200, ge=1, le=500),
+    strategy: Optional[str] = Query(default=None,
+        description="Filter to one strategy (e.g. tier1_mom). Omit for the legacy latest-per-symbol "
+                    "view across all strategies. The UI should pass the proven strategy explicitly."),
     direction: Optional[int] = Query(default=None, description="Filter: -1, 0, +1, or omit for all"),
     sector: Optional[str] = Query(default=None),
     include_inactive: bool = Query(default=False,
@@ -168,6 +228,14 @@ def get_signals(
         if liquid_only:
             outer_clauses.append("l.is_liquid = TRUE")
         params = {"horizon": horizon, "limit": limit}
+        # Strategy scope. With a strategy, DISTINCT ON (symbol) dedups WITHIN that
+        # strategy -> a coherent single-strategy view. Without one, it falls back to
+        # the legacy latest-per-symbol-across-all-strategies view (a mishmash — the
+        # UI should always pass a strategy so the user knows what they're seeing).
+        strat_filter = ""
+        if strategy:
+            strat_filter = "AND strategy = :strategy"
+            params["strategy"] = strategy
         if direction is not None:
             outer_clauses.append("l.direction = :direction")
             params["direction"] = direction
@@ -180,14 +248,14 @@ def get_signals(
         df = read_sql(
             f"""WITH latest AS (
                   SELECT DISTINCT ON (symbol)
-                         symbol, date, horizon, direction, confidence,
+                         symbol, date, horizon, strategy, direction, confidence,
                          predicted_return, ranking_score, factor_attribution,
                          top_factors, model_version, adv_20d, is_liquid
                     FROM signals
-                   WHERE horizon = :horizon
+                   WHERE horizon = :horizon {strat_filter}
                 ORDER BY symbol, date DESC
                 )
-                SELECT l.symbol, l.date, l.horizon, l.direction, l.confidence,
+                SELECT l.symbol, l.date, l.horizon, l.strategy, l.direction, l.confidence,
                        l.predicted_return, l.ranking_score, l.factor_attribution,
                        l.top_factors, l.model_version, l.adv_20d, l.is_liquid,
                        u.company_name, u.sector, u.industry
@@ -201,12 +269,27 @@ def get_signals(
         rows = df.to_dict("records")
         rows, n_inconsistent = _drop_sign_inconsistent(rows)
         rows = _enrich_with_levels(rows)
+        # Attach an HONEST cross-sectional percentile rank (0..1, 1 = strongest)
+        # computed over THIS result set's ranking_score. The UI shows this as
+        # "Top X%" instead of rendering the raw score as if it were a % return.
+        _scored = [r for r in rows if r.get("ranking_score") is not None]
+        n_scored = len(_scored)
+        if n_scored > 1:
+            ordered = sorted(_scored, key=lambda r: r["ranking_score"])
+            for i, r in enumerate(ordered):
+                r["rank_pct"] = i / (n_scored - 1)
+        elif n_scored == 1:
+            _scored[0]["rank_pct"] = 1.0
+        for r in rows:
+            r.setdefault("rank_pct", None)
 
         from qsde.models.edge_stats import horizon_edge
         return {
             "signals": rows,
             "count": len(rows),
             "horizon": horizon,
+            "strategy": strategy,
+            "strategy_meta": STRATEGY_META.get(strategy) if strategy else None,
             "liquid_only": liquid_only,
             "dropped_sign_inconsistent": n_inconsistent,
             "edge": horizon_edge(horizon),   # honest net-Sharpe stats for this horizon

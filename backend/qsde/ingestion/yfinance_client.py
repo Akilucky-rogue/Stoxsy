@@ -200,79 +200,129 @@ def sync_ohlcv_to_db(
     )
 
 def fetch_fundamentals_batch(symbols: list[str]) -> pd.DataFrame:
-    """Fetch live fundamentals from yfinance."""
+    """Fetch per-period statement fundamentals from yfinance — PIT-safe.
+
+    AUDIT_v2 C2 FIX: this function used to build a `trailing` dict from
+    `tk.info` (a CURRENT snapshot: today's trailingPE, ROE, margins, market
+    cap, etc.) and copy that dict into every historical fiscal-period row.
+    The result was textbook lookahead — a `fund_pe` value dated 2019 carried
+    the 2026 PE. Every `fund_*` factor over the training history equalled
+    (approximately) its current value, and the ML model could "learn" that
+    names whose 2026 PE is low outperformed in 2019.
+
+    Fix: historical rows carry ONLY per-period statement data (revenue,
+    net income, free cash flow, EPS derived from period earnings). All
+    trailing/ratio columns are set to NULL for historical rows. The
+    fundamentals-inclusive ML model is DEFERRED until a true point-in-time
+    ratio source lands (Screener.in via Bright Data, per the architecture
+    plan). Until then, factors/fundamental.py should either restrict itself
+    to per-period fields or drop `fund_*` from training.
+
+    Current-snapshot values (today's PE, ROE, etc.) are useful for LIVE
+    display, but they must be fetched fresh on demand — never stamped
+    into the historical `fundamentals` table.
+    """
     all_rows = []
-    
+
+    # Columns that are LOOKAHEAD-DANGEROUS if written to historical rows.
+    # We explicitly NULL these on every write so re-running the ingest
+    # cleans up prior contaminated rows via ON CONFLICT UPDATE.
+    _CONTAMINATED_COLUMNS = (
+        "pe_ratio", "pb_ratio", "ps_ratio", "ev_ebitda", "ev_to_revenue",
+        "roe", "roa", "roic", "roce",
+        "gross_margin", "operating_margin", "net_margin",
+        "debt_equity", "interest_coverage", "current_ratio",
+        "revenue_growth_yoy", "eps_growth_yoy",
+        "fcf_yield", "earnings_surprise",
+        "dividend_yield", "market_cap", "enterprise_value",
+    )
+
     for sym in symbols:
         yf_sym = _to_yf_symbol(sym)
         try:
             tk = yf.Ticker(yf_sym)
-            info = tk.info
-            
-            # Fetch financials (Income Statement, Balance Sheet, Cash Flow)
+
+            # Fetch financials (Income Statement, Balance Sheet, Cash Flow).
+            # NOTE: `tk.info` is deliberately NOT read here — it's a current
+            # snapshot and stamping it into history would restore the bug.
             fin = tk.financials
-            bs = tk.balance_sheet
-            cf = tk.cashflow
-            
-            # Use info for trailing metrics
-            trailing = {
-                "symbol": sym,
-                "pe_ratio": info.get("trailingPE"),
-                "pb_ratio": info.get("priceToBook"),
-                "ps_ratio": info.get("priceToSalesTrailing12Months"),
-                "ev_ebitda": info.get("enterpriseToEbitda"),
-                "ev_to_revenue": info.get("enterpriseToRevenue"),
-                "roe": info.get("returnOnEquity") * 100 if info.get("returnOnEquity") else None,
-                "roa": info.get("returnOnAssets") * 100 if info.get("returnOnAssets") else None,
-                "gross_margin": info.get("grossMargins") * 100 if info.get("grossMargins") else None,
-                "operating_margin": info.get("operatingMargins") * 100 if info.get("operatingMargins") else None,
-                "net_margin": info.get("profitMargins") * 100 if info.get("profitMargins") else None,
-                "debt_equity": info.get("debtToEquity", 0) / 100 if info.get("debtToEquity") else None,
-                "revenue_growth_yoy": info.get("revenueGrowth") * 100 if info.get("revenueGrowth") else None,
-                "dividend_yield": info.get("dividendYield", 0) * 100 if info.get("dividendYield") else None,
-                "market_cap": info.get("marketCap"),
-                "enterprise_value": info.get("enterpriseValue"),
-                "eps": info.get("trailingEps"),
-                "source": "yfinance",
-            }
-            
-            # Get historical periods
-            if not fin.empty:
-                for col in fin.columns:
-                    fiscal_date = pd.to_datetime(col).date()
-                    # filing date approx
-                    filing_date = fiscal_date + timedelta(days=45)
-                    
-                    row = trailing.copy()
-                    row["fiscal_date"] = fiscal_date
-                    row["filing_date"] = filing_date
-                    
-                    # Extract history
+            cf  = tk.cashflow
+
+            if fin is None or fin.empty:
+                log.debug("No historical financials for %s", sym)
+                continue
+
+            for col in fin.columns:
+                fiscal_date = pd.to_datetime(col).date()
+                # yfinance doesn't give us the real filing_date. Annual
+                # results have a 60-day SEBI deadline in India; 45d is a
+                # conservative-mid guess. Label this as an approximation
+                # in the audit trail via source="yfinance_pit_v2".
+                filing_date = fiscal_date + timedelta(days=45)
+
+                row: dict = {
+                    "symbol":      sym,
+                    "fiscal_date": fiscal_date,
+                    "filing_date": filing_date,
+                    "source":      "yfinance_pit_v2",   # C2 fix marker
+                }
+
+                # Per-period statement fields — these are the ONLY values
+                # that actually vary across fiscal periods for yfinance.
+                try:
+                    row["revenue"] = (
+                        float(fin.loc["Total Revenue", col])
+                        if "Total Revenue" in fin.index else None
+                    )
+                except Exception:
+                    row["revenue"] = None
+
+                try:
+                    row["net_income"] = (
+                        float(fin.loc["Net Income", col])
+                        if "Net Income" in fin.index else None
+                    )
+                except Exception:
+                    row["net_income"] = None
+
+                # Free cash flow from the cashflow statement (per-period).
+                row["free_cash_flow"] = None
+                row["fcf_per_share"]  = None
+                if cf is not None and not cf.empty and col in cf.columns:
                     try:
-                        row["revenue"] = float(fin.loc["Total Revenue", col]) if "Total Revenue" in fin.index else None
-                    except Exception:
-                        row["revenue"] = None
-                        
-                    try:
-                        row["net_income"] = float(fin.loc["Net Income", col]) if "Net Income" in fin.index else None
-                    except Exception:
-                        row["net_income"] = None
-                        
-                    if not cf.empty and col in cf.columns:
-                        try:
-                            fcf = float(cf.loc["Free Cash Flow", col]) if "Free Cash Flow" in cf.index else None
+                        if "Free Cash Flow" in cf.index:
+                            fcf = float(cf.loc["Free Cash Flow", col])
                             row["free_cash_flow"] = fcf
-                            
-                            shares = info.get("sharesOutstanding")
-                            if fcf and shares:
-                                row["fcf_per_share"] = fcf / shares
-                        except Exception:
-                            pass
-                            
-                    all_rows.append(row)
+                            # fcf_per_share requires shares outstanding for
+                            # the FISCAL PERIOD, not today. yfinance doesn't
+                            # expose historical share counts; leave NULL
+                            # rather than divide by today's share count and
+                            # reintroduce the C2 bug.
+                    except Exception:
+                        pass
+
+                # EPS from the income statement (per-period). yfinance
+                # exposes `Basic EPS` and `Diluted EPS` in fin.
+                row["eps"] = None
+                try:
+                    if "Diluted EPS" in fin.index:
+                        row["eps"] = float(fin.loc["Diluted EPS", col])
+                    elif "Basic EPS" in fin.index:
+                        row["eps"] = float(fin.loc["Basic EPS", col])
+                except Exception:
+                    pass
+
+                # NULL every ratio / current-snapshot column so a re-sync
+                # over previously-contaminated rows cleans them via
+                # ON CONFLICT UPDATE.
+                for c in _CONTAMINATED_COLUMNS:
+                    row[c] = None
+
+                all_rows.append(row)
+
         except Exception as e:
-            log.warning(f"Failed to fetch fundamentals for {sym}: {e}")
-            
+            log.warning("Failed to fetch fundamentals for %s: %s", sym, e)
+
     df = pd.DataFrame(all_rows)
     return df
 

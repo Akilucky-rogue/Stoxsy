@@ -66,6 +66,7 @@ def generate_signals(horizon: Literal["intraday", "swing", "long"] = "swing"):
                symbol, factor_name, factor_value
           FROM factor_pit
          WHERE valid_to = 'infinity'::timestamptz
+           AND factor_version = 'ffd_v1'
            AND as_of_date >= (CURRENT_DATE - INTERVAL '20 days')
       ORDER BY symbol, factor_name, as_of_date DESC
         """

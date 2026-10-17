@@ -182,11 +182,9 @@ def generate_intraday_signal(
     atr_series = _atr_pct(bars, 14)
     atr_val = float(atr_series.iloc[-1]) if len(atr_series) and np.isfinite(atr_series.iloc[-1]) else None
     # technical.atr_pct() returns ATR as a PERCENT of price (e.g. 0.17 == 0.17%).
-    # Convert to a fraction UNCONDITIONALLY. (compute_trade_levels' ">1 means
-    # percent" heuristic is correct for daily ATR but misfires intraday, where
-    # ATR% is < 1 and would be misread as a whole fraction -> 100x-too-wide
-    # stops.) Floor the intraday stop basis at 0.3% so a 1-minute ATR doesn't
-    # yield a stop so tight that microstructure noise trips it instantly.
+    # Keep a FRACTION here for the conviction-scaled expected move (pred_ret is
+    # a fractional return). Floor the intraday stop basis at 0.3% so a 1-minute
+    # ATR doesn't yield a stop so tight microstructure noise trips it instantly.
     atr_frac = (atr_val or 0.0) / 100.0
     if horizon == "intraday":
         atr_frac = max(atr_frac, 0.003)
@@ -196,7 +194,7 @@ def generate_intraday_signal(
     pred_ret = direction * abs(bias) * 2.0 * atr_frac if direction != 0 else None
     levels = compute_trade_levels(
         price=close,
-        atr_pct=atr_frac,            # pass an unambiguous FRACTION
+        atr_pct=atr_frac * 100.0,    # compute_trade_levels expects PERCENT
         predicted_return=pred_ret,
         direction=direction,
         horizon=horizon,

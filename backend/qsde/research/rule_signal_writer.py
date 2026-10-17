@@ -103,7 +103,8 @@ def write_rule_signals(signals_df: pd.DataFrame) -> int:
 
         entry_price = close_map.get(symbol)
         atr_pct_raw = atr_map.get(symbol)
-        # trade_levels handles both fraction (0.018) and percent (1.8) inputs.
+        # tech_atr_pct is stored as PERCENT (1.8 == 1.8%); compute_trade_levels
+        # expects percent and converts internally. Pass it straight through.
         atr_pct = atr_pct_raw
 
         levels = compute_trade_levels(

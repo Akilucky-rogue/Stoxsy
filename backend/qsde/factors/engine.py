@@ -167,40 +167,35 @@ def compute_factors_batch(
         log.info("write_tail_days=%d -> persisting %d of %d rows (last %dd only)",
                  write_tail_days, len(to_write), len(combined), write_tail_days)
 
+    # C1 FIX (AUDIT_v2 / Stage 2C.2): apply fracdiff BEFORE writing to
+    # factor_pit. Train and serve now read the SAME (transformed) values —
+    # no more train/serve unit skew that routed raw serve levels into
+    # degenerate leaves of trees learned on fracdiff'd magnitudes.
+    #
+    # The write is tagged factor_version='ffd_v1' so dataset.py and
+    # signal_generator.py can filter to the version they expect.
     from qsde.factors.pit_writer import write_factors_to_pit
-    written = write_factors_to_pit(to_write)
-    log.info(f"Persisted {written} individual factor records to factor_pit.")
+    # C1 FIX (AUDIT_v2 / Stage 2C.2): apply fracdiff BEFORE writing to
+    # factor_pit. Train and serve now read the SAME (transformed) values.
+    # The write is tagged factor_version='ffd_v1' so dataset.py and
+    # signal_generator.py can filter to it.
+    try:
+        from qsde.models.fracdiff import apply_fracdiff_to_features
+        _fdf = to_write.copy()
+        if "as_of_date" not in _fdf.columns and "date" in _fdf.columns:
+            _fdf["as_of_date"] = _fdf["date"]
+        _fdf, _d_used = apply_fracdiff_to_features(_fdf)
+        if "as_of_date" in _fdf.columns and "date" in to_write.columns:
+            _fdf = _fdf.drop(columns=["as_of_date"])
+        to_write_ffd = _fdf
+        _version = "ffd_v1"
+    except Exception as e:
+        log.warning("fracdiff at ingest failed (%s) - writing raw v0.", e)
+        to_write_ffd = to_write
+        _version = "raw_v0"
+    written = write_factors_to_pit(to_write_ffd, factor_version=_version)
+    log.info("Persisted %d individual factor records to factor_pit (version=%s).",
+             written, _version)
 
     return combined
 
-
-def compute_rolling_ic(
-    factors_df: pd.DataFrame,
-    forward_returns: pd.Series,
-    window: int = 63,
-) -> pd.DataFrame:
-    """
-    Compute rolling 63-day Spearman IC per factor.
-
-    Args:
-        factors_df: Wide DataFrame of factor values indexed by date.
-        forward_returns: Series of forward returns aligned by date.
-        window: Rolling window in trading days.
-
-    Returns:
-        DataFrame with one column per factor, values are rolling IC.
-    """
-    from scipy.stats import spearmanr
-
-    factor_cols = [c for c in factors_df.columns if c.startswith(("tech_", "smc_", "pattern_", "fund_", "flow_", "macro_", "sentiment_"))]
-    ic_results = {}
-
-    for col in factor_cols:
-        aligned = pd.DataFrame({"factor": factors_df[col], "fwd_ret": forward_returns}).dropna()
-        if len(aligned) < window:
-            continue
-
-        ic_series = aligned["factor"].rolling(window).corr(aligned["fwd_ret"])
-        ic_results[col] = ic_series
-
-    return pd.DataFrame(ic_results)

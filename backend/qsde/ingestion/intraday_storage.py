@@ -27,17 +27,29 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from qsde.db.connection import get_sync_conn
 from qsde.ingestion.tick_fanout import get_fanout
 
 log = logging.getLogger(__name__)
 
+# Kite ticks arrive as NAIVE datetimes — the kiteconnect SDK builds them with
+# datetime.fromtimestamp(), i.e. the host's LOCAL wall-clock. On an IST host
+# that is IST wall-clock, NOT UTC. Stamping them UTC shifted every live bar by
+# +5:30 (a 09:15 IST bar became 14:45 IST after tz_convert), corrupting the
+# session bucket, anchored-VWAP/OFI windows and the chart x-axis. Localize
+# naive timestamps to IST so the stored TIMESTAMPTZ instant is correct.
+_IST = ZoneInfo("Asia/Kolkata")
+
 
 def _floor_to_minute(ts: datetime) -> datetime:
-    """Return the start-of-minute timestamp for `ts` (UTC, tz-aware)."""
+    """Return the start-of-minute timestamp for `ts` (IST, tz-aware).
+
+    Naive timestamps are localized to IST (see _IST note above), not UTC.
+    """
     if ts.tzinfo is None:
-        ts = ts.replace(tzinfo=timezone.utc)
+        ts = ts.replace(tzinfo=_IST)
     return ts.replace(second=0, microsecond=0)
 
 
@@ -136,7 +148,7 @@ class MinuteBarAggregator(threading.Thread):
         if ts is None:
             ts = datetime.now(timezone.utc)
         if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=timezone.utc)
+            ts = ts.replace(tzinfo=_IST)   # naive Kite ts is IST wall-clock, not UTC
 
         bucket = _floor_to_minute(ts)
         key = (symbol, bucket)

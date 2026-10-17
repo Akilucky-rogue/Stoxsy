@@ -96,11 +96,11 @@ def compute_trade_levels(
 
     Args:
         price:            Latest close (used as entry price).
-        atr_pct:          ATR as a FRACTION of price (e.g. 0.018 for 1.8%).
-                          Sourced from the `tech_atr_pct` factor. Note that
-                          factors/technical.py stores this as a PERCENT
-                          (3.89 means 3.89%); we auto-detect that scale and
-                          divide by 100 -- see the normalization step below.
+        atr_pct:          ATR as a PERCENT of price (e.g. 3.89 for 3.89%),
+                          matching how factors/technical.py stores the
+                          `tech_atr_pct` factor. Converted to a fraction
+                          internally (divide by 100, unconditional). Callers
+                          that hold a FRACTION must multiply by 100 first.
         predicted_return: Model-predicted forward return (e.g. 0.03 for +3%).
                           Sign should match `direction`; this is the magnitude
                           of expected move over the horizon.
@@ -139,13 +139,14 @@ def compute_trade_levels(
         atr_pct_effective = _ATR_FALLBACK.get(horizon, 0.022)
         out["notes"] = f"atr_fallback_{atr_pct_effective*100:.1f}pct"
     else:
-        # Auto-detect storage scale. `factors/technical.py:atr_pct()` stores
-        # this as PERCENT (3.89 means 3.89%), but the math here wants a
-        # FRACTION (0.0389). Any plausible equity ATR/price ratio is well
-        # under 100% per period, so anything > 1.0 is unambiguously the
-        # percent-form -- divide by 100. This makes the function agnostic
-        # to which convention upstream uses.
-        atr_pct_effective = atr_pct / 100.0 if atr_pct > 1.0 else atr_pct
+        # `atr_pct` is ATR as a PERCENT of price (3.89 == 3.89%), matching the
+        # tech_atr_pct factor's storage; the math wants a FRACTION, so convert
+        # UNCONDITIONALLY. (Removed an old ">1.0 means percent" auto-detect: it
+        # silently misread low-volatility names whose ATR% is below 1.0 — e.g.
+        # 0.97 was treated as a 97% fraction, giving a NEGATIVE stop and a
+        # +240% target. Every caller now passes percent; the two fraction-based
+        # callers multiply by 100 at the boundary.)
+        atr_pct_effective = atr_pct / 100.0
     # Surface the FRACTION form back to the caller so the UI's "ATR x.xx%"
     # display computes off the correct number.
     out["atr_pct"] = atr_pct_effective

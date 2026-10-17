@@ -144,10 +144,31 @@ def main() -> None:
     except Exception as e:  # noqa: BLE001
         log.warning("Universe hygiene failed: %s", e)
 
+    # ── 4b. Refresh ADV-based liquidity tiers ───────────────────────
+    # Compute trailing-60d ADV from OHLCV and tag universe.liquidity_tier so the
+    # Tier-1 engine reads the cached 'tradeable' tier instead of recomputing the
+    # ADV gate inline every run. Cheap; degrades gracefully (Tier-1 falls back to
+    # the inline gate if the column is empty).
+    _banner("4b/5  Refresh universe liquidity tiers (ADV)")
+    try:
+        from qsde.universe.liquidity_filter import refresh_universe_tiers
+        log.info("Liquidity tiers: %s", refresh_universe_tiers())
+    except Exception as e:  # noqa: BLE001
+        log.warning("Liquidity-tier refresh failed (continuing): %s", e)
+
     # ── 5. Reconcile paper trades ───────────────────────────────────
     _banner("5/7  Reconcile paper trades (live track record)")
     try:
-        from qsde.execution.paper_journal import reconcile_open_trades
+        # H8 fix (Stage 2B.1b): fill_pending_entries MUST run first. It
+        # stamps entry_price + entry_fill_date on any paper trades that
+        # were booked on prior sessions with entry_price NULL (waiting
+        # for the next session's open to become known). Running it first
+        # means the same-day reconcile picks them up immediately.
+        from qsde.execution.paper_journal import (
+            fill_pending_entries, reconcile_open_trades,
+        )
+        fp = fill_pending_entries()
+        log.info("Paper fill pending: %s", fp)
         res = reconcile_open_trades()
         log.info("Paper reconcile: %s", res)
     except Exception as e:  # noqa: BLE001
@@ -222,6 +243,66 @@ def main() -> None:
             log.info("  baselines/%s: %s", h, r.get("results"))
     except Exception as e:  # noqa: BLE001
         log.warning("Baseline trade recording failed: %s", e)
+
+    # ── New-contract engines: emit + log + resolve (Phase 0 strangler) ──
+    # Runs BESIDE the legacy signals/paper flow: each engine adapts the
+    # freshly-written signals into the one TradeIdea contract, logs every idea
+    # to the trade_ideas idea-log (idempotent per day), and resolves matured
+    # ideas so the Scorecard accumulates each engine's TRUE net-of-cost edge.
+    # Additive — places no orders, deletes nothing.
+    _banner("Engines -> idea-log + Scorecard resolve (new contract)")
+    try:
+        from qsde.engines.rule_momentum import RuleMomentumEngine
+        from qsde.engines.runner import run_engine
+        from qsde.scorecard.resolver import resolve_open_ideas
+        ideas = run_engine(RuleMomentumEngine())
+        log.info("  rule_momentum: emitted+logged %d ideas", len(ideas))
+        log.info("  scorecard resolve: %s", resolve_open_ideas())
+    except Exception as e:  # noqa: BLE001
+        log.warning("Engine/scorecard step failed: %s", e)
+
+    # ── F&O-income chain snapshot (the flagship's data run) ─────────────
+    # Pull the NSE F&O bhavcopy, grow the ATM-IV history (iv_rank's window),
+    # and run the FnoIncomeEngine -> defined-risk condors -> idea-log. iv_rank
+    # is cold until a few sessions accumulate, so this emits nothing early on —
+    # by design. Best-effort: NSE blocks bots, so a fetch failure is non-fatal.
+    _banner("F&O chain snapshot -> ATM-IV history + FnoIncomeEngine")
+    try:
+        from datetime import datetime as _dt
+        from qsde.engines.fno_income import FnoIncomeEngine
+        from qsde.engines.runner import run_engine
+        from qsde.fno.chain_source import BhavcopyChainSource
+        from qsde.fno.indices import DEFAULT_INDICES
+
+        fno_asof = _dt.now().date()
+        while fno_asof.weekday() >= 5:        # last weekday (no weekend bhavcopy)
+            fno_asof -= timedelta(days=1)
+        fno_src = BhavcopyChainSource(fno_asof, indices=DEFAULT_INDICES, persist=True)
+        # min_iv_history=20: don't sell premium until ~a month of ATM-IV history
+        # has accrued, so iv_rank is a real percentile and not a thin-window fluke.
+        fno_engine = FnoIncomeEngine(lot_size=75, strike_step=50.0,
+                                     min_iv_history=20, source=fno_src)
+        fno_ideas = run_engine(fno_engine)
+        log.info("  fno_income: emitted+logged %d condor idea(s) for %s",
+                 len(fno_ideas), fno_asof)
+        from qsde.scorecard.resolver import resolve_option_ideas
+        log.info("  fno_income resolve (expired condors): %s", resolve_option_ideas())
+    except Exception as e:  # noqa: BLE001
+        log.warning("F&O chain snapshot failed (continuing): %s", e)
+
+    # ── Pairs StatArb engine (market-neutral mean reversion) ────────────
+    # Cointegrated sector pairs -> defined-risk PAIR ideas -> idea-log, then resolve
+    # any whose spread has hit its exit/stop/time barrier. Additive, no orders.
+    _banner("Pairs StatArb engine -> idea-log + resolve")
+    try:
+        from qsde.engines.pairs import PairsStatArbEngine
+        from qsde.engines.runner import run_engine
+        from qsde.scorecard.resolver import resolve_pair_ideas
+        pair_ideas = run_engine(PairsStatArbEngine())
+        log.info("  pairs_statarb: emitted+logged %d pair idea(s)", len(pair_ideas))
+        log.info("  pairs_statarb resolve: %s", resolve_pair_ideas())
+    except Exception as e:  # noqa: BLE001
+        log.warning("Pairs StatArb step failed (continuing): %s", e)
 
     elapsed = time.time() - t_start
     _banner(f"Daily EOD complete in {elapsed:.0f}s  ·  "

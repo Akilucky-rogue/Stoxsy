@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-
-const API_BASE = "http://127.0.0.1:8000/api";
+import { API_BASE } from "@/lib/api";
 
 interface HealthStatus {
   status: string;
@@ -18,7 +17,6 @@ export default function Dashboard() {
   const [time, setTime] = useState<Date | null>(null);
   const [horizon, setHorizon] = useState("swing");
   const [signals, setSignals] = useState<any[]>([]);
-  const [edge, setEdge] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [track, setTrack] = useState<any>(null);
   const [paperMsg, setPaperMsg] = useState<Record<string, string>>({});
@@ -47,12 +45,14 @@ export default function Dashboard() {
 
   useEffect(() => {
     setLoading(true);
-    // Live tradeable view: liquid names only, ranked by model score
-    // (sort_by_prediction). This reproduces the validated top-K-within-liquid
-    // selection — the only universe where the backtested edge survives costs.
-    fetch(`${API_BASE}/signals?horizon=${horizon}&limit=500&liquid_only=true&sort_by_prediction=true`)
+    // Feature the PROVEN signal: tier1_mom (jt+mop momentum composite), liquid
+    // names only, ranked by its factor score (strongest momentum first). This is
+    // the strategy the full-history, red-team-verified backtest showed has a
+    // durable net-of-cost edge — not the ML, which has none. On intraday there is
+    // no momentum signal (it is a swing/long effect), so the panel is empty there.
+    fetch(`${API_BASE}/signals?horizon=${horizon}&limit=500&liquid_only=true&strategy=tier1_mom`)
       .then(r => r.json())
-      .then(d => { setSignals(d.signals || []); setEdge(d.edge || null); setLoading(false); })
+      .then(d => { setSignals(d.signals || []); setLoading(false); })
       .catch(() => setLoading(false));
     // Live paper-trade track record for this horizon.
     fetch(`${API_BASE}/paper/track-record?horizon=${horizon}`)
@@ -116,10 +116,10 @@ export default function Dashboard() {
           <span className={`status-badge ${marketOpen ? "live" : "shadow"}`}>
             {marketOpen ? "● MARKET OPEN" : "○ MARKET CLOSED"}
           </span>
-          <span className="regime-indicator calm-trend">
-            <span className="regime-dot" style={{ background: "var(--accent-green)" }}></span>
-            CALM TREND
-          </span>
+          {/* Regime badge intentionally omitted: there is no live regime feed
+              wired to the UI yet, and a hardcoded "CALM TREND" would be a
+              fabricated market call. Wire the 5-state HMM regime engine to an
+              endpoint before showing a regime here. */}
         </div>
       </div>
 
@@ -137,9 +137,9 @@ export default function Dashboard() {
 
         <div className="metric-card">
           <div className="metric-label">Universe</div>
-          <div className="metric-value">NIFTY 200</div>
+          <div className="metric-value">NSE liquid</div>
           <div className="metric-change" style={{ color: "var(--text-muted)" }}>
-            Phase 0 — Layer 0 LightGBM MVP
+            ~160 tradeable names · momentum + F&amp;O + pairs engines
           </div>
         </div>
 
@@ -437,18 +437,14 @@ export default function Dashboard() {
       {/* Signals Grid */}
       <div className="card" style={{ marginBottom: "var(--gap-lg)" }}>
         <div className="card-header">
-          <span className="card-title">▸ Live Signals ({horizon.toUpperCase()}) · liquid, top-ranked</span>
-          {edge ? (
-            <span
-              title={(edge.caveats || []).join("  •  ")}
-              style={{ fontFamily: "var(--font-mono)", fontSize: "0.72rem", color: "var(--accent-amber)" }}
-            >
-              validated edge ≈ {edge.net_sharpe?.toFixed?.(2) ?? edge.net_sharpe} net Sharpe
-              {edge.edge_band ? ` (${edge.edge_band})` : ""}
-            </span>
-          ) : (
-            <span className="status-badge live">AI ACTIVE</span>
-          )}
+          <span className="card-title">▸ Momentum Signals ({horizon.toUpperCase()}) · liquid, strongest first</span>
+          <a
+            href="/scorecard"
+            title="Measured net-of-cost edge is resolved on the Scorecard, never promised here."
+            style={{ fontFamily: "var(--font-mono)", fontSize: "0.72rem", color: "var(--accent-cyan)", textDecoration: "none" }}
+          >
+            measured edge → Scorecard
+          </a>
         </div>
 
         {/* Live paper track record vs the backtested edge */}
@@ -497,12 +493,12 @@ export default function Dashboard() {
                 </div>
                 
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: "12px" }}>
-                  <span title="Cross-sectional model rank today. The model outputs a relative score (not a return); direction comes from where the name ranks vs the universe.">
-                    Model rank: <strong style={{ color: "var(--accent-cyan)" }}>
-                      {s.ranking_score == null ? "—"
-                        : s.ranking_score >= 0.5
-                          ? `Top ${Math.max(0.1, (1 - s.ranking_score) * 100).toFixed(s.ranking_score > 0.99 ? 1 : 0)}%`
-                          : `Bottom ${Math.max(0.1, s.ranking_score * 100).toFixed(s.ranking_score < 0.01 ? 1 : 0)}%`}
+                  <span title="Cross-sectional percentile rank within today's liquid universe (100 = strongest momentum). This is a RANK, not a predicted return; direction comes from the decile.">
+                    Momentum rank: <strong style={{ color: "var(--accent-cyan)" }}>
+                      {s.rank_pct == null ? "—"
+                        : s.rank_pct >= 0.5
+                          ? `Top ${Math.max(1, Math.round((1 - s.rank_pct) * 100))}%`
+                          : `Bottom ${Math.max(1, Math.round(s.rank_pct * 100))}%`}
                     </strong>
                   </span>
                   <span title="Trailing-20d average daily value traded. Liquidity gate = Rs 10cr.">

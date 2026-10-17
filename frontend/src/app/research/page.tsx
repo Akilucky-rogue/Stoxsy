@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-const API = "http://127.0.0.1:8000/api";
+import { API_BASE as API } from "@/lib/api";
 
 interface SectorInfo {
   sector: string;
@@ -110,7 +110,7 @@ function FactorCard({ name, stats }: { name: string; stats: { swing: FactorStats
               <div>Hit↑: {fmtPct(s.hit_rate_top)}</div>
               <div>Hit↓: {fmtPct(s.hit_rate_bot)}</div>
               <div>n={s.n_observations}</div>
-              <div>w={s.composite_weight.toFixed(3)}</div>
+              <div>w={s.composite_weight != null ? s.composite_weight.toFixed(3) : "—"}</div>
             </div>
           </div>
         );

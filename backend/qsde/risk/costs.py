@@ -19,14 +19,15 @@ INTRADAY (MIS):     ~6 bps round-trip
   exchange + GST + SEBI + stamp          ~ 0.5 bps
   slippage      = 0.5 bps (large-cap, MIS, limit-order-aware)
 
-BTST/SWING/LONG (CNC delivery):  ~12 bps round-trip
+BTST/SWING/LONG (CNC delivery):  ~24 bps round-trip (statutory floor)
   brokerage     = 0 on delivery (Zerodha)
   STT           = 0.1% on both sides     = 20 bps  <-- the dominant cost
-  exchange + GST + SEBI + stamp          ~ 1.5 bps
-  slippage      = ~0.5 bps
-  total bridge to 12 bps reflects discount on CNC + multi-day amortization
-  of fixed costs over the holding period. For Swing/Long, costs are a
-  smaller % of expected return so the same 12 bps approximation holds.
+  exchange + GST + SEBI + stamp + DP     ~ 4 bps
+  --> statutory floor ~24 bps; add ~6 bps slippage on mid-caps => ~30 bps.
+  CORRECTION (red-team 2026-07): STT is levied PER TRANSACTION on notional and
+  does NOT amortize over the holding period. The earlier 12 bps figure (which
+  hand-waved the 20 bps STT down via a bogus "multi-day amortization" argument)
+  UNDERSTATED delivery cost by ~2x. Backtests must use >= 24 bps for CNC.
 
 These numbers are tuned for the under-Rs-1-lakh bankroll case where the
 Rs-20 brokerage cap binds. Larger bankrolls would see brokerage scale with
@@ -43,21 +44,23 @@ Horizon = Literal["intraday", "swing", "long", "btst"]
 
 
 # Round-trip cost in basis points (bps). 1 bps = 0.01% of notional.
+# CNC delivery (btst/swing/long) recalibrated 12 -> 24 bps (red-team 2026-07):
+# STT alone is 20 bps round-trip and does NOT amortize over the holding period.
 COSTS_BPS: dict[str, float] = {
     "intraday": 6.0,
-    "btst":     12.0,
-    "swing":    12.0,
-    "long":     12.0,
+    "btst":     24.0,
+    "swing":    24.0,
+    "long":     24.0,
 }
 
-# Conservative override for paper-trade default (was 25 bps everywhere).
-# Used when a caller passes no explicit cost — slightly above the realistic
-# numbers to avoid optimism bias on the live scorecard.
+# Conservative override for paper-trade default. Used when a caller passes no
+# explicit cost — set above the statutory floor to include mid-cap slippage and
+# avoid optimism bias on the live scorecard.
 PAPER_DEFAULT_BPS: dict[str, float] = {
     "intraday": 8.0,
-    "btst":     15.0,
-    "swing":    15.0,
-    "long":     15.0,
+    "btst":     30.0,
+    "swing":    30.0,
+    "long":     30.0,
 }
 
 
