@@ -65,5 +65,7 @@ def test_scorecard_resolve_runs_both_resolvers(monkeypatch):
     import qsde.scorecard.resolver as rv
     monkeypatch.setattr(rv, "resolve_open_ideas", lambda *a, **k: {"closed": 2})
     monkeypatch.setattr(rv, "resolve_option_ideas", lambda *a, **k: {"closed": 1})
+    monkeypatch.setattr(rv, "resolve_pair_ideas", lambda *a, **k: {"closed": 3})
     body = client.post("/api/scorecard/resolve").json()
     assert body["cash"]["closed"] == 2 and body["condors"]["closed"] == 1
+    assert body["pairs"]["closed"] == 3

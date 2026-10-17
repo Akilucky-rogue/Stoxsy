@@ -21,7 +21,7 @@ dependencies = [
     "requests>=2.32",
 
     # ── Data ──
-    "pandas>=2.2",
+    "pandas>=2.2,<3",  # code and tests were developed on 2.3.x; 3.x changes string dtype and breaks fno/bhavcopy.py
     "numpy>=1.26",
     "yfinance>=0.2.40",
     "pyarrow>=16.0",
@@ -29,7 +29,7 @@ dependencies = [
     # ── Database ──
     "psycopg2-binary>=2.9",
     "asyncpg>=0.29",
-    "sqlalchemy>=2.0",
+    "sqlalchemy>=2.0,<2.1",  # 2.1 defaults 'postgresql://' to psycopg3; this repo uses psycopg2
     "alembic>=1.13",
     "redis>=5.0",
 
@@ -40,6 +40,7 @@ dependencies = [
     "optuna>=3.6",
     "scikit-learn>=1.5",
     "scipy>=1.13",
+    "statsmodels>=0.14",  # used by qsde.models.fracdiff (ADF); was undeclared
     "shap>=0.45",
 
     # ── Task Queue ──

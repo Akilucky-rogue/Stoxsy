@@ -260,7 +260,7 @@ CREATE TABLE IF NOT EXISTS signal_audit_log (
 CREATE INDEX IF NOT EXISTS idx_ohlcv_symbol ON ohlcv(symbol);
 CREATE INDEX IF NOT EXISTS idx_factor_pit_lookup
     ON factor_pit(symbol, as_of_date, factor_name)
-    WHERE valid_to > NOW();
+    WHERE valid_to = 'infinity'::timestamptz;  -- was `> NOW()`: not IMMUTABLE, failed on fresh installs (AUDIT H5, see migration 017)
 CREATE INDEX IF NOT EXISTS idx_signals_date ON signals(date, horizon);
 CREATE INDEX IF NOT EXISTS idx_signals_symbol ON signals(symbol, horizon);
 CREATE INDEX IF NOT EXISTS idx_macro_series ON macro(series_id, date);
