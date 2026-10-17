@@ -6,6 +6,8 @@ import lightgbm as lgb
 from datetime import date
 from typing import Literal
 from qsde.db.connection import read_sql, execute_sql
+from qsde.factors.versions import FFD_VERSION
+from qsde.models.feature_view import FACTOR_PIT_SERVE_SQL, pivot_factors
 from qsde.risk.trade_levels import compute_trade_levels
 
 log = logging.getLogger(__name__)
@@ -60,17 +62,9 @@ def generate_signals(horizon: Literal["intraday", "swing", "long"] = "swing"):
     # history — both catastrophically slow (~20 min) AND wrong (signals on
     # time-averaged factors, not current ones). DISTINCT ON + a recent
     # as_of_date window fixes both: ~53k rows in seconds, latest values only.
-    factors = read_sql(
-        """
-        SELECT DISTINCT ON (symbol, factor_name)
-               symbol, factor_name, factor_value
-          FROM factor_pit
-         WHERE valid_to = 'infinity'::timestamptz
-           AND factor_version = 'ffd_v1'
-           AND as_of_date >= (CURRENT_DATE - INTERVAL '20 days')
-      ORDER BY symbol, factor_name, as_of_date DESC
-        """
-    )
+    # Same module and same version constant the training path uses, so the two
+    # can never read different factor_version rows (AUDIT C1).
+    factors = read_sql(FACTOR_PIT_SERVE_SQL, params={"fv": FFD_VERSION})
 
     if factors.empty:
         log.warning("No factors found.")
@@ -78,12 +72,7 @@ def generate_signals(horizon: Literal["intraday", "swing", "long"] = "swing"):
 
     # One value per (symbol, factor_name) now, so this is a pure reshape
     # (mean over a single value is a no-op) — no cross-time averaging.
-    factors_wide = factors.pivot_table(
-        index="symbol",
-        columns="factor_name",
-        values="factor_value",
-        aggfunc="last",
-    ).reset_index()
+    factors_wide = pivot_factors(factors, index=["symbol"])
     
     # Fill missing with 0
     factors_wide = factors_wide.fillna(0)

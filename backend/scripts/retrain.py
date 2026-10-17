@@ -85,6 +85,22 @@ def _was_promoted(horizon: str) -> bool:
         return False
 
 
+def dataset_kwargs(args: argparse.Namespace, horizon: str) -> dict:
+    """Arguments for build_training_dataset.
+
+    apply_fracdiff is always False: factor_pit rows are fractionally
+    differenced once, at ingest (factor_version ffd_v2). Differencing again
+    here trains on a different transform than the one served. The old
+    --no-fracdiff flag is accepted and ignored for backwards compatibility.
+    """
+    return {
+        "horizon": horizon,
+        "start_date": args.start_date,
+        "label_method": args.label_method,
+        "apply_fracdiff": False,
+    }
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--horizons", nargs="+", default=["intraday", "swing", "long"],
@@ -95,7 +111,7 @@ def main() -> None:
     ap.add_argument("--no-regen-signals", action="store_true",
                     help="Skip regenerating fresh signals from the new weights.")
     ap.add_argument("--no-fracdiff", action="store_true",
-                    help="Disable fractional differencing on features.")
+                    help="Deprecated and ignored: features are differenced once, at ingest.")
     ap.add_argument("--label-method", default="triple_barrier",
                     choices=["triple_barrier", "fixed_horizon"])
     args = ap.parse_args()
@@ -105,8 +121,9 @@ def main() -> None:
     from qsde.risk.costs        import cost_bps
 
     t0 = time.time()
-    log.info("Retrain run starting — horizons=%s start_date=%s label=%s fracdiff=%s",
-             args.horizons, args.start_date, args.label_method, not args.no_fracdiff)
+    log.info("Retrain run starting — horizons=%s start_date=%s label=%s "
+             "(fracdiff applied once, at ingest)",
+             args.horizons, args.start_date, args.label_method)
     for h in args.horizons:
         log.info("  %s round-trip cost in target = %.1f bps (%.4f frac)",
                  h, cost_bps(h), cost_bps(h) / 10000.0)
@@ -115,12 +132,7 @@ def main() -> None:
     for horizon in args.horizons:
         _banner(f"Building dataset for {horizon}")
         try:
-            dataset = build_training_dataset(
-                horizon=horizon,
-                start_date=args.start_date,
-                label_method=args.label_method,
-                apply_fracdiff=not args.no_fracdiff,
-            )
+            dataset = build_training_dataset(**dataset_kwargs(args, horizon))
         except Exception as e:  # noqa: BLE001
             log.exception("dataset build failed for %s: %s", horizon, e)
             results[horizon] = {"ok": False, "error": str(e), "stage": "dataset"}

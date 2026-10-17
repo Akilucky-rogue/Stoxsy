@@ -122,6 +122,7 @@ def compute_factors_batch(
     symbols: list[str],
     start: str = "2006-01-01",
     write_tail_days: "int | None" = None,
+    today: "pd.Timestamp | None" = None,
 ) -> pd.DataFrame:
     """
     Compute factors for all symbols in the universe.
@@ -137,6 +138,8 @@ def compute_factors_batch(
                          For a daily EOD refresh this turns a 14M-row rewrite
                          into a ~0.5M-row append — minutes -> seconds. None
                          (default) writes everything, as a full backfill wants.
+        today:           reference date for the write_tail_days cutoff
+                         (default: the real today; tests pin it).
 
     Returns:
         Wide DataFrame (date-indexed) of all computed factors (the FULL
@@ -156,46 +159,60 @@ def compute_factors_batch(
     combined = pd.concat(all_frames)
     log.info("Computed factors for %d symbols, %d total rows", len(all_frames), len(combined))
 
-    # Decide what to persist. Default = everything; daily refresh = tail only.
-    to_write = combined
-    if write_tail_days is not None:
-        cutoff = pd.Timestamp.today().normalize() - pd.Timedelta(days=write_tail_days)
-        if isinstance(combined.index, pd.DatetimeIndex):
-            to_write = combined[combined.index >= cutoff]
-        elif "date" in combined.columns:
-            to_write = combined[pd.to_datetime(combined["date"]) >= cutoff]
-        log.info("write_tail_days=%d -> persisting %d of %d rows (last %dd only)",
-                 write_tail_days, len(to_write), len(combined), write_tail_days)
-
-    # C1 FIX (AUDIT_v2 / Stage 2C.2): apply fracdiff BEFORE writing to
-    # factor_pit. Train and serve now read the SAME (transformed) values —
-    # no more train/serve unit skew that routed raw serve levels into
-    # degenerate leaves of trees learned on fracdiff'd magnitudes.
-    #
-    # The write is tagged factor_version='ffd_v1' so dataset.py and
-    # signal_generator.py can filter to the version they expect.
+    # C1 FIX (AUDIT_v2, redone in Phase 1): fractionally difference the FULL
+    # per-symbol history with one fixed kernel, THEN slice the rows to persist.
+    # Differencing only the tail slice (the previous behaviour) used a different,
+    # auto-widened kernel than the backfill, so rows written by the daily job
+    # disagreed with the rows the model was trained on (train/serve skew).
     from qsde.factors.pit_writer import write_factors_to_pit
-    # C1 FIX (AUDIT_v2 / Stage 2C.2): apply fracdiff BEFORE writing to
-    # factor_pit. Train and serve now read the SAME (transformed) values.
-    # The write is tagged factor_version='ffd_v1' so dataset.py and
-    # signal_generator.py can filter to it.
+    from qsde.factors.versions import FFD_VERSION, RAW_VERSION
     try:
-        from qsde.models.fracdiff import apply_fracdiff_to_features
-        _fdf = to_write.copy()
-        if "as_of_date" not in _fdf.columns and "date" in _fdf.columns:
-            _fdf["as_of_date"] = _fdf["date"]
-        _fdf, _d_used = apply_fracdiff_to_features(_fdf)
-        if "as_of_date" in _fdf.columns and "date" in to_write.columns:
-            _fdf = _fdf.drop(columns=["as_of_date"])
-        to_write_ffd = _fdf
-        _version = "ffd_v1"
-    except Exception as e:
-        log.warning("fracdiff at ingest failed (%s) - writing raw v0.", e)
-        to_write_ffd = to_write
-        _version = "raw_v0"
-    written = write_factors_to_pit(to_write_ffd, factor_version=_version)
+        ffd_full = to_ffd_frame(combined)
+        version = FFD_VERSION
+    except Exception as e:  # noqa: BLE001
+        log.error("fracdiff at ingest failed (%s) - writing raw (version=%s), "
+                  "which training and serving will NOT read.", e, RAW_VERSION)
+        ffd_full = combined
+        version = RAW_VERSION
+
+    # Decide what to persist. Default = everything; daily refresh = tail only.
+    to_write = ffd_full
+    if write_tail_days is not None:
+        base = pd.Timestamp(today) if today is not None else pd.Timestamp.today()
+        cutoff = base.normalize() - pd.Timedelta(days=write_tail_days)
+        if isinstance(ffd_full.index, pd.DatetimeIndex):
+            to_write = ffd_full[ffd_full.index >= cutoff]
+        elif "date" in ffd_full.columns:
+            to_write = ffd_full[pd.to_datetime(ffd_full["date"]) >= cutoff]
+        log.info("write_tail_days=%d -> persisting %d of %d rows (last %dd only)",
+                 write_tail_days, len(to_write), len(ffd_full), write_tail_days)
+
+    written = write_factors_to_pit(to_write, factor_version=version)
     log.info("Persisted %d individual factor records to factor_pit (version=%s).",
-             written, _version)
+             written, version)
 
     return combined
+
+
+def to_ffd_frame(combined: pd.DataFrame) -> pd.DataFrame:
+    """Fractionally difference level-form factors over each symbol's full history.
+
+    `combined` is the engine's wide frame (date-indexed, one row per
+    symbol-date, `symbol` column). Uses the fixed kernel in
+    `qsde.factors.versions` (no auto-widen) and `strict=True`, so any column
+    that cannot be differenced aborts the whole conversion instead of being
+    stored raw under a differenced tag.
+    """
+    from qsde.factors.versions import FFD_D, FFD_THRES
+    from qsde.models.fracdiff import apply_fracdiff_to_features
+
+    out, _ = apply_fracdiff_to_features(
+        combined.copy(),
+        feature_cols=[c for c in combined.columns if c not in {"symbol", "yf_symbol", "source"}],
+        default_d=FFD_D,
+        thres=FFD_THRES,
+        auto_widen=False,
+        strict=True,
+    )
+    return out
 

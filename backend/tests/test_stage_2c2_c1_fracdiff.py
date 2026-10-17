@@ -1,128 +1,112 @@
-"""Regression tests for Stage 2C.2 of Session 2 (AUDIT_v2 C1 — fracdiff
-train/serve unification).
+"""Regression tests for AUDIT_v2 C1 (fracdiff train/serve unification).
 
-C1 bug: dataset.py fracdiff'd factor values before training; signal_generator
-served raw levels from factor_pit. Every level-form feature was in different
-units at serve vs train time. Tree splits learned on fracdiff'd magnitudes
-routed raw serve values into degenerate leaves.
+History: the first fix (Stage 2C.2) differenced factors at ingest, tagged
+`ffd_v1`, and pinned the intent with source-text greps. Phase 1 found the fix
+was ineffective in the EOD path (duplicate-label reindex swallowed per column,
+and only a ~10-day tail was differenced with a different kernel), so the
+version was bumped to `ffd_v2` and these tests now assert BEHAVIOUR and the
+shared FFD_VERSION constant rather than literal strings. Behavioural coverage
+of the skew itself lives in test_phase1_pipeline_repairs.py.
 
-Fix (option a per audit): apply fracdiff at INGEST time (factors/engine.py),
-tag rows with `factor_version='ffd_v1'`, and filter both dataset.py and
-signal_generator.py to read only that version. Train and serve read the
-same transformed values — no more skew.
-
-Hermetic — no DB, no network. Uses source inspection + signature checks.
+Hermetic: no DB, no network.
 """
 from __future__ import annotations
 
 import inspect
 from pathlib import Path
 
-import pytest
+import numpy as np
+import pandas as pd
 
 
 class TestPitWriterAcceptsFactorVersion:
     def test_writer_signature_has_factor_version(self):
         from qsde.factors.pit_writer import write_factors_to_pit
         sig = inspect.signature(write_factors_to_pit)
-        assert "factor_version" in sig.parameters, (
-            "C1 fix requires write_factors_to_pit(factor_version=...) "
-            "so callers can tag rows as raw_v0 or ffd_v1."
-        )
+        assert "factor_version" in sig.parameters
 
-    def test_writer_default_version_is_raw_v0(self):
-        """Default is 'raw_v0' — honest tag for pre-fracdiff writes. The
-        factor engine must OPT IN to ffd_v1 explicitly."""
+    def test_writer_default_version_is_raw(self):
+        """The writer's default is the honest RAW tag; the engine must opt in
+        to the differenced version explicitly."""
         from qsde.factors.pit_writer import write_factors_to_pit
+        from qsde.factors.versions import RAW_VERSION
         sig = inspect.signature(write_factors_to_pit)
-        assert sig.parameters["factor_version"].default == "raw_v0"
+        assert sig.parameters["factor_version"].default == RAW_VERSION
 
     def test_insert_sql_includes_factor_version_column(self):
-        """Source-level guard: the INSERT must include the new column."""
         from qsde.factors import pit_writer
         src = inspect.getsource(pit_writer.write_factors_to_pit)
-        assert "factor_version" in src
-        # And the INSERT must reference it in the column list.
-        assert "factor_version)" in src or "factor_version," in src, (
-            "INSERT INTO factor_pit column list must include factor_version"
-        )
+        assert "factor_version)" in src or "factor_version," in src
 
 
-class TestFactorEngineAppliesFracdiffAtIngest:
-    def test_engine_applies_fracdiff_before_write(self):
-        """Source-level guard: qsde/factors/engine.py must call
-        apply_fracdiff_to_features before write_factors_to_pit."""
-        from qsde.factors import engine
-        src = Path(engine.__file__).read_text()
-        # Both must be present, and fracdiff must appear BEFORE the write.
-        assert "apply_fracdiff_to_features" in src, (
-            "engine.py must import/use apply_fracdiff_to_features (C1 fix)"
-        )
-        assert "write_factors_to_pit" in src
-        fd_idx = src.index("apply_fracdiff_to_features")
-        # Look for the LAST write_factors_to_pit call (the real one, not import)
-        write_idx = src.rindex("write_factors_to_pit(to_write")
-        assert fd_idx < write_idx, (
-            "engine.py must call apply_fracdiff_to_features BEFORE "
-            "write_factors_to_pit — otherwise the C1 fix is not in effect."
-        )
+class TestFactorEngineDifferencesAtIngest:
+    def test_engine_tags_writes_with_ffd_version_and_actually_transforms(self, monkeypatch):
+        """The engine must write FFD_VERSION rows whose level-form columns are
+        really differenced (the first fix silently left them raw)."""
+        from qsde.factors import engine, pit_writer
+        from qsde.factors.versions import FFD_VERSION
 
-    def test_engine_tags_writes_as_ffd_v1(self):
-        """Source-level guard: the engine must write with factor_version='ffd_v1'."""
-        from qsde.factors import engine
-        src = Path(engine.__file__).read_text()
-        assert '"ffd_v1"' in src or "'ffd_v1'" in src, (
-            "engine.py must tag writes as factor_version='ffd_v1' (C1 fix)"
-        )
+        idx = pd.bdate_range("2020-01-01", periods=700, name="date")
+        rng = np.random.default_rng(5)
+        level = np.cumsum(rng.normal(size=700)) + 500.0
+        frame = pd.DataFrame({"symbol": "AAA", "tech_obv_slope": level,
+                              "tech_rsi_14": rng.uniform(20, 80, 700)}, index=idx)
+        captured: dict = {}
+        monkeypatch.setattr(engine, "compute_factors_for_symbol", lambda s, start="": frame.copy())
+        monkeypatch.setattr(pit_writer, "write_factors_to_pit",
+                            lambda df, **k: captured.update(df=df.copy(), k=k) or len(df))
+        engine.compute_factors_batch(["AAA"])
+
+        assert captured["k"]["factor_version"] == FFD_VERSION
+        wrote = captured["df"].dropna(subset=["tech_obv_slope"])
+        assert len(wrote) > 100
+        # Level was ~500; a differenced series is far smaller in magnitude.
+        assert wrote["tech_obv_slope"].abs().max() < 100
+        # Stationary column untouched.
+        np.testing.assert_allclose(captured["df"]["tech_rsi_14"].to_numpy(),
+                                   frame["tech_rsi_14"].to_numpy())
+
+    def test_failure_to_difference_falls_back_to_raw_tag(self, monkeypatch):
+        from qsde.factors import engine, pit_writer
+        from qsde.factors.versions import RAW_VERSION
+
+        idx = pd.bdate_range("2020-01-01", periods=300, name="date")
+        frame = pd.DataFrame({"symbol": "AAA", "tech_obv_slope": np.arange(300.0)}, index=idx)
+        captured: dict = {}
+        monkeypatch.setattr(engine, "compute_factors_for_symbol", lambda s, start="": frame.copy())
+        monkeypatch.setattr(engine, "to_ffd_frame",
+                            lambda df: (_ for _ in ()).throw(RuntimeError("boom")))
+        monkeypatch.setattr(pit_writer, "write_factors_to_pit",
+                            lambda df, **k: captured.update(k=k) or len(df))
+        engine.compute_factors_batch(["AAA"])
+        assert captured["k"]["factor_version"] == RAW_VERSION
 
 
-class TestDatasetReadsFilteredByFactorVersion:
-    def test_default_apply_fracdiff_is_false(self):
-        """C1 fix moves fracdiff to ingest — dataset must NOT double-apply.
-        Default is False."""
+class TestTrainAndServeReadTheSameVersion:
+    def test_dataset_default_is_the_shared_constant(self):
+        from qsde.factors.versions import FFD_VERSION
         from qsde.models.dataset import build_training_dataset
         sig = inspect.signature(build_training_dataset)
-        assert sig.parameters["apply_fracdiff"].default is False, (
-            "Post-C1-fix, build_training_dataset's apply_fracdiff default "
-            "must be False — the values in factor_pit are already fracdiff'd "
-            "when written by the engine."
-        )
+        assert sig.parameters["factor_version"].default == FFD_VERSION
+        assert sig.parameters["apply_fracdiff"].default is False
 
-    def test_dataset_accepts_factor_version_param(self):
-        from qsde.models.dataset import build_training_dataset
-        sig = inspect.signature(build_training_dataset)
-        assert "factor_version" in sig.parameters
-        assert sig.parameters["factor_version"].default == "ffd_v1", (
-            "Default read version must be 'ffd_v1' — otherwise dataset "
-            "silently reads pre-fix raw_v0 rows and the C1 fix is defeated."
-        )
+    def test_dataset_and_serve_use_the_same_reader_module(self):
+        from qsde.models import dataset, signal_generator
+        d_src = Path(dataset.__file__).read_text()
+        s_src = Path(signal_generator.__file__).read_text()
+        assert "FACTOR_PIT_TRAIN_SQL" in d_src and "FACTOR_PIT_SERVE_SQL" in s_src
+        assert "FFD_VERSION" in s_src, "serve must use the shared version constant"
+        # No hard-coded version literals left to drift.
+        assert "'ffd_v" not in s_src and '"ffd_v' not in s_src
 
-    def test_dataset_query_filters_by_factor_version(self):
-        """Source-level guard: the factor_pit SELECT must include a
-        `factor_version = :fv` filter."""
-        from qsde.models import dataset
-        src = Path(dataset.__file__).read_text()
-        # The SELECT block should include the filter.
-        assert "factor_version = :fv" in src or \
-               "factor_version = :factor_version" in src, (
-            "dataset.py's factor_pit SELECT must filter by factor_version — "
-            "otherwise training silently pools raw + ffd rows."
-        )
+    def test_both_queries_filter_on_factor_version(self):
+        from qsde.models.feature_view import FACTOR_PIT_SERVE_SQL, FACTOR_PIT_TRAIN_SQL
+        assert "factor_version = :fv" in FACTOR_PIT_TRAIN_SQL
+        assert "factor_version = :fv" in FACTOR_PIT_SERVE_SQL
 
-
-class TestSignalGeneratorReadsFilteredByFactorVersion:
-    def test_serve_query_filters_by_ffd_v1(self):
-        """Source-level guard: signal_generator's SELECT must filter to
-        factor_version='ffd_v1' so serve reads the same distribution as
-        training. THIS IS THE C1 FIX."""
-        from qsde.models import signal_generator
-        src = Path(signal_generator.__file__).read_text()
-        assert "factor_version = 'ffd_v1'" in src, (
-            "signal_generator.py must filter factor_pit to "
-            "factor_version = 'ffd_v1' — this is the load-bearing part "
-            "of the C1 fix. Without it, live serve reads raw levels while "
-            "the model expects fracdiff'd inputs."
-        )
+    def test_retired_and_raw_versions_are_not_the_read_version(self):
+        from qsde.factors.versions import FFD_VERSION, RAW_VERSION
+        assert FFD_VERSION not in {RAW_VERSION, "ffd_v1"}
 
 
 class TestMigration021:
@@ -137,33 +121,5 @@ class TestMigration021:
         )
         assert "ALTER TABLE factor_pit" in exec_sql
         assert "ADD COLUMN IF NOT EXISTS factor_version" in exec_sql
-        assert "DEFAULT 'raw_v0'" in exec_sql, (
-            "Migration 021 must default existing rows to 'raw_v0' — "
-            "they were written pre-fix and are honestly RAW."
-        )
-        # And an index on the version column for reader performance.
-        assert "CREATE INDEX" in exec_sql and "factor_version" in exec_sql, (
-            "Migration 021 must create an index on factor_version so the "
-            "reader filter is cheap on 87M+ rows."
-        )
-
-
-class TestC1LoadBearingProperty:
-    """The single load-bearing test: source-level check that BOTH the
-    train path AND the serve path filter to the SAME factor_version, so
-    they can't diverge."""
-
-    def test_train_and_serve_read_same_version(self):
-        from qsde.models import dataset, signal_generator
-        d_src = Path(dataset.__file__).read_text()
-        s_src = Path(signal_generator.__file__).read_text()
-        # Train default:
-        assert 'factor_version: str = "ffd_v1"' in d_src or \
-               "factor_version: str = 'ffd_v1'" in d_src, (
-            "Training path must default to reading ffd_v1 rows."
-        )
-        # Serve hard-codes ffd_v1 (no runtime override — safer):
-        assert "factor_version = 'ffd_v1'" in s_src, (
-            "Serve path must hard-code ffd_v1 — otherwise a config drift "
-            "silently reintroduces the C1 skew."
-        )
+        assert "DEFAULT 'raw_v0'" in exec_sql
+        assert "CREATE INDEX" in exec_sql and "factor_version" in exec_sql

@@ -36,6 +36,8 @@ import numpy as np
 import pandas as pd
 
 from qsde.db.connection import read_sql
+from qsde.factors.versions import FFD_VERSION, RAW_VERSION
+from qsde.models.feature_view import FACTOR_PIT_TRAIN_SQL, pivot_factors
 from qsde.models.purged_cv import HORIZON_DAYS
 
 log = logging.getLogger(__name__)
@@ -52,7 +54,7 @@ def build_training_dataset(
     label_method: LabelMethod = "triple_barrier",
     apply_fracdiff: bool = False,
     fracdiff_d: float = 0.4,
-    factor_version: str = "ffd_v1",
+    factor_version: str = FFD_VERSION,
 ) -> pd.DataFrame:
     """
     Build a labeled (factors, target) dataset for training.
@@ -84,11 +86,21 @@ def build_training_dataset(
     if horizon not in HORIZON_DAYS:
         raise ValueError(f"Unknown horizon: {horizon}")
 
+    # Only raw rows may be differenced here. Every other version is already
+    # differenced at ingest; doing it again trains on a different transform
+    # than the one served (double application).
+    if apply_fracdiff and factor_version != RAW_VERSION:
+        raise ValueError(
+            f"factor_version={factor_version!r} rows are already fractionally "
+            f"differenced at ingest; apply_fracdiff=True would difference them "
+            f"twice. Leave apply_fracdiff=False."
+        )
+
     # 1. Fetch OHLCV. For intraday open-to-close we also need open prices.
     log.info("Fetching OHLCV for targets...")
     prices = read_sql(
         """
-        SELECT symbol, date, open, close
+        SELECT symbol, date, open, high, low, close
           FROM ohlcv
          WHERE date >= CAST(:start_date AS DATE) - INTERVAL '30 days'
       ORDER BY symbol, date
@@ -172,15 +184,7 @@ def build_training_dataset(
         chunk_i += 1
         t_chunk = time.time()
         df_chunk = read_sql(
-            """
-            SELECT DISTINCT ON (symbol, as_of_date, factor_name) symbol, as_of_date, factor_name, factor_value
-              FROM factor_pit
-             WHERE as_of_date >= CAST(:s AS DATE)
-               AND as_of_date <= CAST(:e AS DATE)
-               AND factor_version = :fv
-               ORDER BY symbol, as_of_date, factor_name, valid_from ASC
-               AND valid_to = 'infinity'::timestamptz
-            """,
+            FACTOR_PIT_TRAIN_SQL,
             params={"s": cur, "e": nxt, "fv": factor_version},
         )
         n = len(df_chunk)
@@ -204,11 +208,7 @@ def build_training_dataset(
     log.info("Pivoting factors (float32 wide frame, %d total long rows)...",
              len(factors))
     # factor_value was already cast to float32 per chunk above.
-    factors_wide = factors.pivot_table(
-        index=["symbol", "as_of_date"],
-        columns="factor_name",
-        values="factor_value",
-    ).reset_index()
+    factors_wide = pivot_factors(factors, index=["symbol", "as_of_date"])
 
     # 4. Merge factors with fixed-horizon target. We may immediately overwrite
     # `target` below if label_method == "triple_barrier".
@@ -238,7 +238,7 @@ def build_training_dataset(
             from qsde.models.triple_barrier import apply_triple_barrier_labels
             dataset = apply_triple_barrier_labels(
                 dataset=dataset,
-                ohlcv=prices[["symbol", "date", "close"]],
+                ohlcv=prices[["symbol", "date", "high", "low", "close"]],
                 horizon=horizon,
             )
             log.info("Switched target -> triple-barrier {-1, 0, +1} labels.")
