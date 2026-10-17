@@ -21,15 +21,28 @@ Verify each of 017, 018, 019, 020, 021 lands with no errors.
 
 ### 2. Recompute all factors with fracdiff at ingest (C1)
 ```powershell
-# Force a full rewrite so factor_pit gets rows tagged factor_version='ffd_v1'.
-python backend/scripts/compute_factors.py --all --write-tail-days=0
+# Full backfill: compute_factors.py writes the whole history for every symbol,
+# tagged factor_version='ffd_v2' (see backend/qsde/factors/versions.py).
+cd backend
+python scripts/compute_factors.py --start 2018-01-01        # --symbols A,B to limit
 ```
+(`compute_factors.py` has no `--all` / `--write-tail-days`. The daily job
+`daily_eod.py --write-tail-days N` persists only the last N days, but it
+differences the FULL history first, so tail rows equal backfill rows.)
+
 Success signal in the log:
 ```
-Persisted N individual factor records to factor_pit (version=ffd_v1).
+Persisted N individual factor records to factor_pit (version=ffd_v2).
 ```
-If you see `version=raw_v0` in the log, fracdiff at ingest failed and
-you're back to the pre-C1-fix state — investigate the warning above it.
+If you see `version=raw_v0`, fracdiff at ingest failed (it runs in `strict`
+mode, so the error is logged at ERROR level just above) and training/serving
+will ignore those rows. Rows tagged `ffd_v1` are retired and never read: they
+came from a tail-only differencing step with a different kernel.
+
+The fixed kernel is 282 sessions wide (d=0.4, thres=1e-4), so the first 281
+sessions of every symbol have no differenced level-form features, and symbols
+with fewer sessions have none at all. That is intentional
+(`frac_diff_ffd(auto_widen=False)`); it is why Phase 1 backfills 5-7+ years.
 
 ### 3. Retrain all horizons on the corrected pipeline
 ```powershell
