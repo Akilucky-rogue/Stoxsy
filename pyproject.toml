@@ -49,6 +49,10 @@ dependencies = [
     # ── Monitoring ──
     "mlflow>=2.14",
 
+    # ── Auth ──
+    "argon2-cffi>=23.1",
+    "PyJWT>=2.8",
+
     # ── Notifications ──
     "python-telegram-bot>=21.0",
 

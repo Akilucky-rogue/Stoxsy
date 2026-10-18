@@ -12,9 +12,10 @@ from pathlib import Path
 # Ensure backend directory is in path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from api.auth_deps import require_auth
 from api.responses import CleanJSONResponse
 
 log = logging.getLogger(__name__)
@@ -51,6 +52,7 @@ from api.routes.analysis import router as analysis_router
 from api.routes.paper import router as paper_router
 from api.routes.risk import router as risk_router
 from api.routes.scorecard import router as scorecard_router
+from api.routes.auth import router as auth_router
 
 app = FastAPI(
     title="Stoxsy -- Quantitative Stock Decision Engine",
@@ -60,6 +62,8 @@ app = FastAPI(
     # endpoints don't have to. See api/responses.py.
     default_response_class=CleanJSONResponse,
     lifespan=lifespan,
+    # Every route is authenticated by default (api/auth_deps.py holds the public allow-list and the AUTH_ENFORCED switch).
+    dependencies=[Depends(require_auth)],
 )
 
 app.add_middleware(
@@ -87,6 +91,7 @@ app.include_router(analysis_router,  prefix="/api", tags=["analysis"])
 app.include_router(paper_router,     prefix="/api", tags=["paper"])
 app.include_router(risk_router,      prefix="/api", tags=["risk"])
 app.include_router(scorecard_router, prefix="/api", tags=["scorecard"])
+app.include_router(auth_router,      prefix="/api", tags=["auth"])
 
 
 @app.get("/")

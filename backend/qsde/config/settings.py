@@ -63,6 +63,14 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
 
+    # ── Auth ──────────────────────────────────────────────────
+    # AUTH_ENFORCED=false keeps the API open exactly as before (local single-user development); set it to true, with a real
+    # JWT_SECRET of >= 32 random characters, as soon as the new UI's login is in use. Tokens: 15-minute access, 14-day rotating refresh.
+    auth_enforced: bool = False
+    jwt_secret: str = ""
+    access_token_minutes: int = 15
+    refresh_token_days: int = 14
+
     # ── Application ───────────────────────────────────────────
     app_env: str = "local"
     log_level: str = "INFO"
