@@ -34,11 +34,10 @@ import pandas as pd
 # Other modules (dataset.py, signal_generator.py, run_pipeline.py, analyze)
 # all reference this dict. Adding a new horizon (e.g. "weekly": 10) is a
 # one-line edit here and a single addition to each frontend toggle.
-HORIZON_DAYS = {
-    "intraday": 1,    # blueprint Part 1.4 short end -- next-day position
-    "swing":    5,    # 5-day forward return
-    "long":     20,   # 20-day forward return
-}
+# NOW DERIVED from the horizon registry (qsde.ml.registry): do not edit here.
+from qsde.ml.registry import legacy_sessions
+
+HORIZON_DAYS = legacy_sessions()      # intraday / swing / long -> sessions
 
 
 def horizon_to_days(horizon: str) -> int:

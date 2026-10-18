@@ -85,7 +85,9 @@ from qsde.factors.rules import (
 from qsde.models.deflated_sharpe import deflated_sharpe_ratio
 
 # Horizon -> forward sessions held (matches rule_validation.HORIZON_SESSIONS).
-HORIZON_SESSIONS = {"swing": 5, "long": 20}
+from qsde.ml.registry import legacy_sessions
+
+HORIZON_SESSIONS = legacy_sessions(("swing", "long"))      # registry-derived
 
 # Liquidity floor — matches rule_engine.LIQUIDITY_MIN_RUPEES (Rs10cr ADV).
 LIQUIDITY_MIN_RUPEES = 10 * 1e7

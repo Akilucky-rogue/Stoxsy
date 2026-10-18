@@ -56,11 +56,11 @@ N_CV_SPLITS = 5
 # 5d of the fold boundary leaks. This is the dominant fix for the
 # previously-inflated intraday DSR (~0.999): with 5d embargo and 1d label,
 # train/test factor windows still overlapped through factor autocorrelation.
-EMBARGO_BY_HORIZON: dict[str, int] = {
-    "intraday": 1,   # 1d label -> 1d embargo
-    "swing":    5,
-    "long":     5,
-}
+# Derived from the horizon registry: the embargo FLOOR equals the label horizon
+# (a 20-session label needs >= 20 sessions; the previous 5 for 'long' leaked).
+from qsde.ml.registry import LEGACY_CORE as _LEGACY_CORE, get_horizon as _get_horizon
+
+EMBARGO_BY_HORIZON: dict[str, int] = {n: _get_horizon(n).embargo_days for n in _LEGACY_CORE}
 # Backwards-compat default for any code path that imports the constant.
 EMBARGO_DAYS = 5
 
@@ -428,7 +428,16 @@ def train_lightgbm_model(dataset, horizon="swing"):
     #    (default 10 bps — mid of the 5-8 large-cap / 12-20 mid-cap round-trip
     #    band). A failing model is saved as a candidate but does NOT overwrite
     #    the live/active model that signal_generator loads.
-    promotion_cost_bps = float(os.getenv("QSDE_PROMOTION_COST_BPS", "10"))
+    # Registry cost (the SAME conservative number the Scorecard charges to paper
+    # trades: 30 bps for delivery horizons, 8 for intraday). The env var is kept
+    # only as an explicit research override and is logged loudly.
+    from qsde.ml.registry import promotion_cost_bps as _registry_promo_cost
+    promotion_cost_bps = _registry_promo_cost(horizon)
+    _override = os.getenv("QSDE_PROMOTION_COST_BPS")
+    if _override:
+        log.warning("QSDE_PROMOTION_COST_BPS=%s overrides the registry cost of %.1f bps for %s",
+                    _override, promotion_cost_bps, horizon)
+        promotion_cost_bps = float(_override)
     cost_eval = _evaluate_oos_with_costs(
         oos, horizon_days=horizon_days, cost_bps_round_trip=promotion_cost_bps,
     )

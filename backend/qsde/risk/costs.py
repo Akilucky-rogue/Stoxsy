@@ -46,22 +46,18 @@ Horizon = Literal["intraday", "swing", "long", "btst"]
 # Round-trip cost in basis points (bps). 1 bps = 0.01% of notional.
 # CNC delivery (btst/swing/long) recalibrated 12 -> 24 bps (red-team 2026-07):
 # STT alone is 20 bps round-trip and does NOT amortize over the holding period.
-COSTS_BPS: dict[str, float] = {
-    "intraday": 6.0,
-    "btst":     24.0,
-    "swing":    24.0,
-    "long":     24.0,
-}
+#
+# These tables are now DERIVED from the cost-model registry (qsde.ml.registry):
+# the evaluation harness, the promotion gate and the Scorecard all charge the
+# same numbers. Edit costs there, not here.
+from qsde.ml.registry import round_trip_bps as _rt_bps
 
-# Conservative override for paper-trade default. Used when a caller passes no
-# explicit cost — set above the statutory floor to include mid-cap slippage and
-# avoid optimism bias on the live scorecard.
-PAPER_DEFAULT_BPS: dict[str, float] = {
-    "intraday": 8.0,
-    "btst":     30.0,
-    "swing":    30.0,
-    "long":     30.0,
-}
+_NAMES = ("intraday", "btst", "swing", "long")
+COSTS_BPS: dict[str, float] = {n: _rt_bps(n) for n in _NAMES}                   # 6 / 24 / 24 / 24
+
+# Conservative paper-trade default (adds mid-cap slippage; avoids optimism bias
+# on the live scorecard).
+PAPER_DEFAULT_BPS: dict[str, float] = {n: _rt_bps(n, paper=True) for n in _NAMES}   # 8 / 30 / 30 / 30
 
 
 def cost_bps(horizon: str, *, paper_default: bool = False) -> float:

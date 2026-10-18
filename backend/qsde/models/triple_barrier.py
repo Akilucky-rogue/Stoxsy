@@ -50,11 +50,9 @@ log = logging.getLogger(__name__)
 
 # Per-horizon (pt_mult, sl_mult, t1_sessions) calibration.
 # t1_sessions is NSE trading sessions, not calendar days (H2 fix).
-_HORIZON_BARRIERS: dict[str, dict[str, float]] = {
-    "intraday": {"pt_mult": 1.5, "sl_mult": 0.75, "t1_sessions": 1},
-    "swing":    {"pt_mult": 2.5, "sl_mult": 1.50, "t1_sessions": 5},
-    "long":     {"pt_mult": 4.5, "sl_mult": 2.50, "t1_sessions": 20},
-}
+from qsde.ml.registry import legacy_barriers
+
+_HORIZON_BARRIERS: dict[str, dict[str, float]] = legacy_barriers()   # derived: qsde.ml.registry
 
 
 # ── volatility ─────────────────────────────────────────────────────

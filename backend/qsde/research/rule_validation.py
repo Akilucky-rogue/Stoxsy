@@ -67,7 +67,9 @@ log = logging.getLogger(__name__)
 # ──────────────────────────────────────────────────────────────────────
 
 # Horizon -> number of trading sessions to walk forward.
-HORIZON_SESSIONS: dict[str, int] = {"swing": 5, "long": 20}
+from qsde.ml.registry import legacy_sessions
+
+HORIZON_SESSIONS: dict[str, int] = legacy_sessions(("swing", "long"))      # registry-derived
 
 # IC rolling window (sessions). 60 is the conventional sweet spot:
 # - Long enough to dampen single-day noise

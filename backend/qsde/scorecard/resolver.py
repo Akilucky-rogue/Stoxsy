@@ -33,7 +33,9 @@ from qsde.risk.costs import cost_frac
 log = logging.getLogger(__name__)
 
 # Idea horizon -> barrier window in NSE sessions.
-_HORIZON_SESSIONS = {"intraday": 1, "swing": 5, "rotation": 10, "long": 20}
+from qsde.ml.registry import legacy_sessions
+
+_HORIZON_SESSIONS = legacy_sessions(("intraday", "swing", "rotation", "long"))   # registry-derived
 
 # (underlying, expiry) -> settlement price, or None if not yet knowable.
 SettlementLookup = Callable[[str, date], Optional[float]]
@@ -87,7 +89,7 @@ def resolve_open_ideas(asof: Optional[date] = None) -> dict:
         sessions = _HORIZON_SESSIONS.get(str(r["horizon"]).lower(), 5)
         entry_date = pd.to_datetime(r["created_at"]).date()
         bars = read_sql(
-            """SELECT date, high, low, close FROM ohlcv
+            """SELECT date, open, high, low, close FROM ohlcv
                 WHERE symbol = :s AND date > :d ORDER BY date LIMIT :n""",
             params={"s": r["symbol"], "d": entry_date, "n": sessions + 6},
         )

@@ -45,7 +45,9 @@ from qsde.risk.costs import cost_bps as _horizon_cost_bps
 log = logging.getLogger(__name__)
 
 # Horizon -> barrier window in NSE sessions. Mirrors triple_barrier t1.
-_HORIZON_SESSIONS = {"intraday": 1, "swing": 5, "long": 20}
+from qsde.ml.registry import legacy_sessions
+
+_HORIZON_SESSIONS = legacy_sessions()          # registry-derived
 
 
 # ── take ────────────────────────────────────────────────────────────
@@ -418,28 +420,18 @@ def _resolve_barrier_daily(prices: pd.DataFrame, entry_price: float,
                            direction: int) -> tuple[str, Optional[float], Optional[pd.Timestamp]]:
     """Walk daily bars chronologically; return (status, exit_price, exit_date).
 
-    LONG: target hit if HIGH>=target; stop hit if LOW<=stop. SHORT mirrors.
-    If a single bar hits BOTH, assume STOP first (pessimistic, honest).
-    If neither across the window, TIME exit at the last bar's close.
+    Delegates to `qsde.ml.barrier.walk_barriers`, the ONE barrier implementation
+    shared with the label builder and the evaluation harness (so a model is graded
+    on exactly what paper trading resolves). Rules: LONG target hit if HIGH>=target,
+    stop hit if LOW<=stop (SHORT mirrors); a same-bar tie is a STOP (pessimistic);
+    when a bar OPENS through a barrier the exit fills at the open (needs an `open`
+    column; without one the gap rule is skipped); no hit -> TIME exit at the last
+    bar's close.
     """
-    for _, b in prices.iterrows():
-        hi, lo, cl = float(b["high"]), float(b["low"]), float(b["close"])
-        if direction > 0:
-            hit_stop = stop is not None and lo <= stop
-            hit_tgt  = target is not None and hi >= target
-            if hit_stop:   # pessimistic: stop wins a same-bar tie
-                return "LOSS", stop, b["date"]
-            if hit_tgt:
-                return "WIN", target, b["date"]
-        else:
-            hit_stop = stop is not None and hi >= stop
-            hit_tgt  = target is not None and lo <= target
-            if hit_stop:
-                return "LOSS", stop, b["date"]
-            if hit_tgt:
-                return "WIN", target, b["date"]
-    last = prices.iloc[-1]
-    return "TIME", float(last["close"]), last["date"]
+    from qsde.ml.barrier import walk_barriers
+
+    out = walk_barriers(prices, stop=stop, target=target, direction=direction)
+    return out["status"], out["exit_price"], out["exit_date"]
 
 
 def reconcile_open_trades(asof: Optional[date] = None) -> dict:
@@ -468,7 +460,7 @@ def reconcile_open_trades(asof: Optional[date] = None) -> dict:
         # Pull daily bars AFTER entry up to the horizon window (+slack for holidays).
         window = int(t["horizon_sessions"]) + 6
         bars = read_sql(
-            """SELECT date, high, low, close FROM ohlcv
+            """SELECT date, open, high, low, close FROM ohlcv
                 WHERE symbol = :s AND date > :d
              ORDER BY date LIMIT :n""",
             params={"s": sym, "d": entry_date, "n": window},
