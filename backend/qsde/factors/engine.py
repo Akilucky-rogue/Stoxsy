@@ -118,15 +118,19 @@ def compute_factors_for_symbol(symbol: str, start: str = "2006-01-01") -> pd.Dat
     return factors
 
 
-def compute_factors_batch(
+def compute_ffd_panel(
     symbols: list[str],
     start: str = "2006-01-01",
     write_tail_days: "int | None" = None,
     today: "pd.Timestamp | None" = None,
     universe: "pd.DataFrame | None" = None,
-) -> pd.DataFrame:
+) -> "tuple[pd.DataFrame, pd.DataFrame, str]":
     """
-    Compute factors for all symbols in the universe.
+    Compute factors for all symbols and return (combined, rows_to_persist, version).
+
+    Pure computation: nothing is written. `compute_factors_batch` persists the
+    rows to the Parquet feature store; `scripts/compute_factors_pit.py` collects
+    many chunks into ONE full snapshot.
 
     Args:
         symbols:         universe to compute.
@@ -147,8 +151,9 @@ def compute_factors_batch(
                          which keeps factor_pit to the tradable universe.
 
     Returns:
-        Wide DataFrame (date-indexed) of all computed factors (the FULL
-        series, regardless of write_tail_days).
+        (combined, to_write, version): the FULL wide frame (date-indexed), the
+        rows selected for persistence (after fracdiff, tail and universe
+        filters), and the factor_version tag they must be stored under.
     """
     all_frames = []
     for i, sym in enumerate(symbols):
@@ -159,7 +164,7 @@ def compute_factors_batch(
             all_frames.append(factors)
 
     if not all_frames:
-        return pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame(), ""
 
     combined = pd.concat(all_frames)
     log.info("Computed factors for %d symbols, %d total rows", len(all_frames), len(combined))
@@ -169,7 +174,6 @@ def compute_factors_batch(
     # Differencing only the tail slice (the previous behaviour) used a different,
     # auto-widened kernel than the backfill, so rows written by the daily job
     # disagreed with the rows the model was trained on (train/serve skew).
-    from qsde.factors.pit_writer import write_factors_to_pit
     from qsde.factors.versions import FFD_VERSION, RAW_VERSION
     try:
         ffd_full = to_ffd_frame(combined)
@@ -203,10 +207,35 @@ def compute_factors_batch(
         to_write = to_write[have.isin(wanted)]
         log.info("universe filter -> persisting %d symbol-days", len(to_write))
 
-    written = write_factors_to_pit(to_write, factor_version=version)
-    log.info("Persisted %d individual factor records to factor_pit (version=%s).",
-             written, version)
+    return combined, to_write, version
 
+
+def _persist(to_write: pd.DataFrame, version: str) -> None:
+    """Default sink: an incremental snapshot in the Parquet feature store.
+
+    (The old factor_pit long-form writer is no longer used for ffd_v2: two live
+    stores would reintroduce the train/serve skew.)  Tests monkeypatch this.
+    """
+    from qsde.features.store import persist_increment
+
+    snap = persist_increment(to_write, version)
+    if snap is not None:
+        log.info("Persisted %d symbol-days x %d factors to feature snapshot %s (version=%s).",
+                 snap.n_rows, len(snap.columns), snap.snapshot_id, version)
+
+
+def compute_factors_batch(
+    symbols: list[str],
+    start: str = "2006-01-01",
+    write_tail_days: "int | None" = None,
+    today: "pd.Timestamp | None" = None,
+    universe: "pd.DataFrame | None" = None,
+) -> pd.DataFrame:
+    """Compute factors (see compute_ffd_panel) and persist the selected rows to the
+    Parquet feature store as an incremental snapshot. Returns the FULL wide frame."""
+    combined, to_write, version = compute_ffd_panel(symbols, start, write_tail_days, today, universe)
+    if len(to_write):
+        _persist(to_write, version)
     return combined
 
 

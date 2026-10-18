@@ -217,24 +217,12 @@ def compute_adv_map() -> dict[str, float]:
 def load_latest_atr_map() -> dict[str, float]:
     """Latest tech_atr_pct per symbol (used for trade-level computation).
 
-    Mirrors the load pattern in models/signal_generator.py — `DISTINCT ON`
-    grabs the latest valid_to=infinity row per (symbol).
+    Reads the Parquet feature store (same store training and serving use).
     """
-    df = read_sql(
-        """
-        SELECT DISTINCT ON (symbol)
-               symbol, factor_value
-          FROM factor_pit
-         WHERE factor_name = 'tech_atr_pct'
-           AND valid_to = 'infinity'::timestamptz
-           AND as_of_date >= (CURRENT_DATE - INTERVAL '20 days')
-      ORDER BY symbol, as_of_date DESC
-        """
-    )
-    if df.empty:
-        return {}
-    return {str(r["symbol"]): float(r["factor_value"]) for _, r in df.iterrows()
-            if pd.notna(r["factor_value"])}
+    from qsde.features.store import latest_factor
+
+    s = latest_factor("tech_atr_pct", max_age_days=20)
+    return {str(k): float(v) for k, v in s.items() if pd.notna(v)}
 
 
 def shrink_toward_prior(

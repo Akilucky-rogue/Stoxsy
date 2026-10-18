@@ -43,7 +43,7 @@ class TestFactorEngineDifferencesAtIngest:
     def test_engine_tags_writes_with_ffd_version_and_actually_transforms(self, monkeypatch):
         """The engine must write FFD_VERSION rows whose level-form columns are
         really differenced (the first fix silently left them raw)."""
-        from qsde.factors import engine, pit_writer
+        from qsde.factors import engine
         from qsde.factors.versions import FFD_VERSION
 
         idx = pd.bdate_range("2020-01-01", periods=700, name="date")
@@ -53,8 +53,8 @@ class TestFactorEngineDifferencesAtIngest:
                               "tech_rsi_14": rng.uniform(20, 80, 700)}, index=idx)
         captured: dict = {}
         monkeypatch.setattr(engine, "compute_factors_for_symbol", lambda s, start="": frame.copy())
-        monkeypatch.setattr(pit_writer, "write_factors_to_pit",
-                            lambda df, **k: captured.update(df=df.copy(), k=k) or len(df))
+        monkeypatch.setattr(engine, "_persist",
+                            lambda df, version: captured.update(df=df.copy(), k={"factor_version": version}))
         engine.compute_factors_batch(["AAA"])
 
         assert captured["k"]["factor_version"] == FFD_VERSION
@@ -67,7 +67,7 @@ class TestFactorEngineDifferencesAtIngest:
                                    frame["tech_rsi_14"].to_numpy())
 
     def test_failure_to_difference_falls_back_to_raw_tag(self, monkeypatch):
-        from qsde.factors import engine, pit_writer
+        from qsde.factors import engine
         from qsde.factors.versions import RAW_VERSION
 
         idx = pd.bdate_range("2020-01-01", periods=300, name="date")
@@ -76,8 +76,8 @@ class TestFactorEngineDifferencesAtIngest:
         monkeypatch.setattr(engine, "compute_factors_for_symbol", lambda s, start="": frame.copy())
         monkeypatch.setattr(engine, "to_ffd_frame",
                             lambda df: (_ for _ in ()).throw(RuntimeError("boom")))
-        monkeypatch.setattr(pit_writer, "write_factors_to_pit",
-                            lambda df, **k: captured.update(k=k) or len(df))
+        monkeypatch.setattr(engine, "_persist",
+                            lambda df, version: captured.update(k={"factor_version": version}))
         engine.compute_factors_batch(["AAA"])
         assert captured["k"]["factor_version"] == RAW_VERSION
 
@@ -94,15 +94,27 @@ class TestTrainAndServeReadTheSameVersion:
         from qsde.models import dataset, signal_generator
         d_src = Path(dataset.__file__).read_text()
         s_src = Path(signal_generator.__file__).read_text()
-        assert "FACTOR_PIT_TRAIN_SQL" in d_src and "FACTOR_PIT_SERVE_SQL" in s_src
+        assert "qsde.features.store import read_features" in d_src
+        assert "qsde.features.store import read_latest_rows" in s_src
         assert "FFD_VERSION" in s_src, "serve must use the shared version constant"
         # No hard-coded version literals left to drift.
         assert "'ffd_v" not in s_src and '"ffd_v' not in s_src
 
-    def test_both_queries_filter_on_factor_version(self):
-        from qsde.models.feature_view import FACTOR_PIT_SERVE_SQL, FACTOR_PIT_TRAIN_SQL
-        assert "factor_version = :fv" in FACTOR_PIT_TRAIN_SQL
-        assert "factor_version = :fv" in FACTOR_PIT_SERVE_SQL
+    def test_reader_is_pinned_to_the_version_it_is_asked_for(self, tmp_path):
+        """A version's directory is its own namespace: reading ffd_v2 can never
+        return rows written under another version."""
+        from datetime import datetime, timezone
+
+        from qsde.features.store import SnapshotWriter, read_features
+
+        idx = pd.bdate_range("2026-01-05", periods=5, name="date")
+        for ver, val in (("ffd_v2", 2.0), ("raw_v0", 9.0)):
+            w = SnapshotWriter(ver, "u", root=tmp_path, fingerprint={}, sha="s",
+                               built_at=datetime(2026, 10, 1, tzinfo=timezone.utc))
+            w.add(pd.DataFrame({"symbol": "AAA", "f": val}, index=idx))
+            w.close(register=False)
+        got = read_features("ffd_v2", root=tmp_path)
+        assert (got["f"] == 2.0).all()
 
     def test_retired_and_raw_versions_are_not_the_read_version(self):
         from qsde.factors.versions import FFD_VERSION, RAW_VERSION

@@ -68,21 +68,10 @@ def _enrich_with_levels(rows: list[dict]) -> list[dict]:
     )
     close_map = {r.symbol: float(r.close) for r in closes_df.itertuples()}
 
-    # Latest tech_atr_pct per symbol from the PIT factor store.
-    # Convention in this codebase: currently-valid rows have
-    # `valid_to = 'infinity'::timestamptz` (NOT NULL -- see pit_writer.py),
-    # and the column is `factor_value` (NOT `value`).
-    atr_df = read_sql(
-        """SELECT DISTINCT ON (symbol)
-                  symbol, factor_value
-             FROM factor_pit
-            WHERE factor_name = 'tech_atr_pct'
-              AND symbol = ANY(:syms)
-              AND valid_to = 'infinity'::timestamptz
-         ORDER BY symbol, valid_from DESC""",
-        params={"syms": symbols},
-    )
-    atr_map = {r.symbol: float(r.factor_value) for r in atr_df.itertuples()}
+    # Latest tech_atr_pct per symbol from the Parquet feature store (stored raw:
+    # it matches a "stationary" pattern, so fracdiff leaves it untouched).
+    from qsde.features.store import latest_factor
+    atr_map = {k: float(v) for k, v in latest_factor("tech_atr_pct", symbols=symbols).items()}
 
     for r in rows:
         sym = r.get("symbol")

@@ -12,8 +12,15 @@ data/stocktrack_data/cache/historical/nse/{old_legacy,legacy}/parsed/YYYY-MM-DD.
    -> qsde/ingestion/corp_actions.py detect split/bonus/consolidation          -> corp_action_events
                                       adjust prices                             -> ohlcv  (source nse_bhavcopy_adj_v1)
    -> qsde/universe/pit.py           trailing-60d median traded value top-500  -> universe_pit  (point in time)
-   -> qsde/factors/engine.py         factors + fixed-kernel fracdiff (ffd_v2)  -> factor_pit  (only universe symbol-days)
+   -> qsde/factors/engine.py         factors + fixed-kernel fracdiff (ffd_v2)  -> Parquet feature store
+                                      (qsde/features/store.py; D:\Stoxsy\data\features\ffd_v2\<snapshot>\data-YYYYMM.parquet,
+                                       only universe symbol-days; registry table feature_snapshots)
 ```
+
+Training (`qsde.models.dataset`), serving (`signal_generator`) and every other former `factor_pit` reader
+(ATR for trade levels, the factors API, the paper journal) now read the SAME Parquet store through
+`qsde.features.store` (ADR 0001). `factor_pit` is no longer read or written for `ffd_v2`; the 8.2M pilot rows
+are kept only as the parity reference and may be dropped on the owner's go-ahead.
 
 Commands (from `backend/`, venv at `D:\Stoxsy\.venv`):
 
@@ -31,7 +38,8 @@ python scripts/compute_factors_pit.py --pilot            # 46 symbols; or --min-
 | `ohlcv` | 4,781,686 | split/bonus-adjusted; `adj_close == close` (no dividend adjustment) |
 | `corp_action_events` | 1,327 | 1,195 applied (SPLIT_BONUS), 132 UNEXPLAINED (not applied, mostly demergers) |
 | `universe_pit` | 1,150,000 | 500 symbols/day, 2017-01-09 .. 2026-04-30, 1,360 symbols ever |
-| `factor_pit` | 8.2M (pilot) | `ffd_v2`, 46 symbols, 95 factors (tech 44, smc 45, pattern 6) |
+| `feature_snapshots` + Parquet | 88,162 symbol-days (pilot) | `ffd_v2`, 46 symbols, 95 factors (tech 44, smc 45, pattern 6); 56.6 MB; PILOT-SURVIVOR-SELECTED, plumbing only |
+| `factor_pit` (legacy) | 8.2M | parity reference only; Parquet equals it exactly (8,195,321 / 8,195,321 cells) |
 
 ## Findings that shaped the design
 
@@ -52,8 +60,10 @@ python scripts/compute_factors_pit.py --pilot            # 46 symbols; or --min-
 * **Demergers / mergers / symbol changes** (VEDL 2026-04-30, PEL 2022, ABFRL 2025, TATAMOTORS->TMPV) stay as visible
   cliffs (`UNEXPLAINED`). A renamed symbol leaves the universe under its old name.
 * Rank-500 liquidity is only ~Rs1-5 cr/day in 2017-2023 (Rs14+ cr from 2024); tradeability still needs the ADV filter.
-* **Storage**: factor_pit long-form costs ~256 bytes/row. The pilot (8.2M rows) is 2.1 GB; the full Rs10cr+ universe
-  (833k symbol-days x 95 factors = ~79M rows) would be ~20 GB and ~110 min of writing. A wide/parquet feature store
-  is the proposed alternative (see HANDOVER).
+* **Storage** (resolved): the long-form table cost ~256 bytes per factor value (pilot 2.1 GB, 667 s). The wide Parquet
+  snapshot of the same data is 56.6 MB (37x smaller), builds in 93 s, and a full read takes 0.55 s, so the full
+  Rs10cr+ universe (833k symbol-days) should be ~0.5-1 GB. Monthly files are fast enough; daily partitions are not needed.
+* The pilot is survivor-selected (40 names liquid on 2026-04-30 plus 20 liquid in 2018): any metric computed on it is
+  plumbing-only, never evidence.
 * `fund_*`, `flow_*`, `macro_*`, `sent_*` factor families are empty (no sources loaded yet).
 * `tech_obv_slope` is in share units after differencing (max ~5e7); harmless for trees, must be scaled for DL.

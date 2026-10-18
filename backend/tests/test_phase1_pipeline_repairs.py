@@ -31,12 +31,6 @@ BACKEND = Path(__file__).resolve().parents[1]
 
 # ── helpers ──────────────────────────────────────────────────────────
 
-def _pg_parse(sql: str) -> None:
-    """Raise if `sql` is not valid PostgreSQL. :name binds -> $1 first."""
-    import pglast
-    pglast.parse_sql(re.sub(r"(?<!:):([A-Za-z_]\w*)", "$1", sql))
-
-
 def _walk(n: int, seed: int, start: str = "2019-01-01") -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     close = 100 * np.exp(np.cumsum(rng.normal(2e-4, 0.015, n)))
@@ -53,23 +47,38 @@ def _walk(n: int, seed: int, start: str = "2019-01-01") -> pd.DataFrame:
 
 # ── 1. SQL ───────────────────────────────────────────────────────────
 
-class TestFactorPitSql:
-    def test_training_query_is_valid_postgres(self):
-        from qsde.models.feature_view import FACTOR_PIT_TRAIN_SQL
-        _pg_parse(FACTOR_PIT_TRAIN_SQL)
+class TestOneStoreForTrainAndServe:
+    """The factor_pit SQL readers were replaced by the Parquet store (ADR 0001).
+    Training and serving must use the same reader module and version constant,
+    and no live code path may read factor_pit any more."""
 
-    def test_serve_query_is_valid_postgres(self):
-        from qsde.models.feature_view import FACTOR_PIT_SERVE_SQL
-        _pg_parse(FACTOR_PIT_SERVE_SQL)
+    def test_train_and_serve_share_the_same_reader_and_version_constant(self):
+        import inspect
 
-    def test_train_and_serve_share_the_same_version_constant(self):
         from qsde.factors.versions import FFD_VERSION
         from qsde.models import dataset, signal_generator
-        assert dataset.build_training_dataset.__defaults__ is not None
-        import inspect
         sig = inspect.signature(dataset.build_training_dataset)
         assert sig.parameters["factor_version"].default == FFD_VERSION
-        assert "FFD_VERSION" in Path(signal_generator.__file__).read_text()
+        d_src = Path(dataset.__file__).read_text()
+        s_src = Path(signal_generator.__file__).read_text()
+        assert "from qsde.features.store import read_features" in d_src
+        assert "from qsde.features.store import read_latest_rows" in s_src
+        assert "FFD_VERSION" in s_src
+
+    def test_no_live_module_reads_factor_pit(self):
+        """Two live stores is exactly the skew this repo just fixed."""
+        import re
+        root = BACKEND / "qsde"
+        offenders = []
+        allowed = {"pit_writer.py"}       # legacy writer kept only for the raw_v0 archive / bitemporal tests
+        for p in list(root.rglob("*.py")) + list((BACKEND / "api").rglob("*.py")):
+            if p.name in allowed or p.parent.name == "db" or p.name == "versions.py":
+                continue
+            txt = p.read_text(encoding="utf-8", errors="ignore")
+            # code (not prose): a SQL FROM/JOIN of the table
+            if re.search(r"(?i)\b(from|join)\s+factor_pit\b", txt):
+                offenders.append(str(p.relative_to(BACKEND)))
+        assert not offenders, f"still reading factor_pit: {offenders}"
 
 
 def _db_up() -> bool:
@@ -79,16 +88,6 @@ def _db_up() -> bool:
         return True
     except Exception:  # noqa: BLE001
         return False
-
-
-@pytest.mark.skipif(not _db_up(), reason="no Postgres reachable")
-class TestFactorPitSqlOnLiveDb:
-    def test_training_query_plans_on_real_postgres(self):
-        from qsde.db.connection import read_sql
-        from qsde.models.feature_view import FACTOR_PIT_TRAIN_SQL
-        sql = "EXPLAIN " + FACTOR_PIT_TRAIN_SQL
-        df = read_sql(sql, params={"s": "2024-01-01", "e": "2024-12-31", "fv": "ffd_v2"})
-        assert len(df) > 0
 
 
 # ── 2. double fracdiff ───────────────────────────────────────────────
@@ -164,12 +163,12 @@ class TestTailWriteMatchesBackfill:
 
     @staticmethod
     def _run(monkeypatch, frames, **kw):
-        from qsde.factors import engine, pit_writer
+        from qsde.factors import engine
         captured: dict = {}
         monkeypatch.setattr(engine, "compute_factors_for_symbol",
                             lambda sym, start="2006-01-01": frames[sym].copy())
-        monkeypatch.setattr(pit_writer, "write_factors_to_pit",
-                            lambda df, **k: captured.update(df=df.copy(), k=k) or len(df))
+        monkeypatch.setattr(engine, "_persist",
+                            lambda df, version: captured.update(df=df.copy(), k={"factor_version": version}))
         engine.compute_factors_batch(list(frames), **kw)
         return captured["df"], captured["k"]
 
@@ -245,11 +244,12 @@ class TestLabelerGetsHighLow:
             asked.append(sql)
             if "FROM ohlcv" in sql:
                 return prices.copy()
-            if "FROM factor_pit" in sql:
-                d = px.index[60:380]
-                rows = [(("AAA"), x.date(), "tech_obv_slope", float(i)) for i, x in enumerate(d)]
-                return pd.DataFrame(rows, columns=["symbol", "as_of_date", "factor_name", "factor_value"])
             return pd.DataFrame()
+
+        def fake_read_features(**k):
+            d = px.index[60:380]
+            return pd.DataFrame({"symbol": "AAA", "as_of_date": [x.date() for x in d],
+                                 "known_at": pd.NaT, "tech_obv_slope": [float(i) for i in range(len(d))]})
 
         seen: dict = {}
         real = triple_barrier.apply_triple_barrier_labels
@@ -261,6 +261,7 @@ class TestLabelerGetsHighLow:
             return real(dataset=dataset, ohlcv=ohlcv, horizon=horizon, **kw)
 
         monkeypatch.setattr(dataset, "read_sql", fake_read_sql)
+        monkeypatch.setattr(dataset, "read_features", fake_read_features)
         monkeypatch.setattr(triple_barrier, "apply_triple_barrier_labels", spy)
         out = dataset.build_training_dataset(horizon="swing", start_date="2019-01-01",
                                              end_date="2020-12-31")
@@ -303,18 +304,27 @@ class TestFeatureParity:
         bad = [c for c in cols if both[c] and not np.isclose(aa[c], bb[c], rtol=1e-6, atol=1e-9)]
         assert not bad, f"factors depend on bars after T (look-ahead): {bad}"
 
-    def test_train_and_serve_reshape_factor_rows_identically(self):
-        from qsde.models.feature_view import pivot_factors
-        d = pd.Timestamp("2024-03-01").date()
-        long = pd.DataFrame({
-            "symbol": ["AAA"] * 3 + ["BBB"] * 3,
-            "as_of_date": [d] * 6,
-            "factor_name": ["f1", "f2", "f3"] * 2,
-            "factor_value": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-        })
-        train = pivot_factors(long, index=["symbol", "as_of_date"]).drop(columns="as_of_date")
-        serve = pivot_factors(long.drop(columns="as_of_date"), index=["symbol"])
-        pd.testing.assert_frame_equal(
-            train.sort_values("symbol").reset_index(drop=True),
-            serve.sort_values("symbol").reset_index(drop=True)[train.columns],
-        )
+    def test_train_and_serve_read_identical_values_for_the_same_symbol_day(self, tmp_path):
+        """The training reader (read_features) and the serving reader (read_latest_rows)
+        come from one store; for the same (symbol, date) they must return the same
+        numbers, NaN included (no zero-filling on either side)."""
+        from datetime import datetime, timezone
+
+        from qsde.features.store import SnapshotWriter, read_features, read_latest_rows
+
+        idx = pd.bdate_range("2026-03-02", periods=12, name="date")
+        rng = np.random.default_rng(1)
+        df = pd.concat([pd.DataFrame({"symbol": s, "f1": rng.normal(size=12), "f2": rng.normal(size=12)},
+                                     index=idx) for s in ("AAA", "BBB")])
+        df.loc[(df.index == idx[-1]) & (df["symbol"] == "BBB"), "f2"] = np.nan
+        w = SnapshotWriter("ffd_v2", "u", root=tmp_path, fingerprint={}, sha="s",
+                           built_at=datetime(2026, 10, 1, tzinfo=timezone.utc))
+        w.add(df)
+        w.close(register=False)
+
+        train = read_features("ffd_v2", root=tmp_path, start=idx[-1].date(), end=idx[-1].date())
+        serve = read_latest_rows(max_age_days=30, asof=idx[-1], factor_version="ffd_v2", root=tmp_path)
+        a = train.sort_values("symbol").reset_index(drop=True)
+        b = serve.sort_values("symbol").reset_index(drop=True)[a.columns]
+        pd.testing.assert_frame_equal(a, b)
+        assert b.loc[b["symbol"] == "BBB", "f2"].isna().all()

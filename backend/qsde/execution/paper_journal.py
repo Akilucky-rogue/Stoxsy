@@ -164,14 +164,10 @@ def _atr_levels(symbol: str, entry: float, horizon: str,
                 direction: int = 1) -> tuple[Optional[float], Optional[float]]:
     """ATR-based target/stop for baseline trades — same multipliers as the
     model so realized stats are comparable like-for-like."""
-    df = read_sql(
-        """SELECT factor_value FROM factor_pit
-            WHERE symbol = :s AND factor_name = 'tech_atr_pct'
-              AND valid_to = 'infinity'::timestamptz
-         ORDER BY as_of_date DESC LIMIT 1""",
-        params={"s": symbol},
-    )
-    atr_pct = float(df.iloc[0]["factor_value"]) if not df.empty else None
+    from qsde.features.store import latest_factor
+
+    atr_s = latest_factor("tech_atr_pct", symbols=[symbol], max_age_days=45)
+    atr_pct = float(atr_s.iloc[-1]) if len(atr_s) else None
     if atr_pct is None:
         # Per-horizon fallback ATR (matches qsde/risk/trade_levels._ATR_FALLBACK).
         atr_pct = {"intraday": 1.0, "swing": 2.2, "long": 4.5}.get(horizon, 2.2)

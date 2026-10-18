@@ -36,8 +36,8 @@ import numpy as np
 import pandas as pd
 
 from qsde.db.connection import read_sql
-from qsde.factors.versions import FFD_VERSION, RAW_VERSION
-from qsde.models.feature_view import FACTOR_PIT_TRAIN_SQL, pivot_factors
+from qsde.factors.versions import FFD_VERSION
+from qsde.features.store import read_features
 from qsde.models.purged_cv import HORIZON_DAYS
 
 log = logging.getLogger(__name__)
@@ -55,6 +55,8 @@ def build_training_dataset(
     apply_fracdiff: bool = False,
     fracdiff_d: float = 0.4,
     factor_version: str = FFD_VERSION,
+    snapshot_ids: Optional[list] = None,
+    universe_version: Optional[str] = None,
 ) -> pd.DataFrame:
     """
     Build a labeled (factors, target) dataset for training.
@@ -86,10 +88,10 @@ def build_training_dataset(
     if horizon not in HORIZON_DAYS:
         raise ValueError(f"Unknown horizon: {horizon}")
 
-    # Only raw rows may be differenced here. Every other version is already
-    # differenced at ingest; doing it again trains on a different transform
-    # than the one served (double application).
-    if apply_fracdiff and factor_version != RAW_VERSION:
+    # Fractional differencing happens ONCE, at ingest, with a fixed kernel. The
+    # store only serves already-differenced versions, so differencing again here
+    # would train on a different transform than the one served.
+    if apply_fracdiff:
         raise ValueError(
             f"factor_version={factor_version!r} rows are already fractionally "
             f"differenced at ingest; apply_fracdiff=True would difference them "
@@ -161,54 +163,21 @@ def build_training_dataset(
     targets = targets.dropna(subset=["target"])
     targets = targets.rename(columns={"date": "as_of_date"})
 
-    # 3. Fetch factors in year-sized chunks so we get progress logs and
-    # never hold more than one chunk of the long-form table in memory at
-    # once. The chunked path is much friendlier to interrupt and tells
-    # you immediately if Postgres is alive vs hung.
-    log.info("Fetching point-in-time factors (chunked)...")
-    chunk_days = int(
-        # Adjustable per-environment. 365d = one calendar year per request.
-        # Smaller = more SQL roundtrips but smoother memory. Larger = faster
-        # but bigger spikes.
-        365
-    )
-    start_d = pd.Timestamp(start_date).date()
-    end_d = pd.Timestamp(end_date).date()
-    chunks: list[pd.DataFrame] = []
-    cur = start_d
-    chunk_i = 0
-    total_rows = 0
+    # 3. Read the feature matrix from the Parquet store (ADR 0001). The store
+    # holds only point-in-time universe symbol-days and preserves NaN; pass
+    # `snapshot_ids` to pin a run to exact snapshots (reproducibility).
+    log.info("Reading features from the Parquet store (version %s)...", factor_version)
     t0 = time.time()
-    while cur <= end_d:
-        nxt = min(cur + _timedelta(days=chunk_days), end_d)
-        chunk_i += 1
-        t_chunk = time.time()
-        df_chunk = read_sql(
-            FACTOR_PIT_TRAIN_SQL,
-            params={"s": cur, "e": nxt, "fv": factor_version},
-        )
-        n = len(df_chunk)
-        total_rows += n
-        log.info("  chunk %d  %s -> %s  rows=%d  (%.1fs)",
-                 chunk_i, cur, nxt, n, time.time() - t_chunk)
-        if not df_chunk.empty:
-            df_chunk["factor_value"] = df_chunk["factor_value"].astype("float32")
-            chunks.append(df_chunk)
-        cur = nxt + _timedelta(days=1)
-    log.info("factor_pit fetch complete: %d total rows in %.1fs across %d chunks",
-             total_rows, time.time() - t0, chunk_i)
-
-    if not chunks:
-        log.warning("No factors found in the specified date range.")
+    factors_wide = read_features(
+        factor_version=factor_version, start=start_date, end=end_date,
+        snapshot_ids=snapshot_ids, universe_version=universe_version,
+    )
+    if factors_wide.empty:
+        log.warning("No features found in the specified date range.")
         return pd.DataFrame()
-    factors = pd.concat(chunks, ignore_index=True)
-    del chunks
-    gc.collect()
-
-    log.info("Pivoting factors (float32 wide frame, %d total long rows)...",
-             len(factors))
-    # factor_value was already cast to float32 per chunk above.
-    factors_wide = pivot_factors(factors, index=["symbol", "as_of_date"])
+    factors_wide = factors_wide.drop(columns=["known_at"])
+    log.info("feature read: %d rows x %d cols in %.1fs", len(factors_wide),
+             factors_wide.shape[1], time.time() - t0)
 
     # 4. Merge factors with fixed-horizon target. We may immediately overwrite
     # `target` below if label_method == "triple_barrier".
@@ -221,7 +190,7 @@ def build_training_dataset(
         dataset[col] = dataset[col].astype("float32")
     # Drop the big intermediates — `factors`, `factors_wide`, `targets` and
     # `close_pivot` together can be > 4× the merged dataset.
-    del factors, factors_wide, targets, close_pivot
+    del factors_wide, targets, close_pivot
     if "open_pivot" in locals():
         del open_pivot
     if "next_open" in locals():
@@ -252,30 +221,18 @@ def build_training_dataset(
         del prices
         gc.collect()
 
-    # 6. (Optional) Fractional differencing on level-form features.
-    if apply_fracdiff:
-        try:
-            from qsde.models.fracdiff import apply_fracdiff_to_features
-            non_feature = {
-                "symbol", "as_of_date", "target", "target_ret", "label_end_date",
-            }
-            feature_cols = [c for c in dataset.columns if c not in non_feature]
-            dataset, _d_used = apply_fracdiff_to_features(
-                dataset, feature_cols=feature_cols, default_d=fracdiff_d,
-            )
-        except Exception as e:  # noqa: BLE001
-            log.warning("fracdiff transformation failed (%s) — "
-                        "leaving features unchanged.", e)
-
-    # 7. Final cleanup. After fracdiff the first (window-1) rows per symbol
-    # are NaN by construction; drop them. For the rest, zero-fill missing
-    # factor values (LightGBM handles NaN natively but it makes purged-CV
-    # row counts noisier).
+    # 6. Final cleanup. Only rows without a label are dropped. Feature NaNs
+    # (the 282-session fracdiff warm-up, and factors with no source yet) are
+    # KEPT: zero-filling them invented a value (11.4% of cells in the pilot) and
+    # made "no data" indistinguishable from "exactly zero". LightGBM/XGBoost/
+    # CatBoost handle NaN natively; deep-learning code must impute explicitly
+    # and add a missing indicator.
     dataset = dataset.dropna(subset=["target"])
-    dataset = dataset.fillna(0)
 
     log.info(
-        "Built dataset with %d rows, %d features, label_method=%s, fracdiff=%s.",
-        len(dataset), len(dataset.columns) - 3, label_method, apply_fracdiff,
+        "Built dataset with %d rows, %d features, label_method=%s, nan_cells=%.1f%%.",
+        len(dataset), len(dataset.columns) - 3, label_method,
+        100.0 * float(dataset.drop(columns=[c for c in ("symbol", "as_of_date") if c in dataset.columns])
+                      .isna().to_numpy().mean()),
     )
     return dataset
