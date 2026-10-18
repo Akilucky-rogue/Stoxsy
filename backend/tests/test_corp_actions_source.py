@@ -196,7 +196,27 @@ class TestCombine:
         px = _bars("C", [100.0] * 8 + [50.0] * 8)
         out = ca.combine_events(pd.DataFrame(columns=ca.EVENT_COLS_ALL), self._inf("C", px["date"].iloc[8]),
                                 _src("OTHERSYM", px["date"].iloc[8], "Bonus 1:1"), px["date"].unique())
-        assert len(out) == 1 and bool(out.iloc[0].applied)
+        # price-only: research-usable, low confidence, NEVER in the official series
+        r = out.iloc[0]
+        assert not bool(r.applied) and bool(r.applied_research) and r.confidence == "low"
+
+    def test_source_confirmed_event_is_official_and_high_confidence(self):
+        px = _bars("D", [100.0] * 8 + [50.0] * 8)
+        ex = px["date"].iloc[8]
+        src_all = _src("D", ex, "Bonus 1:1")
+        conf = cas.reconcile(src_all, px)
+        out = ca.combine_events(conf, self._inf("D", ex), src_all, px["date"].unique())
+        r = out.iloc[0]
+        assert bool(r.applied) and bool(r.applied_research) and r.confidence == "high"
+
+    def test_official_series_ignores_price_inferred_events_research_series_applies_them(self):
+        px = _bars("E", [100.0] * 8 + [50.0] * 8)
+        ev = ca.combine_events(pd.DataFrame(columns=ca.EVENT_COLS_ALL), self._inf("E", px["date"].iloc[8]),
+                               _src("OTHERSYM", px["date"].iloc[8], "Bonus 1:1"), px["date"].unique())
+        official = ca.adjust_prices(px, ev, "applied")
+        research = ca.adjust_prices(px, ev, "applied_research")
+        assert official["close"].tolist() == px["close"].tolist()          # raw cliff left in place
+        assert research["close"].iloc[0] == pytest.approx(50.0)            # cliff removed
 
 
 ARCHIVE = nse_eod.DEFAULT_BASE
@@ -237,3 +257,7 @@ class TestRealSource:
         # the old parser tagged only 6 rows 'split'; re-parsing the text finds hundreds
         assert (src["category"] == "SPLIT_BONUS").sum() > 800
         assert src[(src["symbol"] == "HDFCBANK") & (src["ex_date"] == "2019-09-19")]["factor"].iloc[0] == 0.5
+
+
+def test_official_source_tag_fits_the_ohlcv_column():
+    assert len(ca.ADJ_SOURCE) <= 20          # ohlcv.source is VARCHAR(20); a longer tag rolled back a 25-minute rebuild

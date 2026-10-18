@@ -111,3 +111,20 @@ def walk_barriers_matrix(O: np.ndarray, H: np.ndarray, L: np.ndarray, C: np.ndar
         gap[r] = (c == 1) | (c == 2)
         exit_px[r] = np.select([c == 1, c == 2, c == 3], [O[r, k], O[r, k], stop[r]], default=target[r])
     return status, exit_idx, exit_px, gap
+
+
+# ── fill convention ──────────────────────────────────────────────────
+
+def levels_at_fill(ref_price: Optional[float], fill_price: float, stop: Optional[float],
+                   target: Optional[float]) -> tuple[Optional[float], Optional[float]]:
+    """Re-anchor stop/target from the signal-time reference (close of t) to the actual next-open fill.
+
+    The decision is taken at the close of t and filled at the open of t+1, so the executable barriers are
+    `fill * (1 -/+ offset)` with the SAME fractional offsets the signal carried - exactly how the label builder
+    constructs them (stop = entry * (1 - sl_mult * sigma)). Ratio-scaling preserves the offsets for longs and
+    shorts alike. Without a usable reference the absolute levels are returned unchanged (explicit fills).
+    """
+    if ref_price is None or not np.isfinite(ref_price) or ref_price <= 0 or fill_price is None or fill_price <= 0:
+        return stop, target
+    k = float(fill_price) / float(ref_price)
+    return (None if stop is None else float(stop) * k), (None if target is None else float(target) * k)

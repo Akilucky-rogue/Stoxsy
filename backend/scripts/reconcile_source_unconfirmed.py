@@ -1,0 +1,162 @@
+"""READ-ONLY reconciliation of NSE-listed split/bonus rows that prices did not confirm (SOURCE_UNCONFIRMED).
+
+Nothing is written to the database and nothing is applied: the output is a review file that puts every
+listing in one of three buckets.
+
+  confirm_and_apply            a clean, persistent gap matching the listed ratio exists within +-WIDE sessions of
+                               the listing, ISIN unchanged. Applying it (at the observed date) is the proposal.
+  needs_manual_review          evidence is partial or contradictory: ISIN change, a gap of the wrong size, a
+                               demerger/rights/scheme in the purpose text, too little price history, etc.
+  reject_listing_or_data_mismatch   no price evidence of the action anywhere near the listed date (stale or
+                               duplicated listing, already-adjusted archive, parser miss, wrong symbol/date)
+
+Evidence per listing: NSE purpose text + parsed factor, best open-gap and its offset, close-persistence after the
+gap, ISIN before/after, trading-day coverage around the date. Fields NSE did not provide in the old feed
+(record date, face value, ISIN) are reported as unavailable instead of guessed.
+
+    python scripts/reconcile_source_unconfirmed.py            # writes D:\\Stoxsy\\data\\reports\\corp_actions\\
+"""
+from __future__ import annotations
+
+import argparse
+import re
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import numpy as np
+import pandas as pd
+
+WIDE = 10                  # sessions searched around the listed date
+FLAT_BAND = 0.04           # |open_ratio - 1| below this everywhere in the window == no gap at all
+TOL = 0.10                 # factor match tolerance (same as the reconciler's strong tolerance)
+PERSIST_SESSIONS = 5
+OUT = Path(r"D:\Stoxsy\data\reports\corp_actions")
+RIGHTS = re.compile(r"right|warrant|partly paid|scheme|arrang|amalgam|merger|demerg|capital reduction|buyback", re.I)
+
+BUCKETS = ("confirm_and_apply", "needs_manual_review", "reject_listing_or_data_mismatch")
+
+
+def evidence(row, px: pd.DataFrame, factor: float) -> dict:
+    """Price/ISIN evidence for one listing. px: primary series for the symbol (date-sorted, one row/day)."""
+    px = px.sort_values("date").reset_index(drop=True)
+    ex = pd.Timestamp(row.listed_ex)
+    out = {"n_bars": len(px), "first_bar": px["date"].min() if len(px) else None,
+           "last_bar": px["date"].max() if len(px) else None}
+    if px.empty:
+        return {**out, "coverage": "no_bars"}
+    i0 = int(np.searchsorted(px["date"].to_numpy(), np.datetime64(ex)))
+    lo, hi = max(1, i0 - WIDE), min(len(px) - 1, i0 + WIDE)
+    out["coverage"] = "ok" if (i0 - WIDE >= 1 and i0 + WIDE + PERSIST_SESSIONS < len(px)) else "edge_of_data"
+    if lo > hi:
+        return {**out, "coverage": "no_bars"}
+    win = px.iloc[lo:hi + 1].copy()
+    prev_close = px["close"].shift(1).reindex(win.index)
+    win["r_open"] = win["open"] / prev_close
+    win["r_close"] = win["close"] / prev_close
+    win["err"] = (win["r_open"] / factor - 1.0).abs()
+    best = win.loc[win["err"].idxmin()]
+    bi = int(best.name)
+    after = px.iloc[bi:bi + PERSIST_SESSIONS + 1]["close"]
+    persist = float(after.median() / px.iloc[bi - 1]["close"]) if len(after) > 2 else np.nan
+    isin_b = px.iloc[max(0, i0 - WIDE):i0]["isin"].dropna().unique() if "isin" in px else []
+    isin_a = px.iloc[i0:i0 + WIDE]["isin"].dropna().unique() if "isin" in px else []
+    out.update(
+        best_gap_date=best["date"], best_gap_offset_sessions=bi - i0, best_open_ratio=float(best["r_open"]),
+        best_close_ratio=float(best["r_close"]), best_err=float(best["err"]), persistence_ratio=persist,
+        window_min_open_ratio=float(win["r_open"].min()), window_max_open_ratio=float(win["r_open"].max()),
+        flat_window=bool(((win["r_open"] - 1).abs() < FLAT_BAND).all()),
+        isin_before="|".join(map(str, isin_b)), isin_after="|".join(map(str, isin_a)),
+        isin_changed=bool(len(isin_b) and len(isin_a) and set(isin_b) != set(isin_a)),
+    )
+    return out
+
+
+def classify(purpose: str, factor: float, ev: dict) -> tuple[str, str]:
+    """-> (bucket, reason). Conservative: the apply bucket needs positive price evidence on every axis."""
+    if ev.get("coverage") == "no_bars":
+        return "reject_listing_or_data_mismatch", "no_price_bars_near_listing (symbol absent / delisted / wrong symbol)"
+    if RIGHTS.search(purpose or ""):
+        return "needs_manual_review", "purpose mentions rights/scheme/demerger/merger/buyback - factor is not a clean ratio"
+    if ev.get("isin_changed"):
+        return "needs_manual_review", "ISIN changed around the listing (symbol change / demerger / scheme)"
+    if ev.get("flat_window"):
+        return "reject_listing_or_data_mismatch", ("no price gap within +-%d sessions (stale/duplicate listing, "
+                                                   "already-adjusted archive, or parser miss)" % WIDE)
+    err, persist = ev.get("best_err", 9), ev.get("persistence_ratio", np.nan)
+    persists = np.isfinite(persist) and abs(persist / factor - 1.0) <= TOL
+    if err <= TOL and persists and ev.get("coverage") == "ok":
+        shift = ev["best_gap_offset_sessions"]
+        return "confirm_and_apply", (f"gap {ev['best_open_ratio']:.3f} matches listed {factor:.3f} at "
+                                     f"{shift:+d} sessions from the listed ex-date and persists")
+    if err <= TOL and ev.get("coverage") != "ok":
+        return "needs_manual_review", "matching gap but too close to the edge of the data to check persistence"
+    if err <= TOL and not persists:
+        return "needs_manual_review", "gap matches the ratio but price did not stay at the new level (reversal)"
+    return "needs_manual_review", (f"price gaps exist but none matches the listed factor "
+                                   f"(closest open ratio {ev.get('best_open_ratio', float('nan')):.3f} vs {factor:.3f})")
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--out", default=str(OUT))
+    args = ap.parse_args()
+
+    from qsde.db.connection import read_sql
+    from qsde.ingestion import nse_eod
+    from qsde.ingestion.corp_actions_source import load_source
+
+    ev = read_sql("SELECT symbol, ex_date, source_purpose, snapped_ratio FROM corp_action_events "
+                  "WHERE kind = 'SOURCE_UNCONFIRMED' ORDER BY symbol, ex_date")
+    src = load_source()
+    src["_k"] = src["symbol"] + "|" + src["ex_date"].dt.strftime("%Y-%m-%d")
+    ev["listed_ex"] = pd.to_datetime(ev["ex_date"])
+    ev["_k"] = ev["symbol"] + "|" + ev["listed_ex"].dt.strftime("%Y-%m-%d")
+    ev = ev.merge(src[["_k", "factor", "purpose", "detail", "src_type"]], on="_k", how="left")
+
+    syms = sorted(ev["symbol"].unique())
+    raw = read_sql("SELECT exchange, symbol, series, date, isin, open, high, low, close, last, prev_close, volume, "
+                   "turnover_lacs, trades, deliv_qty, deliv_per FROM eod_raw WHERE symbol = ANY(:s)", params={"s": syms})
+    raw["date"] = pd.to_datetime(raw["date"])
+    prim = nse_eod.pick_primary_series(raw)
+
+    rows = []
+    for r in ev.itertuples():
+        factor = float(r.factor) if pd.notna(r.factor) else float("nan")
+        purpose = r.purpose if isinstance(r.purpose, str) else (r.source_purpose or "")
+        if not np.isfinite(factor):
+            rows.append({"symbol": r.symbol, "listed_ex_date": r.listed_ex.date(), "purpose": purpose,
+                         "bucket": "needs_manual_review", "reason": "factor could not be re-derived from the source row"})
+            continue
+        e = evidence(r, prim[prim["symbol"] == r.symbol], factor)
+        bucket, reason = classify(purpose, factor, e)
+        rows.append({"symbol": r.symbol, "listed_ex_date": r.listed_ex.date(), "purpose": purpose,
+                     "parsed": r.detail, "listed_factor": factor, "bucket": bucket, "reason": reason,
+                     "record_date": "n/a (not in feed)", "face_value": "n/a (not in feed)", **e})
+
+    df = pd.DataFrame(rows)
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    df.to_csv(out / "source_unconfirmed_reconciliation.csv", index=False)
+    counts = df["bucket"].value_counts().reindex(BUCKETS, fill_value=0)
+
+    lines = ["# SOURCE_UNCONFIRMED reconciliation (read-only)", "",
+             f"{len(df)} NSE-listed split/bonus/consolidation rows whose price gap did not confirm within +-2 sessions.",
+             "Nothing was applied. `confirm_and_apply` is a PROPOSAL for owner review; the official `ohlcv` is unchanged.",
+             "", "| bucket | n |", "|---|---|"]
+    lines += [f"| {b} | {int(counts[b])} |" for b in BUCKETS]
+    for b in BUCKETS:
+        sub = df[df["bucket"] == b]
+        lines += ["", f"## {b} ({len(sub)})", "", "| symbol | listed ex | purpose | factor | evidence |", "|---|---|---|---|---|"]
+        for r in sub.itertuples():
+            lines.append(f"| {r.symbol} | {r.listed_ex_date} | {str(r.purpose)[:70]} | "
+                         f"{getattr(r, 'listed_factor', float('nan')):.3f} | {r.reason} |")
+    (out / "source_unconfirmed_reconciliation.md").write_text("\n".join(lines), encoding="utf-8")
+    print(counts.to_string())
+    print(f"report: {out}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

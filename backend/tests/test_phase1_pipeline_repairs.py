@@ -59,9 +59,11 @@ class TestOneStoreForTrainAndServe:
         from qsde.models import dataset, signal_generator
         sig = inspect.signature(dataset.build_training_dataset)
         assert sig.parameters["factor_version"].default == FFD_VERSION
-        d_src = Path(dataset.__file__).read_text()
+        from qsde.ml import dataset as ml_dataset
+        d_src = Path(ml_dataset.__file__).read_text()
+        shim = Path(dataset.__file__).read_text()
         s_src = Path(signal_generator.__file__).read_text()
-        assert "from qsde.features.store import read_features" in d_src
+        assert "read_features" in d_src and "build_labelled_dataset" in shim      # shim delegates, no second reader
         assert "from qsde.features.store import read_latest_rows" in s_src
         assert "FFD_VERSION" in s_src
 
@@ -228,48 +230,48 @@ class TestTailWriteMatchesBackfill:
         pd.testing.assert_frame_equal(at(a), at(b), check_exact=False, rtol=1e-9, atol=1e-9)
 
 
-# ── 4. high/low reach the labeler ────────────────────────────────────
+# ── 4. training uses the registry labeler (next-open entry, high/low barriers) ─────────
 
-class TestLabelerGetsHighLow:
-    def test_prices_query_selects_high_and_low_and_labeler_receives_them(self, monkeypatch):
-        from qsde.models import dataset, triple_barrier
+class TestTrainingUsesRegistryLabels:
+    def _patched(self, monkeypatch, px):
+        from qsde.features import store
+        from qsde.ml import data as mldata
+
+        prices = px.reset_index().assign(symbol="AAA")[["symbol", "date", "open", "high", "low", "close"]]
+        d = px.index[60:380]
+        feats = pd.DataFrame({"symbol": "AAA", "as_of_date": d, "known_at": pd.NaT,
+                              "tech_obv_slope": [float(i) for i in range(len(d))]})
+        seen = {}
+
+        def fake_prices(symbols, policy="official", start=None):
+            seen["policy"] = policy
+            return prices.copy()
+
+        snap = type("S", (), {"snapshot_id": "snap-x", "universe_version": "SYNTHETIC-u", "dataset_hash": "0" * 64})()
+        monkeypatch.setattr(store, "read_features", lambda *a, **k: feats.copy())
+        monkeypatch.setattr(store, "current_snapshots", lambda fv: [snap])
+        monkeypatch.setattr(mldata, "load_prices", fake_prices)
+        monkeypatch.setattr(mldata, "label_exclusion_events",
+                            lambda symbols, policy="official": pd.DataFrame(columns=["symbol", "ex_date"]))
+        return seen
+
+    def test_labels_enter_at_next_open_use_high_low_and_the_official_price_policy(self, monkeypatch):
+        from qsde.models import dataset
 
         px = _walk(420, 7)
-        prices = px.reset_index().assign(symbol="AAA")[["symbol", "date", "open", "high", "low", "close"]]
-        # The real DB returns datetime.date objects for both tables.
-        prices["date"] = prices["date"].dt.date
-        asked: list[str] = []
-
-        def fake_read_sql(sql, params=None, **k):
-            asked.append(sql)
-            if "FROM ohlcv" in sql:
-                return prices.copy()
-            return pd.DataFrame()
-
-        def fake_read_features(**k):
-            d = px.index[60:380]
-            return pd.DataFrame({"symbol": "AAA", "as_of_date": [x.date() for x in d],
-                                 "known_at": pd.NaT, "tech_obv_slope": [float(i) for i in range(len(d))]})
-
-        seen: dict = {}
-        real = triple_barrier.apply_triple_barrier_labels
-
-        def spy(dataset, ohlcv, horizon="swing", **kw):
-            seen["cols"] = set(ohlcv.columns)
-            seen["hl_differs"] = bool((ohlcv["high"] != ohlcv["close"]).any()
-                                      and (ohlcv["low"] != ohlcv["close"]).any())
-            return real(dataset=dataset, ohlcv=ohlcv, horizon=horizon, **kw)
-
-        monkeypatch.setattr(dataset, "read_sql", fake_read_sql)
-        monkeypatch.setattr(dataset, "read_features", fake_read_features)
-        monkeypatch.setattr(triple_barrier, "apply_triple_barrier_labels", spy)
-        out = dataset.build_training_dataset(horizon="swing", start_date="2019-01-01",
-                                             end_date="2020-12-31")
-        price_sql = next(s for s in asked if "FROM ohlcv" in s)
-        assert re.search(r"\bhigh\b", price_sql) and re.search(r"\blow\b", price_sql)
-        assert {"high", "low", "close"} <= seen["cols"]
-        assert seen["hl_differs"], "labeler received close-only OHLCV (H4 partial fix)"
+        seen = self._patched(monkeypatch, px)
+        out = dataset.build_training_dataset(horizon="swing", start_date="2019-01-01", end_date="2020-12-31")
+        assert seen["policy"] == "official"
         assert len(out) > 0 and set(out["target"].unique()) <= {-1.0, 0.0, 1.0}
+        assert (out["entry_date"] > out["as_of_date"]).all()                       # never the signal close
+        assert out["label_id"].eq("tb_nextopen_v1").all() and (out["target_ret"] == out["ret_net"]).all()
+        # high/low reach the walker: some labels are barrier hits, which a close-only labeler could not see
+        assert out["status"].isin(["WIN", "LOSS"]).any()
+
+    def test_close_to_close_fixed_horizon_target_is_gone(self):
+        from qsde.models.dataset import build_training_dataset
+        with pytest.raises(ValueError, match="fixed_horizon"):
+            build_training_dataset(horizon="swing", label_method="fixed_horizon")
 
 
 # ── 5. feature parity ────────────────────────────────────────────────

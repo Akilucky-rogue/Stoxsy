@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 
 os.environ.setdefault("QSDE_FORCE_PROMOTE", "true")
+os.environ.setdefault("QSDE_ALLOW_LEGACY_TRAINER", "true")   # this script verifies the legacy trainer itself
 
 BACKEND = Path(__file__).resolve().parents[1]
 if str(BACKEND) not in sys.path:

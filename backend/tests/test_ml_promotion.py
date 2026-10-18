@@ -74,3 +74,29 @@ def test_build_bse_universe():
     assert (df["exchange"] == "BSE").all()
     assert "BSE SENSEX" in df["index_membership"].iloc[0]
     assert df["is_active"].all()
+
+
+class TestLegacyTrainerRetired:
+    def test_legacy_trainer_refuses_to_run_by_default(self, monkeypatch):
+        import pandas as pd
+        import pytest
+
+        from qsde.models.lgbm_model import train_lightgbm_model
+        monkeypatch.delenv("QSDE_ALLOW_LEGACY_TRAINER", raising=False)
+        with pytest.raises(RuntimeError, match="retrain.py"):
+            train_lightgbm_model(pd.DataFrame(), horizon="swing")
+
+    def test_retrain_review_gate(self):
+        import importlib.util
+        from pathlib import Path
+
+        spec = importlib.util.spec_from_file_location(
+            "retrain_script", Path(__file__).resolve().parents[1] / "scripts" / "retrain.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        full = "adv60_top500_v1+adv10+full"
+        assert mod.review_gate("snap-1", full, None, False) is not None          # unreviewed full universe blocked
+        assert mod.review_gate("snap-1", full, "snap-OTHER", False) is not None   # reviewed a different snapshot
+        assert mod.review_gate("snap-1", full, "snap-1", True) is None            # reviewed: proceed
+        assert mod.review_gate("snap-1", "x+PILOT-SURVIVOR-SELECTED", None, False) is None      # plumbing is free
+        assert mod.review_gate("snap-1", "x+PILOT-SURVIVOR-SELECTED", None, True) is not None   # but never a candidate

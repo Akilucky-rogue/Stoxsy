@@ -83,6 +83,10 @@ class TestFillPendingEntries:
             "symbol":     ["RELIANCE", "TCS"],
             "entry_date": [pd.Timestamp("2026-06-15"),
                            pd.Timestamp("2026-06-15")],
+            # RELIANCE has signal-time levels (ref 2700: stop -2%, target +4%); TCS has none (legacy row)
+            "ref_price":    [2700.0, None],
+            "stop_price":   [2646.0, None],
+            "target_price": [2808.0, None],
         })
         next_opens = {
             "RELIANCE": (2755.0, date(2026, 6, 16)),
@@ -116,6 +120,9 @@ class TestFillPendingEntries:
         assert by_id[1]["px"] == pytest.approx(2755.0)
         assert by_id[1]["fd"] == date(2026, 6, 16)
         assert by_id[2]["px"] == pytest.approx(4210.5)
+        # Barriers follow the fill with the signal's fractional offsets (harness convention): 2755 * 0.98 / * 1.04
+        assert by_id[1]["st"] == pytest.approx(2755.0 * 0.98) and by_id[1]["tg"] == pytest.approx(2755.0 * 1.04)
+        assert by_id[2]["st"] is None and by_id[2]["tg"] is None      # no reference -> nothing invented
 
     def test_leaves_pending_when_next_bar_missing(self, monkeypatch):
         """Holiday / ingest lag: no next-day bar yet. Trade stays pending;

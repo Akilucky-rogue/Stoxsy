@@ -29,6 +29,9 @@ def main() -> int:
     ap.add_argument("--start", default="2016-01-01")
     ap.add_argument("--chunk", type=int, default=50)
     ap.add_argument("--method", default="adv60_top500_v1")
+    ap.add_argument("--min-coverage", type=float, default=0.98,
+                    help="abort promotion if fewer than this share of universe symbol-days have a feature row")
+    ap.add_argument("--min-free-gb", type=float, default=5.0, help="abort if D: has less free space than this")
     ap.add_argument("--tag", default=None, help="universe_version label (default derived)")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -61,10 +64,34 @@ def main() -> int:
     universe_version = args.tag or f"{args.method}+adv{args.min_adv:g}+{label}"
     log.info("symbols=%d  universe symbol-days=%d  universe_version=%s", len(symbols), len(uni), universe_version)
 
+    from qsde.ingestion import corp_actions_source as cas
+    from qsde.ml.data import OFFICIAL, label_exclusion_events
+
+    ca_counts = read_sql("SELECT count(*) FILTER (WHERE applied) AS applied, "
+                         "count(*) FILTER (WHERE applied_research AND NOT applied) AS research_only, "
+                         "count(*) FILTER (WHERE kind = 'SOURCE_UNCONFIRMED') AS source_unconfirmed, "
+                         "count(*) FILTER (WHERE kind = 'UNEXPLAINED') AS unexplained FROM corp_action_events").iloc[0]
+    excluded = label_exclusion_events(symbols, OFFICIAL)
+    extra = {
+        "price_policy": OFFICIAL,
+        "corporate_action_source": {**cas.source_version(),
+                                    "events_applied_official": int(ca_counts["applied"]),
+                                    "events_research_only_not_applied": int(ca_counts["research_only"]),
+                                    "events_source_unconfirmed": int(ca_counts["source_unconfirmed"]),
+                                    "events_unexplained": int(ca_counts["unexplained"]),
+                                    "ohlcv_source_tag": "nse_adj_v2_src"},
+        "excluded_event_count": int(len(excluded)),
+        "excluded_event_symbols": int(excluded["symbol"].nunique()) if len(excluded) else 0,
+        "label_exclusion_note": "events are excluded at LABEL time (qsde.ml.data.label_exclusion_events); "
+                                "feature rows are written for every universe symbol-day",
+    }
     writer = SnapshotWriter(FFD_VERSION, universe_version, kind="full",
                             params={"start": args.start, "universe_method": args.method,
                                     "min_adv_cr": args.min_adv, "selection": label,
-                                    "n_symbols": len(symbols)})
+                                    "n_symbols": len(symbols)},
+                            extra_manifest=extra, expected_keys=uni[["symbol", "date"]],
+                            min_coverage=0.0 if args.pilot or args.symbols else args.min_coverage,
+                            min_free_gb=args.min_free_gb)
     t0, done = time.time(), 0
     for i in range(0, len(symbols), args.chunk):
         chunk = symbols[i:i + args.chunk]

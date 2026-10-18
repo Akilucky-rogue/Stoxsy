@@ -163,6 +163,7 @@ def reconcile(source: pd.DataFrame, primary: pd.DataFrame, window: int = SESSION
 EVENT_COLS = ["exchange", "symbol", "ex_date", "prev_session", "close_prev_session", "open_ex_date",
               "close_ex_date", "open_ratio", "close_ratio", "volume_ratio", "persistence_ratio", "kind",
               "snapped_ratio", "price_factor", "applied", "method", "source", "source_purpose", "ex_date_shift"]
+# applied_research / confidence are added by corp_actions.combine_events (source rows: True/'high').
 
 
 def _row(r, f: float, best, kind: str, applied: bool) -> dict:
@@ -178,3 +179,15 @@ def _row(r, f: float, best, kind: str, applied: bool) -> dict:
             "close_prev_session": float(c0), "open_ex_date": float(op), "close_ex_date": float(cl),
             "open_ratio": float(ro), "close_ratio": float(rc), "kind": kind, "snapped_ratio": r.detail,
             "price_factor": f if applied else np.nan, "applied": bool(applied), "ex_date_shift": int(sh)}
+
+
+def source_version(path: Optional[Path] = None) -> dict:
+    """Identity of the corporate-action inputs behind an adjusted series (goes into snapshot manifests)."""
+    import hashlib
+
+    p = Path(path or SOURCE_FILE)
+    h = hashlib.sha256()
+    with open(p, "rb") as f:
+        while b := f.read(1 << 20):
+            h.update(b)
+    return {"file": p.name, "sha256": h.hexdigest(), "bytes": p.stat().st_size, "method": METHOD}

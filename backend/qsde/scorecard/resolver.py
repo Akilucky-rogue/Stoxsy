@@ -46,25 +46,40 @@ def resolve_idea_outcome(entry, stop, target, direction, horizon,
     """Pure: idea levels + forward daily bars -> a barrier-outcome dict, or None
     if there isn't enough forward data yet.
 
-    bars: columns date/high/low/close, ascending. Reuses the tested
-    paper_journal barrier walker (pessimistic same-bar tie = stop wins).
+    ENTRY CONVENTION (same as the harness labels and the paper journal): the idea is decided at the close of
+    its day (`entry` is that reference close) and FILLED at the open of the first bar in `bars`; stop and
+    target are re-anchored to the fill with the idea's own fractional offsets
+    (qsde.ml.barrier.levels_at_fill). Returns are measured from the fill. A first bar without a usable
+    open cannot be filled -> None (the idea stays open rather than being graded on an unattainable price).
+
+    bars: columns date/open/high/low/close, ascending. Reuses the tested barrier walker
+    (pessimistic same-bar tie = stop wins).
     """
+    from qsde.ml.barrier import levels_at_fill
+
     sessions = _HORIZON_SESSIONS.get(str(horizon).lower(), 5)
     if bars is None or bars.empty or len(bars) < sessions:
         return None
     window = bars.head(sessions)
-    status, exit_px, exit_dt = _resolve_barrier_daily(
-        window, float(entry),
-        float(target) if target is not None else None,
-        float(stop) if stop is not None else None,
-        int(direction),
-    )
-    gross = (float(exit_px) / float(entry) - 1.0) * int(direction)
+    if "open" not in window.columns:
+        log.warning("resolve_idea_outcome: bars carry no open column; cannot apply the next-open fill")
+        return None
+    fill = float(window.iloc[0]["open"]) if pd.notna(window.iloc[0]["open"]) else float("nan")
+    if not (fill > 0):
+        return None
+    stop_f, target_f = levels_at_fill(float(entry), fill,
+                                      float(stop) if stop is not None and pd.notna(stop) else None,
+                                      float(target) if target is not None and pd.notna(target) else None)
+    status, exit_px, exit_dt = _resolve_barrier_daily(window, fill, target_f, stop_f, int(direction))
+    gross = (float(exit_px) / fill - 1.0) * int(direction)
     net = gross - cost_frac(str(horizon), paper_default=True)
+    fd = window.iloc[0]["date"]
     return {
         "status": status,
         "exit_price": float(exit_px),
         "exit_date": exit_dt.date() if hasattr(exit_dt, "date") else exit_dt,
+        "entry_fill_price": fill,
+        "entry_fill_date": fd.date() if hasattr(fd, "date") else fd,
         "realized_ret": round(float(gross), 6),
         "realized_ret_net": round(float(net), 6),
     }
@@ -103,10 +118,12 @@ def resolve_open_ideas(asof: Optional[date] = None) -> dict:
         execute_sql(
             """UPDATE trade_ideas
                   SET status = %(st)s, exit_price = %(xp)s, exit_date = %(xd)s,
-                      realized_ret = %(g)s, realized_ret_net = %(n)s, resolved_at = NOW()
+                      realized_ret = %(g)s, realized_ret_net = %(n)s, resolved_at = NOW(),
+                      entry_fill_price = %(fp)s, entry_fill_date = %(fd)s
                 WHERE idea_id = %(id)s""",
             {"st": outcome["status"], "xp": outcome["exit_price"], "xd": outcome["exit_date"],
              "g": outcome["realized_ret"], "n": outcome["realized_ret_net"],
+             "fp": outcome["entry_fill_price"], "fd": outcome["entry_fill_date"],
              "id": r["idea_id"]},
         )
         counts["closed"] += 1

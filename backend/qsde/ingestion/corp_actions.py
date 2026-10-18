@@ -42,7 +42,11 @@ import pandas as pd
 log = logging.getLogger(__name__)
 
 METHOD = "price_gap_fingerprint_v1"
-ADJ_SOURCE = "nse_bhavcopy_adj_v1"
+# Official adjusted series = events CONFIRMED BY THE NSE SOURCE (confidence 'high') only.
+# Price-only events are 'low' confidence: they are kept in corp_action_events with applied=FALSE and
+# applied_research=TRUE, and never alter the official `ohlcv` (owner decision 2026-10-18). Research runs can
+# opt in to them via qsde.ml.data.load_prices(policy="research").
+ADJ_SOURCE = "nse_adj_v2_src"          # ohlcv.source is varchar(20)
 
 GAP_DOWN_MAX = 0.78         # open/prev_close at/below this: split/bonus candidate. NSE price bands cap a
                             # banded stock's one-day fall at 20%, so a gap to ~0.80 is a circuit move and
@@ -172,14 +176,15 @@ def detect_events(primary: pd.DataFrame) -> pd.DataFrame:
             "kind": kind,
             "snapped_ratio": snap[1] if snap else None,
             "price_factor": snap[0] if ok else None,
-            "applied": bool(ok),
+            "applied": bool(ok),            # "would apply": combine_events demotes price-only events
             "method": METHOD,
             "source": "price_inferred", "source_purpose": None, "ex_date_shift": 0,
+            "applied_research": bool(ok), "confidence": "low",
         })
     cols = ["exchange", "symbol", "ex_date", "prev_session", "close_prev_session", "open_ex_date",
             "close_ex_date", "open_ratio", "close_ratio", "volume_ratio", "persistence_ratio",
             "kind", "snapped_ratio", "price_factor", "applied", "method", "source", "source_purpose",
-            "ex_date_shift"]
+            "ex_date_shift", "applied_research", "confidence"]
     return pd.DataFrame(rows, columns=cols)
 
 
@@ -242,6 +247,10 @@ def combine_events(source_events: pd.DataFrame, inferred: pd.DataFrame, source_a
         return np.searchsorted(sess, np.asarray(pd.to_datetime(pd.Series(dates)), dtype="datetime64[ns]"))
 
     inf = inferred.copy()
+    if "applied_research" not in inf:                      # tolerate frames from older detectors
+        inf["applied_research"] = inf["applied"].astype(bool) if len(inf) else pd.Series(dtype=bool)
+    if "confidence" not in inf:
+        inf["confidence"] = "low"
     if len(inf):
         inf["_p"] = pos(inf["ex_date"])
         src_sb = source_all[source_all["category"].isin(["SPLIT_BONUS", "CONSOLIDATION"])]
@@ -260,21 +269,37 @@ def combine_events(source_events: pd.DataFrame, inferred: pd.DataFrame, source_a
         dm = np.array(demote)[np.array(keep)] if len(keep) else np.array([], bool)
         if dm.any():
             inf.loc[dm, ["kind", "applied", "price_factor"]] = ["UNEXPLAINED", False, np.nan]
+            inf.loc[dm, "applied_research"] = False
             inf.loc[dm, "snapped_ratio"] = "demerger/scheme in source"
         inf = inf.drop(columns="_p")
-    out = pd.concat([source_events, inf], ignore_index=True) if len(source_events) else inf
+    if len(source_events):
+        src = source_events.copy()
+        src["applied_research"] = src["applied"]
+        src["confidence"] = "high"
+    else:
+        src = source_events
+    out = pd.concat([src, inf], ignore_index=True) if len(src) else inf
+    if len(out):
+        # POLICY: only NSE-source-confirmed events alter the official adjusted series. A price-only event is
+        # 'low' confidence: it stays visible (and usable by explicit research runs) but is NOT applied officially.
+        low = out["source"].eq("price_inferred")
+        out.loc[low, "applied"] = False
+        out.loc[low, "confidence"] = "low"
+        out["applied"] = out["applied"].astype(bool)
+        out["applied_research"] = out["applied_research"].astype(bool)
     return out[EVENT_COLS_ALL].reset_index(drop=True) if len(out) else out
 
 
 EVENT_COLS_ALL = ["exchange", "symbol", "ex_date", "prev_session", "close_prev_session", "open_ex_date",
                   "close_ex_date", "open_ratio", "close_ratio", "volume_ratio", "persistence_ratio",
                   "kind", "snapped_ratio", "price_factor", "applied", "method", "source", "source_purpose",
-                  "ex_date_shift"]
+                  "ex_date_shift", "applied_research", "confidence"]
 
 
-def cumulative_factors(events: pd.DataFrame) -> dict[str, list[tuple]]:
-    """symbol -> [(ex_date, price_factor)] for APPLIED events only, newest first."""
-    ap = events[events["applied"]] if len(events) else events
+def cumulative_factors(events: pd.DataFrame, flag: str = "applied") -> dict[str, list[tuple]]:
+    """symbol -> [(ex_date, price_factor)] for events with `flag` True ('applied' = official series,
+    'applied_research' = official + low-confidence price-inferred), newest first."""
+    ap = events[events[flag]] if len(events) else events
     out: dict[str, list[tuple]] = {}
     for sym, grp in ap.groupby("symbol"):
         out[sym] = sorted(((r.ex_date, float(r.price_factor)) for r in grp.itertuples()),
@@ -282,15 +307,15 @@ def cumulative_factors(events: pd.DataFrame) -> dict[str, list[tuple]]:
     return out
 
 
-def adjust_prices(primary: pd.DataFrame, events: pd.DataFrame) -> pd.DataFrame:
-    """Return `primary` with open/high/low/close/volume adjusted for applied events.
+def adjust_prices(primary: pd.DataFrame, events: pd.DataFrame, flag: str = "applied") -> pd.DataFrame:
+    """Return `primary` with open/high/low/close/volume adjusted for the events flagged `flag`.
 
     Output columns: symbol, date, open, high, low, close, adj_close, volume,
     delivery_pct, source. adj_close == close (no dividend adjustment).
     """
     d = primary.copy()
     factor = pd.Series(1.0, index=d.index)
-    for sym, evs in cumulative_factors(events).items():
+    for sym, evs in cumulative_factors(events, flag).items():
         m = d["symbol"] == sym
         if not m.any():
             continue
@@ -333,7 +358,7 @@ def summarize(events: pd.DataFrame) -> EventSummary:
 _EVENT_COLS = ["exchange", "symbol", "ex_date", "prev_session", "close_prev_session", "open_ex_date",
                "close_ex_date", "open_ratio", "close_ratio", "volume_ratio", "persistence_ratio",
                "kind", "snapped_ratio", "price_factor", "applied", "method", "source", "source_purpose",
-               "ex_date_shift"]
+               "ex_date_shift", "applied_research", "confidence"]
 
 
 def _py(df: pd.DataFrame) -> list[tuple]:
@@ -347,9 +372,15 @@ def _source_events(primary: pd.DataFrame, inferred: pd.DataFrame) -> tuple[pd.Da
     from qsde.ingestion import corp_actions_source as cas
 
     if not cas.SOURCE_FILE.exists():
-        log.warning("corporate-actions source %s not found: price-inferred events only (large ratios)",
+        log.warning("corporate-actions source %s not found: NO event is applied to the official series "
+                    "(price-only events are low confidence); they remain available as applied_research",
                     cas.SOURCE_FILE)
-        return inferred, {"source": "absent"}
+        ev = inferred.copy()
+        if len(ev):
+            ev["applied_research"] = ev["applied"].astype(bool)
+            ev["applied"] = False
+            ev["confidence"] = "low"
+        return ev, {"source": "absent"}
     src = cas.load_source()
     confirmed = cas.reconcile(src, primary)
     sessions = np.sort(primary["date"].unique())
@@ -392,7 +423,13 @@ def rebuild_from_db(symbols: list[str] | None = None) -> dict:
                 INSERT INTO corp_action_events ({', '.join(_EVENT_COLS)}) VALUES %s
             """, _py(events[_EVENT_COLS]), page_size=2000)
 
-        adj = adjust_prices(primary, events)
+        # Official series: NSE-source-confirmed events only. Replace earlier adjusted rows wholesale (their
+        # `source` tag changes with the policy, so ON CONFLICT .. WHERE source = source would skip them).
+        if symbols:
+            cur.execute("DELETE FROM ohlcv WHERE (source LIKE 'nse_bhavcopy_adj_%%' OR source LIKE 'nse_adj_%%') AND symbol = ANY(%s)", (symbols,))
+        else:
+            cur.execute("DELETE FROM ohlcv WHERE source LIKE 'nse_bhavcopy_adj_%%' OR source LIKE 'nse_adj_%%'")
+        adj = adjust_prices(primary, events, "applied")
         if symbols:
             adj = adj[adj["symbol"].isin(symbols)]
         too_long = int((adj["symbol"].str.len() > 20).sum())         # ohlcv.symbol is VARCHAR(20)
@@ -412,6 +449,8 @@ def rebuild_from_db(symbols: list[str] | None = None) -> dict:
              WHERE ohlcv.source = EXCLUDED.source
         """, recs, page_size=5000)
     s = summarize(events)
-    return {"events": s.total, "events_by_kind": s.by_kind, "events_applied": s.applied,
+    return {"events": s.total, "events_by_kind": s.by_kind, "events_applied_official": s.applied,
+            "events_applied_research_only": int((events["applied_research"] & ~events["applied"]).sum())
+            if len(events) and "applied_research" in events else 0,
             "source": src_summary,
             "ohlcv_rows": len(recs), "symbols_skipped_len_gt_20_rows": too_long}

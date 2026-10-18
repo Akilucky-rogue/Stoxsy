@@ -141,7 +141,13 @@ class TestLabels:
             win_dates = cal[i + 1:i + 6]
             bars = px.loc[r.symbol].loc[win_dates].rename_axis("date").reset_index()[
                 ["date", "open", "high", "low", "close"]]
-            out = resolve_idea_outcome(r.entry, r.stop, r.target, r.side, "swing", bars)
+            # The idea is logged at the CLOSE of t with levels set from that close; the Scorecard must fill at the
+            # next open and re-anchor the levels, landing on exactly the harness label.
+            ref = px.loc[(r.symbol, r.as_of_date), "close"]
+            k = ref / r.entry
+            out = resolve_idea_outcome(ref, r.stop * k, r.target * k, r.side, "swing", bars)
+            assert out["entry_fill_price"] == pytest.approx(r.entry)
+            assert pd.Timestamp(out["entry_fill_date"]) == r.entry_date
             assert out["status"] == r.status
             assert out["exit_price"] == pytest.approx(r.exit_price)
             assert pd.Timestamp(out["exit_date"]) == r.exit_date

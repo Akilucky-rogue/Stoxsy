@@ -142,6 +142,94 @@ def _canon(obj) -> str:
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), default=str)
 
 
+class SnapshotValidationError(RuntimeError):
+    """A staged snapshot failed pre-promotion validation; nothing was promoted."""
+
+
+def validate_snapshot_dir(path: Path, manifest: dict, expected_keys: Optional[pd.DataFrame] = None,
+                          min_coverage: float = 0.0, max_nan_share: float = 0.995) -> dict:
+    """Re-read a STAGED snapshot from disk and check it against its own manifest. Raises on any failure.
+
+    Checks: file hashes and row counts; schema (symbol/date/known_at then float64 features, manifest column
+    order); no duplicate (symbol, date) across files; rows sorted and filed under the right month; `known_at`
+    equals the session-close rule; no +-inf; no (near) all-NaN feature; coverage of `expected_keys` (the
+    point-in-time universe symbol-days) >= `min_coverage`.
+    """
+    errs: list[str] = []
+    path = Path(path)
+    cols = list(manifest["columns"])
+    n_rows = n_cells = n_nan = 0
+    nan_by_col = np.zeros(len(cols), dtype="int64")
+    keys: list[pd.DataFrame] = []
+    for fm in manifest["files"]:
+        f = path / fm["name"]
+        if not f.exists():
+            errs.append(f"missing file {fm['name']}")
+            continue
+        if _sha256_file(f) != fm["sha256"]:
+            errs.append(f"hash mismatch {fm['name']}")
+        t = pq.read_table(f)
+        if t.num_rows != fm["rows"]:
+            errs.append(f"row count {fm['name']}: {t.num_rows} != {fm['rows']}")
+        if t.column_names != [*META_COLS, *cols]:
+            errs.append(f"schema/column order mismatch in {fm['name']}")
+            continue
+        bad_t = [n for n, ty in zip(t.column_names[3:], t.schema.types[3:]) if not pa.types.is_float64(ty)]
+        if bad_t:
+            errs.append(f"non-float64 features in {fm['name']}: {bad_t[:3]}")
+        df = t.to_pandas()
+        d = pd.to_datetime(df["date"])
+        if not (d.dt.strftime("%Y%m") == fm["name"][5:11]).all():
+            errs.append(f"{fm['name']} holds rows from another month")
+        order = df["symbol"].astype(str) + d.dt.strftime("%Y-%m-%d")
+        if not order.is_monotonic_increasing:
+            errs.append(f"{fm['name']} rows not sorted by (symbol, date)")
+        exp_known = known_at_utc(d)
+        got_known = pd.to_datetime(df["known_at"]).dt.tz_convert("UTC").dt.tz_localize(None)
+        if not (got_known.to_numpy() == exp_known.to_numpy()).all():
+            errs.append(f"{fm['name']} known_at violates the session-close rule")
+        v = df[cols].to_numpy(dtype="float64")
+        if np.isinf(v).any():
+            errs.append(f"{fm['name']} contains +-inf")
+        nan_by_col += np.isnan(v).sum(axis=0)
+        n_nan += int(np.isnan(v).sum())
+        n_cells += int(v.size)
+        n_rows += len(df)
+        keys.append(df[["symbol"]].assign(date=d.dt.normalize()))
+    allk = pd.concat(keys, ignore_index=True) if keys else pd.DataFrame(columns=["symbol", "date"])
+    dup = int(allk.duplicated(["symbol", "date"]).sum())
+    if dup:
+        errs.append(f"{dup} duplicate (symbol, date) keys")
+    if n_rows != manifest["rows"]:
+        errs.append(f"total rows {n_rows} != manifest {manifest['rows']}")
+    if allk["symbol"].nunique() != manifest["symbols"]:
+        errs.append(f"symbols {allk['symbol'].nunique()} != manifest {manifest['symbols']}")
+    share = nan_by_col / max(n_rows, 1)
+    dead = [c for c, sh in zip(cols, share) if sh >= max_nan_share]
+    if dead:
+        errs.append(f"{len(dead)} feature(s) are (nearly) all-NaN: {dead[:5]}")
+    coverage = None
+    if expected_keys is not None and len(expected_keys):
+        ek = expected_keys[["symbol", "date"]].copy()
+        ek["date"] = pd.to_datetime(ek["date"]).dt.normalize()
+        have = ek.merge(allk.drop_duplicates(), on=["symbol", "date"], how="left", indicator=True)
+        coverage = float((have["_merge"] == "both").mean())
+        if coverage < min_coverage:
+            errs.append(f"universe coverage {coverage:.4f} < required {min_coverage}")
+    if errs:
+        raise SnapshotValidationError("; ".join(errs[:8]) + (f" (+{len(errs) - 8} more)" if len(errs) > 8 else ""))
+    return {"rows": n_rows, "cells": n_cells, "nan_cells": n_nan, "nan_share": n_nan / max(n_cells, 1),
+            "features": len(cols), "worst_nan_features": sorted(zip(share.round(4).tolist(), cols), reverse=True)[:5],
+            "universe_coverage": coverage}
+
+
+def free_gb(path: Path) -> float:
+    p = Path(path)
+    while not p.exists() and p != p.parent:
+        p = p.parent
+    return shutil.disk_usage(p).free / 1e9
+
+
 # ── writer ───────────────────────────────────────────────────────────
 
 class SnapshotWriter:
@@ -150,7 +238,9 @@ class SnapshotWriter:
     def __init__(self, factor_version: str, universe_version: str, kind: str = "full",
                  root: Path = ROOT, params: Optional[dict] = None,
                  fingerprint: Optional[dict] = None, sha: Optional[str] = None,
-                 built_at: Optional[datetime] = None):
+                 built_at: Optional[datetime] = None, extra_manifest: Optional[dict] = None,
+                 expected_keys: Optional[pd.DataFrame] = None, min_coverage: float = 0.0,
+                 min_free_gb: float = 0.0, validate: bool = True):
         if kind not in ("full", "increment"):
             raise ValueError("kind must be 'full' or 'increment'")
         self.factor_version, self.universe_version, self.kind = factor_version, universe_version, kind
@@ -159,6 +249,9 @@ class SnapshotWriter:
         self.fingerprint = fingerprint
         self.sha = sha
         self.built_at = built_at or datetime.now(timezone.utc)
+        self.extra_manifest = dict(extra_manifest or {})   # corporate-action source version, excluded events ...
+        self.expected_keys, self.min_coverage = expected_keys, min_coverage
+        self.min_free_gb, self.validate = min_free_gb, validate
         self._frames: list[pd.DataFrame] = []
 
     def add(self, df: pd.DataFrame) -> None:
@@ -190,6 +283,10 @@ class SnapshotWriter:
         data = data.sort_values(["symbol", "date"], kind="mergesort").reset_index(drop=True)
         data[all_cols] = data[all_cols].astype("float64")
 
+        free_before = free_gb(self.root)
+        need = max(self.min_free_gb, data.shape[0] * data.shape[1] * 8 / 1e9)   # uncompressed size: safe upper bound
+        if free_before < need:
+            raise OSError(f"insufficient disk space for snapshot: {free_before:.1f} GB free, need >= {need:.1f} GB")
         tmp = self.root / self.factor_version / f".tmp-{uuid.uuid4().hex[:10]}"
         tmp.mkdir(parents=True, exist_ok=True)
         files_meta = []
@@ -211,6 +308,8 @@ class SnapshotWriter:
             hash_in = {"files": [(m["name"], m["sha256"]) for m in files_meta], "params": params,
                        "fingerprint": fp, "columns": all_cols, "policy": CORPORATE_ACTION_POLICY,
                        "factor_version": self.factor_version, "universe_version": self.universe_version}
+            if self.extra_manifest:
+                hash_in["extra"] = self.extra_manifest
             dataset_hash = hashlib.sha256(_canon(hash_in).encode()).hexdigest()
             snapshot_id = f"{self.built_at:%Y%m%dT%H%M%SZ}-{dataset_hash[:10]}"
             manifest = {
@@ -222,7 +321,12 @@ class SnapshotWriter:
                 "columns": all_cols, "n_features": len(all_cols), "nan_policy": "preserved (never filled)",
                 "params": params, "input_fingerprint": fp, "corporate_action_policy": CORPORATE_ACTION_POLICY,
                 "files": files_meta,
+                "cells": int(data.shape[0] * len(all_cols)),
+                "nan_cells": int(data[all_cols].isna().to_numpy().sum()),
+                **self.extra_manifest,
             }
+            if self.validate:      # staged copy is validated BEFORE it can be promoted
+                manifest["validation"] = validate_snapshot_dir(tmp, manifest, self.expected_keys, self.min_coverage)
             (tmp / "MANIFEST.json").write_text(json.dumps(manifest, indent=2, sort_keys=True, default=str))
             final = self.root / self.factor_version / snapshot_id
             if final.exists():
@@ -234,8 +338,9 @@ class SnapshotWriter:
         snap = _snapshot_from_manifest(manifest, final)
         if register:
             _register(snap)
-        log.info("snapshot %s: %d rows, %d symbols, %d features, %d files",
-                 snap.snapshot_id, snap.n_rows, snap.n_symbols, len(all_cols), len(files_meta))
+        log.info("snapshot %s: %d rows, %d symbols, %d features, %d files; disk free %.1f -> %.1f GB",
+                 snap.snapshot_id, snap.n_rows, snap.n_symbols, len(all_cols), len(files_meta),
+                 free_before, free_gb(self.root))
         return snap
 
     @staticmethod

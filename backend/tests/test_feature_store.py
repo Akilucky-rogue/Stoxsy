@@ -266,3 +266,54 @@ class TestPilotParityWithLongForm:
         m = long.merge(lf, on=["symbol", "as_of_date", "factor_name"], how="outer", indicator=True)
         assert (m["_merge"] == "both").all(), m["_merge"].value_counts().to_dict()
         assert (m["v"] == m["factor_value"]).all()
+
+
+class TestPromotionSafeguards:
+    """Staged snapshot is validated, hashed and promoted atomically; a failure leaves nothing behind."""
+
+    def test_manifest_records_validation_cells_and_extra_fields(self, tmp_path):
+        s = _build(tmp_path, extra_manifest={"corporate_action_source": {"version": "v-test"}, "excluded_event_count": 7})
+        m = s.manifest
+        assert m["cells"] == m["rows"] * m["n_features"] and m["nan_cells"] > 0       # warm-up NaN counted
+        assert m["corporate_action_source"]["version"] == "v-test" and m["excluded_event_count"] == 7
+        assert m["validation"]["rows"] == m["rows"] and m["validation"]["nan_share"] > 0
+
+    def test_extra_manifest_changes_the_dataset_hash(self, tmp_path):
+        a = _build(tmp_path / "a")
+        b = _build(tmp_path / "b", extra_manifest={"corporate_action_source": {"version": "other"}})
+        assert a.dataset_hash != b.dataset_hash
+
+    def test_coverage_shortfall_blocks_promotion_and_cleans_up(self, tmp_path):
+        keys = _frame()[["symbol"]].reset_index()
+        extra = pd.DataFrame({"symbol": "ZZZ", "date": keys["date"].unique()})       # expected but never computed
+        w = SnapshotWriter("ffd_v2", "u", root=tmp_path, fingerprint=FP, sha="x", built_at=FIXED,
+                           expected_keys=pd.concat([keys, extra]), min_coverage=0.99)
+        w.add(_frame())
+        with pytest.raises(store.SnapshotValidationError, match="coverage"):
+            w.close(register=False)
+        assert not any((tmp_path / "ffd_v2").iterdir())                               # no tmp dir, no snapshot
+
+    def test_all_nan_feature_blocks_promotion(self, tmp_path):
+        df = _frame()
+        df["dead_feature"] = np.nan
+        w = SnapshotWriter("ffd_v2", "u", root=tmp_path, fingerprint=FP, sha="x", built_at=FIXED)
+        w.add(df)
+        with pytest.raises(store.SnapshotValidationError, match="all-NaN"):
+            w.close(register=False)
+
+    def test_tampered_staged_file_is_detected(self, tmp_path):
+        s = _build(tmp_path)
+        f = s.files[0]
+        raw = bytearray(f.read_bytes())
+        raw[len(raw) // 2] ^= 0xFF
+        f.write_bytes(bytes(raw))
+        with pytest.raises(Exception):
+            store.validate_snapshot_dir(s.path, s.manifest)
+
+    def test_insufficient_disk_space_aborts_before_writing(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(store, "free_gb", lambda p: 0.001)
+        w = SnapshotWriter("ffd_v2", "u", root=tmp_path, fingerprint=FP, sha="x", built_at=FIXED, min_free_gb=1.0)
+        w.add(_frame())
+        with pytest.raises(OSError, match="disk space"):
+            w.close(register=False)
+        assert not (tmp_path / "ffd_v2").exists() or not any((tmp_path / "ffd_v2").iterdir())

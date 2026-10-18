@@ -110,10 +110,10 @@ def take_trade(symbol: str, horizon: str, cost_bps: Optional[float] = None,
             """INSERT INTO paper_trades
                  (symbol, horizon, entry_date, entry_price, direction,
                   target_price, stop_price, rank_pct, horizon_sessions,
-                  cost_bps, strategy, entry_fill_date)
+                  cost_bps, strategy, entry_fill_date, ref_price)
                VALUES
                  (%(s)s, %(h)s, %(d)s, %(e)s, %(dir)s, %(t)s, %(st)s, %(rk)s,
-                  %(hs)s, %(c)s, %(strat)s, %(fd)s)
+                  %(hs)s, %(c)s, %(strat)s, %(fd)s, %(ref)s)
                ON CONFLICT (strategy, symbol, horizon, entry_date) DO NOTHING""",
             {
                 "s": sym, "h": hzn, "d": date.today(), "e": entry, "dir": direction,
@@ -125,6 +125,8 @@ def take_trade(symbol: str, horizon: str, cost_bps: Optional[float] = None,
                 # If caller passed an explicit entry_price, treat that as
                 # an already-attained fill; otherwise leave fill_date NULL.
                 "fd": date.today() if entry is not None else None,
+                # signal-time close the levels were set from; fill_pending_entries re-anchors to the next open
+                "ref": (float(r["entry_price"]) if entry is None and pd.notna(r["entry_price"]) else None),
             },
         )
         return {"ok": True, "symbol": sym, "horizon": hzn,
@@ -302,14 +304,14 @@ def take_baseline_trades(horizon: str = "swing") -> dict:
                     """INSERT INTO paper_trades
                          (symbol, horizon, entry_date, entry_price, direction,
                           target_price, stop_price, rank_pct, horizon_sessions,
-                          cost_bps, strategy, entry_fill_date)
+                          cost_bps, strategy, entry_fill_date, ref_price)
                        VALUES
                          (%(s)s, %(h)s, %(d)s, NULL, 1, %(t)s, %(st)s, NULL,
-                          %(hs)s, %(c)s, %(strat)s, NULL)
+                          %(hs)s, %(c)s, %(strat)s, NULL, %(ref)s)
                        ON CONFLICT (strategy, symbol, horizon, entry_date) DO NOTHING""",
                     {"s": sym, "h": hzn, "d": today,
                      "t": tgt, "st": stp, "hs": _HORIZON_SESSIONS[hzn],
-                     "c": bps, "strat": strat},
+                     "c": bps, "strat": strat, "ref": float(ref)},
                 )
                 taken += 1
             except Exception as e:  # noqa: BLE001
@@ -383,10 +385,10 @@ def take_tier1_trades(horizon: str = "swing") -> dict:
                 """INSERT INTO paper_trades
                      (symbol, horizon, entry_date, entry_price, direction,
                       target_price, stop_price, rank_pct, horizon_sessions,
-                      cost_bps, strategy, entry_fill_date)
+                      cost_bps, strategy, entry_fill_date, ref_price)
                    VALUES
                      (%(s)s, %(h)s, %(d)s, NULL, %(dir)s, %(t)s, %(st)s, %(rk)s,
-                      %(hs)s, %(c)s, %(strat)s, NULL)
+                      %(hs)s, %(c)s, %(strat)s, NULL, %(ref)s)
                    ON CONFLICT (strategy, symbol, horizon, entry_date) DO NOTHING""",
                 {
                     "s": sym, "h": hzn, "d": today, "dir": direction,
@@ -397,7 +399,7 @@ def take_tier1_trades(horizon: str = "swing") -> dict:
                     "rk": (float(r["ranking_score"])
                            if pd.notna(r["ranking_score"]) else None),
                     "hs": _HORIZON_SESSIONS[hzn], "c": bps,
-                    "strat": strategy,
+                    "strat": strategy, "ref": float(r["entry_price"]),
                 },
             )
             out[strategy]["taken"] += 1
@@ -542,7 +544,7 @@ def fill_pending_entries(asof: Optional[date] = None) -> dict:
     """
     _ = asof or date.today()
     pending = read_sql(
-        """SELECT id, symbol, entry_date
+        """SELECT id, symbol, entry_date, ref_price, target_price, stop_price
              FROM paper_trades
             WHERE entry_price IS NULL
               AND entry_fill_date IS NULL
@@ -568,12 +570,19 @@ def fill_pending_entries(asof: Optional[date] = None) -> dict:
             n_pending += 1
             continue
         open_px, fill_dt = hit
+        # Re-anchor the barriers to the fill with the signal's own fractional offsets (the harness convention).
+        from qsde.ml.barrier import levels_at_fill
+        ref = float(t.get("ref_price")) if pd.notna(t.get("ref_price")) else None
+        stp0 = float(t.get("stop_price")) if pd.notna(t.get("stop_price")) else None
+        tgt0 = float(t.get("target_price")) if pd.notna(t.get("target_price")) else None
+        stp1, tgt1 = levels_at_fill(ref, float(open_px), stp0, tgt0)
         try:
             execute_sql(
                 """UPDATE paper_trades
-                      SET entry_price = %(px)s, entry_fill_date = %(fd)s
+                      SET entry_price = %(px)s, entry_fill_date = %(fd)s,
+                          stop_price = %(st)s, target_price = %(tg)s
                     WHERE id = %(id)s""",
-                {"px": float(open_px), "fd": fill_dt, "id": int(t["id"])},
+                {"px": float(open_px), "fd": fill_dt, "st": stp1, "tg": tgt1, "id": int(t["id"])},
             )
             n_filled += 1
         except Exception as e:  # noqa: BLE001

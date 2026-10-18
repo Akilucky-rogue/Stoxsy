@@ -92,9 +92,10 @@ class TestTrainAndServeReadTheSameVersion:
 
     def test_dataset_and_serve_use_the_same_reader_module(self):
         from qsde.models import dataset, signal_generator
-        d_src = Path(dataset.__file__).read_text()
+        from qsde.ml import dataset as ml_dataset
+        d_src = Path(ml_dataset.__file__).read_text()
         s_src = Path(signal_generator.__file__).read_text()
-        assert "qsde.features.store import read_features" in d_src
+        assert "read_features" in d_src and "build_labelled_dataset" in Path(dataset.__file__).read_text()
         assert "qsde.features.store import read_latest_rows" in s_src
         assert "FFD_VERSION" in s_src, "serve must use the shared version constant"
         # No hard-coded version literals left to drift.

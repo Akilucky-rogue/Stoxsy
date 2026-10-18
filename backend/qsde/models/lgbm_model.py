@@ -291,7 +291,19 @@ def train_lightgbm_model(dataset, horizon="swing"):
            signal generation.
 
     Returns the production model.
+
+    DEPRECATED (ADR 0001): this evaluator uses its own horizon/cost tables and a purged k-fold (not CPCV), and its
+    labels came from the close-of-day labeler. Model evaluation now goes through qsde.ml.experiment.run_experiment
+    (scripts/retrain.py). Kept only to reproduce historical numbers; it refuses to run unless
+    QSDE_ALLOW_LEGACY_TRAINER=true.
     """
+    import os
+
+    if os.getenv("QSDE_ALLOW_LEGACY_TRAINER", "false").strip().lower() not in ("1", "true", "yes"):
+        raise RuntimeError(
+            "train_lightgbm_model is the legacy evaluator and is disabled. Use scripts/retrain.py "
+            "(registry labels, CPCV harness, trial ledger, model cards). To reproduce historical numbers set "
+            "QSDE_ALLOW_LEGACY_TRAINER=true.")
     if dataset.empty:
         log.warning("Empty dataset provided for horizon " + str(horizon))
         return None
