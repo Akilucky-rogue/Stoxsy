@@ -99,6 +99,8 @@ def pack(symbol: str, listed: pd.Timestamp, read_sql, nse_eod, load_source) -> t
     ok_persist = np.isfinite(persist) and abs(persist / factor - 1) <= 0.10
     ok_cont = abs(open_adj_ret) <= max(4 * pre_med, 0.05) or abs(open_adj_ret) <= 0.10
     ok_sym = bool((px['date'] < gap_date).any() and (px['date'] >= gap_date).any())   # a rename has bars on one side only
+    verdict.update({"gap_date": str(gap_date.date()), "prev_bar_date": str(px.loc[k - 1, "date"].date()), "observed_gap": gap,
+                    "persistence": persist, "sessions_skipped": skipped, "purpose": (s["purpose"].iloc[0] if len(s) else None)})
     verdict["checks"] = {"gap_matches_listing": bool(ok_gap), "persists_3_sessions": bool(ok_persist),
                          "adjusted_return_continuous": bool(ok_cont), "same_symbol_trades_on_both_sides": bool(ok_sym)}
     rec = "READY FOR YOUR APPROVAL" if all(verdict["checks"].values()) else "HOLD - at least one check failed"
@@ -118,13 +120,17 @@ def main() -> int:
 
     OUT.mkdir(parents=True, exist_ok=True)
     summary = ["# Evidence packs - summary", ""]
+    proposals = {}
     for it in args.items:
         sym, d = it.split(":")
         text, v = pack(sym, pd.Timestamp(d), read_sql, nse_eod, load_source)
         (OUT / f"{sym}_{d}.md").write_text(text, encoding="utf-8")
         summary.append(f"- {sym} {d}: {v['checks'] or 'no evidence'}")
+        proposals[f"{sym}:{d}"] = v
         print(sym, d, v["checks"])
     (OUT / "SUMMARY.md").write_text("\n".join(summary), encoding="utf-8")
+    import json
+    (OUT / "proposals.json").write_text(json.dumps(proposals, indent=2, default=str), encoding="utf-8")
     print("packs ->", OUT)
     return 0
 

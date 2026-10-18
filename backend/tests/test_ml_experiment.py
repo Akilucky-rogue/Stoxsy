@@ -87,3 +87,17 @@ def test_entry_contract_holds_on_labels_and_flags_a_tampered_one(world):
     ds.frame.loc[ds.frame.index[:200], "entry"] = ds.frame.loc[ds.frame.index[:200], "entry"] * 1.5   # entry that is not the open
     bad = check_entry_contract(ds, n=len(ds.frame))
     assert bad["failures"], "a label with a non-open entry must be reported"
+
+
+def test_model_frame_gives_trees_raw_and_linear_models_ranked_heavy_tails(world):
+    prices, feats, _ = world
+    f = feats.copy()
+    f["smc_demo_dist"] = np.random.default_rng(1).normal(size=len(f))
+    f.loc[f.index[::2500], "smc_demo_dist"] = 5000.0
+    snap = type("S", (), {"snapshot_id": "s", "universe_version": "SYNTHETIC-w", "dataset_hash": "ab" * 32})()
+    ds = build_labelled_dataset("swing_5d", feats=f, prices=prices, exclusions=pd.DataFrame(columns=["symbol", "ex_date"]),
+                                snapshot=snap)
+    raw, rep_t = ds.model_frame("tree")
+    lin, rep_l = ds.model_frame("linear")
+    assert rep_t["transformed"] == [] and raw["smc_demo_dist"].max() >= 5000.0
+    assert "smc_demo_dist" in rep_l["transformed"] and lin["smc_demo_dist"].abs().max() <= 4.0

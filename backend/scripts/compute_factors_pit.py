@@ -65,6 +65,7 @@ def main() -> int:
     log.info("symbols=%d  universe symbol-days=%d  universe_version=%s", len(symbols), len(uni), universe_version)
 
     from qsde.ingestion import corp_actions_source as cas
+    from qsde.ingestion.corp_actions_approvals import approvals_fingerprint
     from qsde.ml.data import OFFICIAL, label_exclusion_events
 
     ca_counts = read_sql("SELECT count(*) FILTER (WHERE applied) AS applied, "
@@ -80,6 +81,8 @@ def main() -> int:
                                     "events_source_unconfirmed": int(ca_counts["source_unconfirmed"]),
                                     "events_unexplained": int(ca_counts["unexplained"]),
                                     "ohlcv_source_tag": "nse_adj_v2_src"},
+        "reconciler_version": "source_confirmed_v2 + owner_approved_v1",
+        "owner_approvals": approvals_fingerprint(),
         "excluded_event_count": int(len(excluded)),
         "excluded_event_symbols": int(excluded["symbol"].nunique()) if len(excluded) else 0,
         "label_exclusion_note": "events are excluded at LABEL time (qsde.ml.data.label_exclusion_events); "

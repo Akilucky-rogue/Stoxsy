@@ -385,11 +385,14 @@ def _source_events(primary: pd.DataFrame, inferred: pd.DataFrame) -> tuple[pd.Da
     confirmed = cas.reconcile(src, primary)
     sessions = np.sort(primary["date"].unique())
     events = combine_events(confirmed, inferred, src, sessions)
+    from qsde.ingestion.corp_actions_approvals import apply_approvals
+    events, approval_report = apply_approvals(events, primary)
     summ = {"source_rows": int(len(src)),
             "source_split_bonus_rows": int(src["category"].isin(["SPLIT_BONUS", "CONSOLIDATION"]).sum()),
             "source_confirmed": int(confirmed["applied"].sum()) if len(confirmed) else 0,
             "source_unconfirmed": int((confirmed["kind"] == "SOURCE_UNCONFIRMED").sum()) if len(confirmed) else 0,
-            "price_inferred_kept": int((events["source"] == "price_inferred").sum()) if len(events) else 0}
+            "price_inferred_kept": int((events["source"] == "price_inferred").sum()) if len(events) else 0,
+            "owner_approvals": approval_report}
     return events, summ
 
 

@@ -75,6 +75,28 @@ def evidence(row, px: pd.DataFrame, factor: float) -> dict:
     return out
 
 
+def load_official() -> dict:
+    """{new_symbol: [(old_symbol, effective_date)]} from the NSE symbol-change list stored in symbol_changes."""
+    from qsde.db.connection import read_sql
+    d = read_sql("SELECT old_symbol, new_symbol, effective_date FROM symbol_changes "
+                 "WHERE verification_status = 'official' AND change_type = 'symbol_change' AND source = 'nse_symbolchange_csv'")
+    out = {}
+    for r in d.itertuples():
+        out.setdefault(r.new_symbol, []).append((r.old_symbol, pd.Timestamp(r.effective_date)))
+    return out
+
+
+def official_hits(new_symbol: str, listed_ex, alias_hits: list, official: dict) -> list:
+    """Alias hits whose symbol is an NSE-listed predecessor of `new_symbol` that was renamed AFTER the listed date."""
+    olds = {o: d for o, d in official.get(new_symbol, [])}
+    out = []
+    for h in alias_hits:
+        sym = h.split("@")[0]
+        if sym in olds and pd.Timestamp(listed_ex) <= olds[sym] + pd.Timedelta(days=1):
+            out.append(h.split(" isin_overlap")[0] + " (NSE: " + sym + " -> " + new_symbol + " on " + str(olds[sym].date()) + ")")
+    return out
+
+
 def alias_candidates(listed_ex, factor: float, target: str, prim_all: pd.DataFrame, isin_map: dict) -> list:
     """Symbols (other than `target`) that show a gap matching `factor` within +-WIDE sessions of the listed date.
 
@@ -109,6 +131,11 @@ def classify(purpose: str, factor: float, ev: dict) -> tuple[str, str]:
         return "needs_manual_review", "purpose mentions rights/scheme/demerger/merger/buyback - factor is not a clean ratio"
     if ev.get("isin_changed"):
         return "needs_manual_review", "ISIN changed around the listing (symbol change / demerger / scheme)"
+    if ev.get("official_rename_hits"):
+        h = ev["official_rename_hits"][0]
+        return "confirm_and_apply", ("OFFICIAL RENAME (NSE list): apply to OLD symbol " + h +
+                                     " - the action happened while the stock traded under the old symbol; "
+                                     "requires the rename-aware reconciler, not applied here")
     if ev.get("alias_hits"):
         tag = ("LIKELY SYMBOL RENAME (same-date match; the feed uses the current symbol, eod_raw the historical one)"
                if ev.get("alias_same_day") else "possible rename/alias or chance match")
@@ -167,6 +194,7 @@ def main() -> int:
     allraw = pd.concat(parts, ignore_index=True).drop_duplicates(["symbol", "series", "date"])
     allraw["date"] = pd.to_datetime(allraw["date"])
     prim_all = nse_eod.pick_primary_series(allraw)
+    official = load_official()
     isin_map = {k: set(v) for k, v in raw.dropna(subset=['isin']).groupby('symbol')['isin'].unique().items()}
     isin_map.update({k: set(v) for k, v in allraw.dropna(subset=['isin']).groupby('symbol')['isin'].unique().items() if k not in isin_map})
 
@@ -182,6 +210,7 @@ def main() -> int:
         if e.get("flat_window") or e.get("coverage") == "no_bars":
             tgt = prim[prim["symbol"] == r.symbol]
             e["alias_hits"] = alias_candidates(r.listed_ex, factor, r.symbol, prim_all, isin_map)
+            e["official_rename_hits"] = official_hits(r.symbol, r.listed_ex, e["alias_hits"], official)
             e["alias_same_day"] = any(f"@{pd.Timestamp(r.listed_ex).date()}" in h for h in e["alias_hits"])
             ctx = tgt[(tgt["date"] >= pd.Timestamp(r.listed_ex) - pd.Timedelta(days=30)) &
                       (tgt["date"] <= pd.Timestamp(r.listed_ex) + pd.Timedelta(days=30))]

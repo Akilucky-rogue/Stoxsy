@@ -153,6 +153,29 @@ files; corporate-actions source evaluation (`docs/CORPORATE_ACTIONS_EVALUATION.m
   Scorecard resolver and the paper-journal path with 0 disagreements on fill, status and exit price. Its Sharpe (-0.54 net) is
   not evidence and says nothing about any model. The subset is today's liquid names, i.e. survivor-selected.
 
+### Owner decisions of 2026-10-18 (second review) and what was done
+* **Approved: DOLPHIN, DRCSYSTEMS, NDRAUTO, UEL. Rejected (kept unapplied): VERTOZ.** Recorded in the versioned file
+  `infra/data/corp_action_approvals.json`, applied by `qsde.ingestion.corp_actions_approvals` (method `owner_approved_v1`) at
+  the OBSERVED gap date, with a guard that re-measures the gap and refuses on mismatch. Two facts that were in the packs but not
+  in my summary: NDRAUTO's gap bar is 25 market sessions after its previous traded bar (a month after the listed date; applied
+  anyway on the owner's approval, flagged in the approval notes) and DRCSYSTEMS has 3 untraded sessions. Undo = edit the file
+  and rebuild.
+* New snapshot `20261018T144014Z-1ca69ab5be` (manifest records reconciler version `source_confirmed_v2 + owner_approved_v1` and the
+  approvals file hash); the prior snapshot `20261018T131903Z-aa6d315a45` is retained. Before/after diff: **zero changed feature
+  cells** - none of the four symbols is in the >= 10 crore universe, so the approvals change the official `ohlcv` for those
+  symbols (e.g. DOLPHIN 2024-01-24 close 1830.60 -> 183.06) but not this snapshot's features.
+* **NSE symbol-change list fetched** (one GET of the public file; stored at `data/nse/symbolchange.csv`, sha256 69c0c5e18cca3350,
+  1,058 rows) and loaded to `symbol_changes` with `verification_status = official` (migration 029). 15 of the 16 price-inferred
+  candidates match it exactly, each effective the session after the old symbol's last bar; PHILIPCARB->PCBL is not in the list
+  (the list is not exhaustive: absence is not rejection) and stays `inferred`. 239 official changes touch universe symbols, so
+  stitching renamed stocks under a stable security id is material.
+* **Reconciliation with the official map:** 21 of the SOURCE_UNCONFIRMED listings are actions that happened under the OLD symbol
+  of an official rename (e.g. UNOMINDA<-MINDAIND, UNITDSPR<-MCDOWELL-N, MOTHERSON<-MOTHERSUMI). They are proposals to apply to
+  the old symbol under a rename-aware reconciler; none applied, each still needs its evidence pack.
+* **Heavy-tailed features:** `qsde.ml.transforms` ranks them per date for linear/deep models (`LabelledDataset.model_frame`);
+  trees keep raw values.
+* **Continuous data:** design and build order in `docs/STREAMING_DATA.md`; nothing beyond the one NSE file has been fetched.
+
 ## Out of scope here
 
 Kite backfill/live (needs a session and the owner's go-ahead for any network call), a verified corporate-actions

@@ -49,6 +49,11 @@ class LabelledDataset:
                 "price_policy": self.price_policy, "exclusion_events": self.exclusion_events,
                 "rows": int(len(self.frame)), "n_features": len(self.feature_cols), "notes": self.notes}
 
+    def model_frame(self, kind: str = "tree"):
+        """Frame + report with features as the model family should see them (heavy tails ranked per date for linear/deep)."""
+        from qsde.ml.transforms import model_matrix
+        return model_matrix(self.frame, self.feature_cols, kind)
+
     @property
     def adjustment_complete(self) -> bool:
         """False under the research policy: low-confidence price-inferred events were applied."""

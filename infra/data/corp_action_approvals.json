@@ -1,0 +1,21 @@
+{
+  "version": "owner_approved_v1",
+  "note": "Owner decisions on SOURCE_UNCONFIRMED NSE listings. Evidence packs: data/reports/corp_actions/evidence/. To undo: remove an entry or set decision to reject, then rebuild; prior snapshots remain on disk.",
+  "decisions": [
+    {"symbol": "DOLPHIN", "listed_ex_date": "2024-01-30", "gap_date": "2024-01-29", "factor": 0.1, "decision": "approve",
+     "decided_by": "owner", "decided_at": "2026-10-18",
+     "notes": "Face value 10 -> 1. Gap 0.102, persists. 1 untraded market session before the gap bar (BE series)."},
+    {"symbol": "DRCSYSTEMS", "listed_ex_date": "2022-03-16", "gap_date": "2022-03-21", "factor": 0.1, "decision": "approve",
+     "decided_by": "owner", "decided_at": "2026-10-18",
+     "notes": "Face value 10 -> 1. Gap 0.0965, persists. 3 untraded market sessions before the gap bar; gap bar is 3 sessions after the listed date."},
+    {"symbol": "NDRAUTO", "listed_ex_date": "2023-07-24", "gap_date": "2023-08-21", "factor": 0.5, "decision": "approve",
+     "decided_by": "owner", "decided_at": "2026-10-18",
+     "notes": "Bonus 1:1. Gap 0.461 (7.8% off 0.5), persists. CAUTION: 25 untraded market sessions before the gap bar (previous bar 2023-07-13); the gap bar is a month after the listed date. Approved on the evidence pack; revisit if an NSE record date contradicts."},
+    {"symbol": "UEL", "listed_ex_date": "2025-10-08", "gap_date": "2025-10-13", "factor": 0.3333333333333333, "decision": "approve",
+     "decided_by": "owner", "decided_at": "2026-10-18",
+     "notes": "Bonus 2:1. Gap 0.3168, persists (0.332). 1 untraded session before the gap bar (BE series). NSE feed lists ex-date 2025-10-10."},
+    {"symbol": "VERTOZ", "listed_ex_date": "2025-06-24", "gap_date": "2025-07-11", "factor": 10.0, "decision": "reject",
+     "decided_by": "owner", "decided_at": "2026-10-18",
+     "notes": "Consolidation 1 -> 10. Stays SOURCE_UNCONFIRMED / needs_manual_review: 12 untraded sessions (halt) before the gap bar and price fell 12.8% off the factor over the first 3 post-gap sessions, so the gap is not reliable evidence of the listed action."}
+  ]
+}

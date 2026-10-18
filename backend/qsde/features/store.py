@@ -50,9 +50,11 @@ ROW_GROUP = 131_072
 
 CORPORATE_ACTION_POLICY = {
     "method": "source_confirmed_v2",
+    "reconciler_version": "source_confirmed_v2 + owner_approved_v1 (infra/data/corp_action_approvals.json; evidence packs required)",
     "adjusted": [
         "NSE-listed split/bonus/consolidation (incl. mild bonuses 0.8-0.97) when prices show the gap within +-2 sessions "
         "(exact parsed factor)",
+        "owner-approved SOURCE_UNCONFIRMED listings (applied at the observed gap date; guard re-measures the gap)",
         "price-inferred gaps <= 0.78 that snap to a common ratio and persisted for 3 later sessions, WHEN the NSE "
         "source lists nothing nearby. These include some demergers (e.g. TATAMOTORS 2025-10-14 at 0.6, KPIT 2019, "
         "CROMPGREAV 2016); they are tagged source='price_inferred' and can be excluded wholesale",
