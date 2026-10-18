@@ -32,7 +32,11 @@ from qsde.ml.registry import HorizonSpec, get_horizon, promotion_cost_bps
 
 log = logging.getLogger(__name__)
 
-FEATURE_CONTAMINATION_SESSIONS = 60
+# A price cliff leaks into every feature that looks back across it. Measured on three price-inferred events
+# (qsde.ml.data research vs official prices, ffd_v2 features): after a 0.2x / 0.5x cliff, 37-39 of 95 features still
+# differ by > 0.1 sd for the 99th-percentile feature at ~330 sessions (EMA-200-based smc_* features: up to ~740);
+# a 0.6x cliff clears in ~22. 282 = the fracdiff kernel width (and > the 252-session momentum/52w lookbacks).
+FEATURE_CONTAMINATION_SESSIONS = 282
 MIN_VOL_PERIODS = 25
 
 

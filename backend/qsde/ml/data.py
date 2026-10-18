@@ -60,7 +60,8 @@ def apply_extra_events(px: pd.DataFrame, events: pd.DataFrame) -> pd.DataFrame:
         for c in ("open", "high", "low", "close"):
             out.loc[m, c] = out.loc[m, c] * f
         if "volume" in out:
-            out.loc[m, "volume"] = out.loc[m, "volume"].astype(float) / f
+            out["volume"] = out["volume"].astype(float)
+            out.loc[m, "volume"] = out.loc[m, "volume"] / f
     return out
 
 

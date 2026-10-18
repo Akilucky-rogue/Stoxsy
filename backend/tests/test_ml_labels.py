@@ -181,8 +181,12 @@ class TestLabels:
         # exited before the event is unaffected by it
         expect_touch = (flagged["as_of_date"] < e) & (flagged["label_end_date"] >= e)
         assert (flagged["touches_unexplained"] == expect_touch).all() and expect_touch.sum() >= 1
-        # feature dates on/after the ex-date (within 60 sessions) are contaminated
-        assert (flagged["feature_contaminated"] == (flagged["as_of_date"] >= e)).all()
+        # feature dates on/after the ex-date (within the 282-session fracdiff/lookback horizon) are contaminated
+        from qsde.ml.labels import FEATURE_CONTAMINATION_SESSIONS as W
+        pos = pd.Series(range(len(cal)), index=cal)
+        ahead = pos.reindex(flagged["as_of_date"]).to_numpy() - pos[e]
+        assert (flagged["feature_contaminated"].to_numpy() == ((ahead >= 0) & (ahead < W))).all()
+        assert W >= 282
         assert len(kept) == len(flagged) - flagged[["touches_unexplained", "feature_contaminated"]].any(axis=1).sum()
 
     def test_missing_symbol_days_cannot_hit_barriers_and_missing_entry_is_unlabelled(self):

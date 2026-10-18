@@ -67,3 +67,13 @@ def test_failed_fit_is_still_counted_as_a_trial(world, tmp_path):
         run_experiment(ds, boom, "boom", {}, ledger_dir=tmp_path, groups=6, k=2)
     t = load_trials(trial_key(ds), tmp_path)
     assert len(t) == 1 and t[0]["status"] == "failed"
+
+
+def test_constant_features_are_excluded_from_model_inputs(world):
+    prices, feats, _ = world
+    f = feats.copy()
+    f["smc_dead_zone"] = 0.0
+    snap = type("S", (), {"snapshot_id": "s", "universe_version": "SYNTHETIC-w", "dataset_hash": "ab" * 32})()
+    ds = build_labelled_dataset("swing_5d", feats=f, prices=prices, exclusions=pd.DataFrame(columns=["symbol", "ex_date"]),
+                                snapshot=snap)
+    assert "smc_dead_zone" not in ds.feature_cols and any("smc_dead_zone" in n for n in ds.notes)

@@ -106,9 +106,29 @@ files; corporate-actions source evaluation (`docs/CORPORATE_ACTIONS_EVALUATION.m
    agree on fill and walk but not necessarily on barrier distance. Making `trade_levels` read the registry barrier is open.
 2. **Corporate actions:** rights, cash dividends, symbol changes and complex demergers are not adjusted; `adj_close == close`
    (no `total_return` series yet). 131 price-inferred events (some demergers) are research-only.
-3. **Pre-existing paper trades and ideas** logged before migration 027 have no `ref_price`; their levels stay absolute and
-   they are resolved on the old basis. Do not mix them into harness comparisons.
+3. **Pre-existing paper trades** logged before migration 027 have no `ref_price`; their levels stay absolute and they are
+   resolved on the old basis. Ideas (`trade_ideas`) are re-anchored at resolution regardless of age, but ideas resolved
+   before 027 were scored from the signal close and have no `entry_fill_price`. Do not mix either into harness comparisons.
 4. **Promotion** remains paused (`QSDE_ML_PROMOTION_ENABLED=false`) until a harness-based gate exists and a human signs off.
+
+### First full-universe snapshot (2026-10-18) and review findings
+* Snapshot `20261018T131903Z-aa6d315a45`, universe `adv60_top500_v1+adv10+full`, 832,773 rows, 1,100 symbols, 95 features
+  (93 usable: `smc_demand_zone` / `smc_supply_zone` are constant and excluded from model inputs), 2017-01-09 .. 2026-04-30,
+  official prices, 105 label-exclusion events. Validation passed; universe coverage 100%.
+* **Feature-contamination window raised 60 -> 282 sessions.** Measured on three price-inferred events: after a 0.2x or 0.5x
+  cliff, 37-39 of 95 features differ by > 0.1 sd for 270-330 sessions (EMA-200-based smc_* up to ~740); a 0.6x cliff clears in
+  ~22. Cost: 8,869 of 830,192 swing_5d labels dropped (1.1%).
+* **Symbol renames:** the NSE feed keys actions by the CURRENT symbol, `eod_raw` by the historical one. 24 of the 85
+  SOURCE_UNCONFIRMED listings are likely renames (same-date matching gap under another symbol, e.g. UNOMINDA<-MINDAIND,
+  PCBL<-PHILIPCARB, UNITDSPR<-MCDOWELL-N, TARIL<-TRIL). A symbol-change map is needed before these can be applied, and renamed
+  stocks are currently two separate series. `eod_raw.isin` exists only for 2016 - mid 2020, so ISIN continuity is untestable later.
+* Production reconciler requires the immediately preceding market session; illiquid names that skip sessions read as unconfirmed
+  (DOLPHIN 2024-01-29). Widening it is a proposal (changes the official series), not done.
+* DQ: 1,946 feature-row gaps >5 sessions are all universe exit/re-entry (no missing bars). The 14 "event applied but cliff" rows are
+  20% circuit days, not failed adjustments. Several `smc_*_dist` features reach 500-770 sd (absolute price distances): fine for trees,
+  need a per-date transform for linear/deep models.
+* **`factor_pit` drop record (PROPOSED, NOT EXECUTED):** ~8.2M rows (8,195,321 ffd_v2 pilot cells), 2.1 GB, factor_version ffd_v2,
+  46-symbol pilot. Before dropping: archive schema, record row count + hash here, remove the `analyze.py` pin-flow writer. Awaiting owner sign-off.
 
 ## Out of scope here
 

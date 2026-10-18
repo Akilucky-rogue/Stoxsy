@@ -91,7 +91,7 @@ LABELS: dict[str, LabelSpec] = {
         time_exit="close of bar t+h",
         target="side-adjusted net return after the horizon's cost model",
         exclusions=("label windows touching an UNEXPLAINED corporate-action event",
-                    "feature dates within 60 sessions after an UNEXPLAINED event"),
+                    "feature dates within 282 sessions after an UNEXPLAINED event"),
     ),
 }
 

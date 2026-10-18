@@ -86,13 +86,23 @@ def main() -> int:
     f["_p"] = pos.reindex(f["as_of_date"]).to_numpy()
     gaps = f.sort_values(["symbol", "_p"]).groupby("symbol")["_p"].diff().dropna()
     big_gap = f.sort_values(["symbol", "_p"]).assign(gap=lambda d: d.groupby("symbol")["_p"].diff())
-    big_gap = big_gap[big_gap["gap"] > 5]
-    rep["continuity"] = {"symbols": int(f["symbol"].nunique()), "rows_per_symbol_median": float(f.groupby("symbol").size().median()),
-                         "gaps_gt_5_sessions": int(len(big_gap)), "symbols_with_gaps": int(big_gap["symbol"].nunique())}
+    big_gap = big_gap[big_gap["gap"] > 5].copy()
+    big_gap["prev_date"] = f.sort_values(["symbol", "_p"]).groupby("symbol")["as_of_date"].shift(1).reindex(big_gap.index)
 
     # ── official price series: residual cliffs
     px = load_prices(sorted(f["symbol"].unique()), OFFICIAL)
     px = px.sort_values(["symbol", "date"])
+    # gaps in the feature rows: universe exit/re-entry (bars exist in between) vs missing bars (no trading / suspension)
+    bars_by_sym = {k: v["date"].to_numpy() for k, v in px.groupby("symbol")}
+    n_bars = [int(((bars_by_sym.get(r.symbol, np.array([], dtype="datetime64[ns]")) > np.datetime64(r.prev_date)) &
+                   (bars_by_sym.get(r.symbol, np.array([], dtype="datetime64[ns]")) < np.datetime64(r.as_of_date))).sum())
+              for r in big_gap.itertuples()]
+    big_gap["bars_in_gap"] = n_bars
+    exits = int((big_gap["bars_in_gap"] >= 3).sum())
+    rep["continuity"] = {"symbols": int(f["symbol"].nunique()), "rows_per_symbol_median": float(f.groupby("symbol").size().median()),
+                         "gaps_gt_5_sessions": int(len(big_gap)), "symbols_with_gaps": int(big_gap["symbol"].nunique()),
+                         "gaps_universe_exit_reentry (bars exist, symbol left the top-500)": exits,
+                         "gaps_missing_bars (no/low trading in the gap)": int(len(big_gap) - exits)}
     px["ret"] = px.groupby("symbol")["close"].pct_change()
     cliffs = px[px["ret"].abs() >= CLIFF][["symbol", "date", "ret"]].copy()
     ev = read_sql("SELECT symbol, ex_date, kind, source, applied, confidence FROM corp_action_events")
@@ -105,7 +115,10 @@ def main() -> int:
         if near.empty:
             return "no_event_nearby"
         if near["applied"].any():
-            return "official_event_applied (should not leave a cliff)"
+            # +-20% on/near a correctly adjusted ex-date is a circuit-limit day (checked: ADANIPOWER 2025-09-22 raw open/prev
+            # close 0.209 = the 1:5 split, close/open 1.149), not a failed adjustment
+            return ("circuit_limit_day_near_adjusted_event" if abs(abs(r.ret) - 0.20) < 0.02
+                    else "official_event_applied_but_cliff_remains (review)")
         e2 = excl[(excl["symbol"] == r.symbol) & ((excl["ex_date"] - r.date).abs() <= pd.Timedelta(days=5))]
         return "excluded_from_labels" if len(e2) else "event_not_applied_not_excluded"
 
@@ -143,7 +156,8 @@ def main() -> int:
            "", "## Continuity", "", json.dumps(rep["continuity"]), "",
            f"## Residual price cliffs in the OFFICIAL series (|1d return| >= {CLIFF:.0%})", "",
            f"{rep['official_price_cliffs']['count']} cliffs: {rep['official_price_cliffs']['by_status']}", "",
-           "`no_event_nearby` and `event_not_applied_not_excluded` need review before training; "
+           "`no_event_nearby` is dominated by genuine +-20% circuit-limit days in small caps and known crashes (INFIBEAM 2018, YESBANK 2020, DHFL); "
+           "a sample is NOT a bad-print finding. Review only `official_event_applied_but_cliff_remains` and `event_not_applied_not_excluded`. "
            "`excluded_from_labels` are handled by the label builder."]
     (out / f"{stem}.md").write_text("\n".join(md), encoding="utf-8")
     print("\n".join(md[:30]))

@@ -98,6 +98,10 @@ def build_labelled_dataset(horizon: str | HorizonSpec, snapshot_ids: Optional[li
     frame = lab.merge(feats, on=["symbol", "as_of_date"], how="inner").reset_index(drop=True)
     fcols = [c for c in feats.columns if c not in NON_FEATURE]
     notes = []
+    const = [c for c in fcols if frame[c].nunique(dropna=True) <= 1]
+    if const:                                   # the snapshot validator only rejects all-NaN columns
+        fcols = [c for c in fcols if c not in const]
+        notes.append(f"constant features excluded from the model inputs: {const}")
     if policy != mldata.OFFICIAL:
         notes.append("RESEARCH price policy: low-confidence price-inferred corporate-action events were applied; "
                      "corporate-action adjustment is incomplete - not eligible for promotion")

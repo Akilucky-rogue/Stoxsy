@@ -59,7 +59,7 @@ CORPORATE_ACTION_POLICY = {
     ],
     "not_adjusted": ["rights issues", "cash dividends", "demergers/schemes the price detector cannot snap",
                      "symbol changes", "SOURCE_UNCONFIRMED listings", "gaps pending confirmation (< 3 later sessions)"],
-    "label_exclusions": "label windows touching, and feature dates within 60 sessions after, an event of kind "
+    "label_exclusions": "label windows touching, and feature dates within 282 sessions after, an event of kind "
                         "UNEXPLAINED or SOURCE_UNCONFIRMED (optionally also applied price_inferred events)",
     "serving": "qsde.ingestion.corp_actions.recent_gap_symbols_from_db(): symbols with an unconfirmed >=18% gap in "
                "the last 3 sessions are not scored",

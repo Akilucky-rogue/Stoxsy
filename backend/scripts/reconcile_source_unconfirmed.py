@@ -75,6 +75,32 @@ def evidence(row, px: pd.DataFrame, factor: float) -> dict:
     return out
 
 
+def alias_candidates(listed_ex, factor: float, target: str, prim_all: pd.DataFrame, isin_map: dict) -> list:
+    """Symbols (other than `target`) that show a gap matching `factor` within +-WIDE sessions of the listed date.
+
+    A corporate action filed under today's symbol often traded under an older one (renames, mergers): the price
+    evidence then sits in the OLD symbol's series. Only strong factors (<= 0.8 or >= 1.25) are searched: for mild
+    ones a market-wide search is dominated by chance matches. `isin_overlap` is only knowable for archive years that
+    carry an ISIN (2016 - mid 2020); 'n/a' otherwise.
+    """
+    if not (factor <= 0.8 or factor >= 1.25):
+        return []
+    lo = pd.Timestamp(listed_ex) - pd.Timedelta(days=16)
+    hi = pd.Timestamp(listed_ex) + pd.Timedelta(days=16)
+    w = prim_all[(prim_all["date"] >= lo) & (prim_all["date"] <= hi) & (prim_all["symbol"] != target)]
+    w = w[(w["prev_close"] > 0) & (w["open"] > 0)].copy()
+    w["ro"] = w["open"] / w["prev_close"]
+    w["err"] = (w["ro"] / factor - 1.0).abs()
+    hit = w[w["err"] <= TOL].sort_values("err").drop_duplicates("symbol").head(5)
+    t_isins = isin_map.get(target, set())
+    out = []
+    for r in hit.itertuples():
+        isins = isin_map.get(r.symbol, set())
+        overlap = ("yes" if (t_isins & isins) else "no") if (t_isins and isins) else "n/a"
+        out.append(f"{r.symbol}@{pd.Timestamp(r.date).date()} ratio {r.ro:.3f} isin_overlap={overlap}")
+    return out
+
+
 def classify(purpose: str, factor: float, ev: dict) -> tuple[str, str]:
     """-> (bucket, reason). Conservative: the apply bucket needs positive price evidence on every axis."""
     if ev.get("coverage") == "no_bars":
@@ -83,6 +109,11 @@ def classify(purpose: str, factor: float, ev: dict) -> tuple[str, str]:
         return "needs_manual_review", "purpose mentions rights/scheme/demerger/merger/buyback - factor is not a clean ratio"
     if ev.get("isin_changed"):
         return "needs_manual_review", "ISIN changed around the listing (symbol change / demerger / scheme)"
+    if ev.get("alias_hits"):
+        tag = ("LIKELY SYMBOL RENAME (same-date match; the feed uses the current symbol, eod_raw the historical one)"
+               if ev.get("alias_same_day") else "possible rename/alias or chance match")
+        return "needs_manual_review", (f"{tag}: no gap under this symbol but a matching gap exists under: "
+                                       + "; ".join(ev["alias_hits"]) + " - confirm with an NSE symbol-change map")
     if ev.get("flat_window"):
         return "reject_listing_or_data_mismatch", ("no price gap within +-%d sessions (stale/duplicate listing, "
                                                    "already-adjusted archive, or parser miss)" % WIDE)
@@ -127,6 +158,17 @@ def main() -> int:
                    "turnover_lacs, trades, deliv_qty, deliv_per FROM eod_raw WHERE symbol = ANY(:s)", params={"s": syms})
     raw["date"] = pd.to_datetime(raw["date"])
     prim = nse_eod.pick_primary_series(raw)
+    # market-wide slice around every listing, for the cross-symbol (alias) search
+    parts = []
+    for d in ev["listed_ex"].drop_duplicates():
+        parts.append(read_sql("SELECT exchange, symbol, series, date, isin, open, close, prev_close, source_file FROM eod_raw "
+                              "WHERE exchange = 'NSE' AND date BETWEEN CAST(:a AS DATE) AND CAST(:b AS DATE)",
+                              params={"a": str((d - pd.Timedelta(days=22)).date()), "b": str((d + pd.Timedelta(days=22)).date())}))
+    allraw = pd.concat(parts, ignore_index=True).drop_duplicates(["symbol", "series", "date"])
+    allraw["date"] = pd.to_datetime(allraw["date"])
+    prim_all = nse_eod.pick_primary_series(allraw)
+    isin_map = {k: set(v) for k, v in raw.dropna(subset=['isin']).groupby('symbol')['isin'].unique().items()}
+    isin_map.update({k: set(v) for k, v in allraw.dropna(subset=['isin']).groupby('symbol')['isin'].unique().items() if k not in isin_map})
 
     rows = []
     for r in ev.itertuples():
@@ -137,6 +179,15 @@ def main() -> int:
                          "bucket": "needs_manual_review", "reason": "factor could not be re-derived from the source row"})
             continue
         e = evidence(r, prim[prim["symbol"] == r.symbol], factor)
+        if e.get("flat_window") or e.get("coverage") == "no_bars":
+            tgt = prim[prim["symbol"] == r.symbol]
+            e["alias_hits"] = alias_candidates(r.listed_ex, factor, r.symbol, prim_all, isin_map)
+            e["alias_same_day"] = any(f"@{pd.Timestamp(r.listed_ex).date()}" in h for h in e["alias_hits"])
+            ctx = tgt[(tgt["date"] >= pd.Timestamp(r.listed_ex) - pd.Timedelta(days=30)) &
+                      (tgt["date"] <= pd.Timestamp(r.listed_ex) + pd.Timedelta(days=30))]
+            e["raw_close_before"] = float(ctx[ctx["date"] < pd.Timestamp(r.listed_ex)]["close"].tail(1).mean()) if len(ctx) else np.nan
+            e["raw_close_after"] = float(ctx[ctx["date"] >= pd.Timestamp(r.listed_ex)]["close"].head(1).mean()) if len(ctx) else np.nan
+            e["source_files"] = "|".join(sorted(ctx["source_file"].astype(str).str[:7].unique())[:3]) if "source_file" in ctx else ""
         bucket, reason = classify(purpose, factor, e)
         rows.append({"symbol": r.symbol, "listed_ex_date": r.listed_ex.date(), "purpose": purpose,
                      "parsed": r.detail, "listed_factor": factor, "bucket": bucket, "reason": reason,
@@ -151,6 +202,10 @@ def main() -> int:
     lines = ["# SOURCE_UNCONFIRMED reconciliation (read-only)", "",
              f"{len(df)} NSE-listed split/bonus/consolidation rows whose price gap did not confirm within +-2 sessions.",
              "Nothing was applied. `confirm_and_apply` is a PROPOSAL for owner review; the official `ohlcv` is unchanged.",
+             "",
+             "ISIN note: eod_raw carries an ISIN only for 2016 - mid 2020; for later listings ISIN continuity cannot be tested "
+             "(the `isin_changed` flag is silent there, not a pass). Rejects were also searched across ALL symbols for a matching "
+             "gap (renames/aliases): those are routed to needs_manual_review.",
              "",
              "Method note: the production reconciler needs the previous bar to be the immediately preceding market "
              "session. Illiquid names (BE/T-group series) skip sessions, so a real split can read as unconfirmed "
