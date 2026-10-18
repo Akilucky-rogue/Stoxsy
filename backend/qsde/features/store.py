@@ -181,7 +181,7 @@ def validate_snapshot_dir(path: Path, manifest: dict, expected_keys: Optional[pd
         d = pd.to_datetime(df["date"])
         if not (d.dt.strftime("%Y%m") == fm["name"][5:11]).all():
             errs.append(f"{fm['name']} holds rows from another month")
-        order = df["symbol"].astype(str) + d.dt.strftime("%Y-%m-%d")
+        order = df["symbol"].astype(str) + chr(1) + d.dt.strftime("%Y-%m-%d")   # chr(1) sorts before any symbol character: tuple order, not prefix order
         if not order.is_monotonic_increasing:
             errs.append(f"{fm['name']} rows not sorted by (symbol, date)")
         exp_known = known_at_utc(d)

@@ -317,3 +317,10 @@ class TestPromotionSafeguards:
         with pytest.raises(OSError, match="disk space"):
             w.close(register=False)
         assert not (tmp_path / "ffd_v2").exists() or not any((tmp_path / "ffd_v2").iterdir())
+
+
+def test_validator_accepts_symbols_that_are_prefixes_of_each_other(tmp_path):
+    """BAJAJ < BAJAJ-AUTO as a tuple sort; naive 'symbol+date' string concatenation orders them the other way."""
+    df = _frame(n=30, syms=("BAJAJ", "BAJAJ-AUTO", "M&M", "M&MFIN"))
+    s = _build(tmp_path, df)
+    assert s.manifest["validation"]["rows"] == len(df)

@@ -10,7 +10,7 @@ recovery of paper trades / idea-log). Prices were rebuilt from the local NSE bha
 data/stocktrack_data/cache/historical/nse/{old_legacy,legacy}/parsed/YYYY-MM-DD.parquet   (2016-01-01 .. 2026-04-30)
    -> qsde/ingestion/nse_eod.py      normalise + validate + idempotent upsert   -> eod_raw      (RAW, unadjusted)
    -> qsde/ingestion/corp_actions.py detect split/bonus/consolidation          -> corp_action_events
-                                      adjust prices                             -> ohlcv  (source nse_bhavcopy_adj_v1)
+                                      adjust prices                             -> ohlcv  (source nse_adj_v2_src: NSE-confirmed events only)
    -> qsde/universe/pit.py           trailing-60d median traded value top-500  -> universe_pit  (point in time)
    -> qsde/factors/engine.py         factors + fixed-kernel fracdiff (ffd_v2)  -> Parquet feature store
                                       (qsde/features/store.py; D:\Stoxsy\data\features\ffd_v2\<snapshot>\data-YYYYMM.parquet,

@@ -32,6 +32,8 @@ WIDE = 10                  # sessions searched around the listed date
 FLAT_BAND = 0.04           # |open_ratio - 1| below this everywhere in the window == no gap at all
 TOL = 0.10                 # factor match tolerance (same as the reconciler's strong tolerance)
 PERSIST_SESSIONS = 5
+TOL_MILD = 0.06            # mild factors (0.8-1.25): the gap barely clears noise, so match more tightly
+MAX_SHIFT = 5              # sessions the observed gap may sit from the listed ex-date for an apply proposal
 OUT = Path(r"D:\Stoxsy\data\reports\corp_actions")
 RIGHTS = re.compile(r"right|warrant|partly paid|scheme|arrang|amalgam|merger|demerg|capital reduction|buyback", re.I)
 
@@ -86,10 +88,13 @@ def classify(purpose: str, factor: float, ev: dict) -> tuple[str, str]:
                                                    "already-adjusted archive, or parser miss)" % WIDE)
     err, persist = ev.get("best_err", 9), ev.get("persistence_ratio", np.nan)
     persists = np.isfinite(persist) and abs(persist / factor - 1.0) <= TOL
-    if err <= TOL and persists and ev.get("coverage") == "ok":
-        shift = ev["best_gap_offset_sessions"]
+    tol = TOL if (factor <= 0.8 or factor >= 1.25) else TOL_MILD        # same tolerances as the reconciler itself
+    shift = ev.get("best_gap_offset_sessions", 99)
+    if err <= tol and persists and ev.get("coverage") == "ok" and abs(shift) <= MAX_SHIFT:
         return "confirm_and_apply", (f"gap {ev['best_open_ratio']:.3f} matches listed {factor:.3f} at "
                                      f"{shift:+d} sessions from the listed ex-date and persists")
+    if err <= TOL and abs(shift) > MAX_SHIFT:
+        return "needs_manual_review", f"matching gap but {shift:+d} sessions from the listed ex-date (> {MAX_SHIFT})"
     if err <= TOL and ev.get("coverage") != "ok":
         return "needs_manual_review", "matching gap but too close to the edge of the data to check persistence"
     if err <= TOL and not persists:
@@ -105,15 +110,17 @@ def main() -> int:
 
     from qsde.db.connection import read_sql
     from qsde.ingestion import nse_eod
-    from qsde.ingestion.corp_actions_source import load_source
 
-    ev = read_sql("SELECT symbol, ex_date, source_purpose, snapped_ratio FROM corp_action_events "
+    from qsde.ingestion.corp_actions_source import parse_purpose
+
+    ev = read_sql("SELECT symbol, ex_date, source_purpose, snapped_ratio, ex_date_shift FROM corp_action_events "
                   "WHERE kind = 'SOURCE_UNCONFIRMED' ORDER BY symbol, ex_date")
-    src = load_source()
-    src["_k"] = src["symbol"] + "|" + src["ex_date"].dt.strftime("%Y-%m-%d")
     ev["listed_ex"] = pd.to_datetime(ev["ex_date"])
-    ev["_k"] = ev["symbol"] + "|" + ev["listed_ex"].dt.strftime("%Y-%m-%d")
-    ev = ev.merge(src[["_k", "factor", "purpose", "detail", "src_type"]], on="_k", how="left")
+    ev["purpose"] = ev["source_purpose"]
+    parsed = ev["purpose"].map(parse_purpose)
+    ev["factor"] = parsed.map(lambda p: p["factor"])
+    ev["detail"] = parsed.map(lambda p: "; ".join(x[2] for x in p["parts"]))
+    ev = ev.drop_duplicates(["symbol", "listed_ex"]).reset_index(drop=True)
 
     syms = sorted(ev["symbol"].unique())
     raw = read_sql("SELECT exchange, symbol, series, date, isin, open, high, low, close, last, prev_close, volume, "
@@ -144,6 +151,13 @@ def main() -> int:
     lines = ["# SOURCE_UNCONFIRMED reconciliation (read-only)", "",
              f"{len(df)} NSE-listed split/bonus/consolidation rows whose price gap did not confirm within +-2 sessions.",
              "Nothing was applied. `confirm_and_apply` is a PROPOSAL for owner review; the official `ohlcv` is unchanged.",
+             "",
+             "Method note: the production reconciler needs the previous bar to be the immediately preceding market "
+             "session. Illiquid names (BE/T-group series) skip sessions, so a real split can read as unconfirmed "
+             "(e.g. DOLPHIN 2024-01-29: 1830.60 -> 186.70, no bar on the 25th). This report measures the gap against "
+             "the last traded close instead. If you approve, the production rule should be widened to allow up to N "
+             "skipped sessions (with the same tolerance and persistence checks), then `rebuild_from_db` rerun; "
+             "that is a change to the official series and is NOT done here.",
              "", "| bucket | n |", "|---|---|"]
     lines += [f"| {b} | {int(counts[b])} |" for b in BUCKETS]
     for b in BUCKETS:

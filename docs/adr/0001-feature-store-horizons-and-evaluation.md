@@ -64,21 +64,54 @@ files; corporate-actions source evaluation (`docs/CORPORATE_ACTIONS_EVALUATION.m
 * **Legacy ML promotion is paused by default** (`QSDE_ML_PROMOTION_ENABLED` now defaults to false and is set false in
   `.env`): see "Known divergences" below.
 
+### Owner decisions of 2026-10-18 (implemented)
+1. **`factor_pit` is deprecated.** Migration 026 comments the table; a test fails if any live module reads it. It is kept
+   only as the parity reference for the 46-symbol pilot (8,195,321 ffd_v2 cells matched exactly). It is deleted only after
+   the first full-universe snapshot passes validation, and the deletion is recorded here (row count, hash, factor
+   version, date) before the drop. *Known live writer:* `api/routes/analyze.py` (the "pin symbol" flow) still writes
+   raw factors to it through `pit_writer`; it reads nothing back and is slated for removal with the table.
+2. **Official vs research corporate-action series.** `ohlcv` (source tag `nse_adj_v2_src`) is adjusted only for
+   NSE-source-confirmed split/bonus/consolidation events. Price-inferred events are stored `confidence='low'`,
+   `applied=false`, `applied_research=true`: they never touch the official series. `qsde.ml.data.load_prices(policy=)`
+   serves `official` (default; label windows touching price-inferred events are excluded, as are UNEXPLAINED and
+   SOURCE_UNCONFIRMED) or `research` (extra events applied on the fly; the run is forced PLUMBING_ONLY, gets its own
+   ledger key, and the card says adjustment is incomplete). Symbols with a fresh unconfirmed >=18% gap are still
+   excluded at serving time.
+3. **SOURCE_UNCONFIRMED listings** (85) are reconciled read-only by `scripts/reconcile_source_unconfirmed.py` into
+   `confirm_and_apply` / `needs_manual_review` / `reject_listing_or_data_mismatch`. Nothing is applied by that script.
+4. **Full-universe snapshots** are built source-first with inferred events excluded from the official series, staged in
+   a temp directory, validated (file hashes, schema, ordering, `known_at`, inf, all-NaN features, universe coverage),
+   hashed, then promoted atomically, with free-disk checks before and after. The manifest records factor version,
+   universe version, date range, row and cell counts, NaN cells, corporate-action source (file hash, method, event
+   counts), excluded-event count and dataset hash. `scripts/snapshot_dq_report.py` runs straight afterwards.
+   **No full-universe training until that report and the reconciliation are reviewed:** `scripts/retrain.py` refuses a
+   non-plumbing snapshot unless `--reviewed-snapshot <id>` matches.
+
+### Training / paper / Scorecard now share one contract
+* `qsde.ml.dataset.build_labelled_dataset` (snapshot features + `tb_nextopen_v1` labels under a price policy) and
+  `qsde.ml.experiment.run_experiment` (CPCV -> harness -> ledger trial -> PBO -> model card) are the only route to a
+  verdict. `models.dataset.build_training_dataset` is a shim over them; the close-of-day labeler is no longer used.
+* The legacy `lgbm_model.train_lightgbm_model` evaluator is disabled unless `QSDE_ALLOW_LEGACY_TRAINER=true` (kept only to
+  reproduce historical numbers). `scripts/retrain.py` writes ledger trials and cards and, with `--save-candidate`, a
+  candidate artifact under `data/models/candidates`; it never touches active weights or `model_runs`.
+* **Entry convention:** the decision is at the close of t, the fill at the open of t+1, and stop/target are re-anchored to
+  the fill with the signal's fractional offsets (`qsde.ml.barrier.levels_at_fill`). The Scorecard resolver
+  (`entry_fill_price`/`entry_fill_date` on `trade_ideas`) and the paper journal (`paper_trades.ref_price`, levels rescaled in
+  `fill_pending_entries`) both do this; a test grades a harness label and the resolver on the same path and requires the
+  same outcome. Migration 027.
+
 ### Known divergences (not hidden)
-1. **Training and the promotion gate are still the legacy path.** `models.dataset` uses `models.triple_barrier`
-   (entry at the close of t, bar t inside the window) and `lgbm_model` gates with `_evaluate_oos_with_costs`
-   (subsampled periods, `DSR_N_TRIALS=1`). They are marked LEGACY in the logs and cannot promote by default. The
-   registry label `tb_nextopen_v1` + `qsde.ml.eval` + the trial ledger are the intended replacement; wiring a model
-   family through them (and a harness-based promotion gate) is the next build step.
-2. **Scorecard entry vs harness entry.** Engines write `entry` = the close of t (`rule_momentum` takes it from the signal's
-   `entry_price`), and the resolver walks bars after t from that price. Paper trades fill at the next open (H8). The harness
-   enters at the next open with barriers measured from the fill. The shared walker guarantees identical outcomes for an
-   identical (entry, stop, target, path), but the idea log and the harness do not yet agree on the entry price. Fix:
-   re-anchor idea levels to the next-open fill in the resolver (stop/target as offsets from entry).
-3. **Corporate actions:** 132 price-inferred events are applied with no NSE listing; some are demergers. See the
-   evaluation doc. SOURCE_UNCONFIRMED (85) and UNEXPLAINED events are excluded from labels.
+1. **Barrier widths:** the engines' trade levels (`trade_levels`, `_atr_levels`) and the registry barrier (`sl_mult*sigma`,
+   EWM span 100) are separate formulas. After re-anchoring, a paper trade or idea and a harness label for the same signal
+   agree on fill and walk but not necessarily on barrier distance. Making `trade_levels` read the registry barrier is open.
+2. **Corporate actions:** rights, cash dividends, symbol changes and complex demergers are not adjusted; `adj_close == close`
+   (no `total_return` series yet). 131 price-inferred events (some demergers) are research-only.
+3. **Pre-existing paper trades and ideas** logged before migration 027 have no `ref_price`; their levels stay absolute and
+   they are resolved on the old basis. Do not mix them into harness comparisons.
+4. **Promotion** remains paused (`QSDE_ML_PROMOTION_ENABLED=false`) until a harness-based gate exists and a human signs off.
 
 ## Out of scope here
 
-Full-universe factor generation (after corporate-actions evaluation), Kite backfill/live (needs a session and
-the owner's go-ahead for any network call), dropping the 2.1 GB pilot rows from `factor_pit` (ask first).
+Kite backfill/live (needs a session and the owner's go-ahead for any network call), a verified corporate-actions
+source (dividends, rights, symbol changes, demergers) and `total_return` vs `price_return`, dropping `factor_pit` (after the
+first validated full snapshot).
