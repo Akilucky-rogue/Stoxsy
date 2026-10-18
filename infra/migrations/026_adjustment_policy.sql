@@ -22,7 +22,7 @@ END $$;
 
 ALTER TABLE corp_action_events DROP CONSTRAINT IF EXISTS corp_action_events_confidence_check;
 ALTER TABLE corp_action_events ADD CONSTRAINT corp_action_events_confidence_check
-    CHECK (confidence IN ('high', 'low'));
+    CHECK (confidence IN ('high', 'medium', 'low'));
 
 COMMENT ON TABLE ohlcv IS
   'Engine input (OFFICIAL series). Adjusted for NSE-source-confirmed split/bonus/consolidation events only '

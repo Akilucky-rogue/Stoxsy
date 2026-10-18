@@ -22,12 +22,13 @@ OUT = Path(r"D:\Stoxsy\data\reports\corp_actions\evidence")
 DEFAULT = ["DOLPHIN:2024-01-30", "DRCSYSTEMS:2022-03-16", "NDRAUTO:2023-07-24", "UEL:2025-10-08", "VERTOZ:2025-06-24"]
 
 
-def pack(symbol: str, listed: pd.Timestamp, read_sql, nse_eod, load_source) -> tuple[str, dict]:
+def pack(symbol: str, listed: pd.Timestamp, read_sql, nse_eod, load_source, traded: str = None) -> tuple[str, dict]:
+    traded = traded or symbol                   # renamed stocks: the feed key (symbol) and the symbol that traded differ
     src = load_source()
     s = src[(src["symbol"] == symbol) & ((src["ex_date"] - listed).abs() <= pd.Timedelta(days=15))]
     raw = read_sql("SELECT symbol, series, date, isin, open, high, low, close, prev_close, volume, source_file FROM eod_raw "
                    "WHERE symbol = :s AND date BETWEEN CAST(:a AS DATE) AND CAST(:b AS DATE)",
-                   params={"s": symbol, "a": str((listed - pd.Timedelta(days=45)).date()),
+                   params={"s": traded, "a": str((listed - pd.Timedelta(days=45)).date()),
                            "b": str((listed + pd.Timedelta(days=45)).date())})
     raw["date"] = pd.to_datetime(raw["date"])
     px = nse_eod.pick_primary_series(raw).sort_values("date").reset_index(drop=True)
@@ -43,7 +44,7 @@ def pack(symbol: str, listed: pd.Timestamp, read_sql, nse_eod, load_source) -> t
     i0 = int(np.searchsorted(px["date"].to_numpy(), np.datetime64(listed)))
     win = px.iloc[max(1, i0 - 6):i0 + 7]
     k = (win["gap"] / factor - 1.0).abs().idxmin() if np.isfinite(factor) and len(win) else None
-    L = ["# Evidence pack: %s  (listed ex-date %s)" % (symbol, listed.date()), ""]
+    L = ["# Evidence pack: %s  (listed ex-date %s)%s" % (symbol, listed.date(), "" if traded == symbol else f"  - traded as {traded} (NSE rename)"), ""]
     L += ["## 1. NSE listing record (as held in the StockTrack feed)", ""]
     if len(s):
         for r in s.itertuples():
@@ -101,9 +102,17 @@ def pack(symbol: str, listed: pd.Timestamp, read_sql, nse_eod, load_source) -> t
     ok_sym = bool((px['date'] < gap_date).any() and (px['date'] >= gap_date).any())   # a rename has bars on one side only
     verdict.update({"gap_date": str(gap_date.date()), "prev_bar_date": str(px.loc[k - 1, "date"].date()), "observed_gap": gap,
                     "persistence": persist, "sessions_skipped": skipped, "purpose": (s["purpose"].iloc[0] if len(s) else None)})
+    from qsde.ingestion.corp_actions_approvals import check_bounds
+    lo_d, hi_d = sorted([np.datetime64(listed), gap_date.to_datetime64()])
+    shift_sessions = int(((cal_d > lo_d) & (cal_d <= hi_d)).sum()) * (1 if gap_date >= listed else -1)
+    violations = check_bounds(factor, gap, shift_sessions, skipped)
+    verdict.update({"shift_sessions": shift_sessions, "bound_violations": violations})
     verdict["checks"] = {"gap_matches_listing": bool(ok_gap), "persists_3_sessions": bool(ok_persist),
-                         "adjusted_return_continuous": bool(ok_cont), "same_symbol_trades_on_both_sides": bool(ok_sym)}
+                         "adjusted_return_continuous": bool(ok_cont), "same_symbol_trades_on_both_sides": bool(ok_sym),
+                         "within_hard_bounds (<=5 sessions from listing, factor <=5%/3%, <=5 untraded)": not violations}
     rec = "READY FOR YOUR APPROVAL" if all(verdict["checks"].values()) else "HOLD - at least one check failed"
+    if violations:
+        L += ["", "**Hard-bound violations:** " + "; ".join(violations)]
     L += ["", "## 6. Checklist", ""] + [f"- [{'x' if v else ' '}] {k_}" for k_, v in verdict["checks"].items()]
     L += ["", f"**Recommendation: {rec}.** Applying it would change the official `ohlcv` for `{symbol}` before "
               f"{gap_date.date()} and requires a rebuild; nothing has been applied."]
@@ -122,11 +131,12 @@ def main() -> int:
     summary = ["# Evidence packs - summary", ""]
     proposals = {}
     for it in args.items:
-        sym, d = it.split(":")
-        text, v = pack(sym, pd.Timestamp(d), read_sql, nse_eod, load_source)
+        parts = it.split(":")
+        sym, d, traded = parts[0], parts[1], (parts[2] if len(parts) > 2 else None)
+        text, v = pack(sym, pd.Timestamp(d), read_sql, nse_eod, load_source, traded)
         (OUT / f"{sym}_{d}.md").write_text(text, encoding="utf-8")
         summary.append(f"- {sym} {d}: {v['checks'] or 'no evidence'}")
-        proposals[f"{sym}:{d}"] = v
+        proposals[f"{sym}:{d}"] = {**v, "traded_as": traded or sym}
         print(sym, d, v["checks"])
     (OUT / "SUMMARY.md").write_text("\n".join(summary), encoding="utf-8")
     import json

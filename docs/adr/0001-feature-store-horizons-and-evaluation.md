@@ -176,6 +176,40 @@ files; corporate-actions source evaluation (`docs/CORPORATE_ACTIONS_EVALUATION.m
   trees keep raw values.
 * **Continuous data:** design and build order in `docs/STREAMING_DATA.md`; nothing beyond the one NSE file has been fetched.
 
+### Owner decisions of 2026-10-18 (third review): NDRAUTO reversed, hard bounds, rename-aware reconciler, streaming foundation
+* **NDRAUTO approval REVERSED** (`rejected_pending_evidence`). Record: listed ex-date 2023-07-24, observed gap bar 2023-08-21 -
+  **19 market sessions later** (25 untraded sessions; previous bar 2023-07-13); observed factor **0.461 vs 0.5 (7.8% off)**. Reason:
+  timing and magnitude do not agree closely and promptly. It reverts to SOURCE_UNCONFIRMED. DOLPHIN and UEL stay applied; DRCSYSTEMS
+  stays applied with `confidence = 'medium'` (3 untraded sessions, gap bar 3 sessions after the listing; migration 030).
+  Snapshot `20261018T145857Z-f782666885` (reconciler `source_confirmed_v2 + owner_approved_v1`, approvals file hash in the
+  manifest, 643 official events); the earlier snapshots `...131903Z-aa6d315a45` and `...144014Z-1ca69ab5be` are retained. Feature
+  cells are identical across all three (none of the affected symbols is in the >= 10 crore universe).
+* **Hard validation rule, in code** (`corp_actions_approvals.check_bounds`): an approval is valid only if the gap bar is within
+  **5 market sessions** of the listed ex-date, the factor is within **5%** (3% for factors 0.8-1.25) and at most **5 untraded
+  sessions** precede the gap bar. It is checked when the evidence pack is produced (decision time) and again at apply time on the
+  data as it then is. Re-evaluated under it: DOLPHIN, DRCSYSTEMS, UEL pass (UEL by a hair: 4.96% off); NDRAUTO and VERTOZ fail.
+  The earlier 10% / +-2-session guard was too loose and is superseded.
+* **Rename-aware reconciler `source_confirmed_v3`** (evaluation only; the official series is untouched): `security_master`
+  (migration 032) maps symbols to a stable `security_id` ('S:' + earliest symbol in the chain) using ONLY official NSE renames that
+  also pass an archive hand-off check (old series ends, new begins, no overlap): 217 securities / 451 symbol intervals; 574
+  official rows could not be used, 571 of them because one side has no bars in the archive (delisted / never in the price files).
+  The v3 evaluator resolves each of the 82 still-unconfirmed listings to the symbol that traded, measures the gap against the last
+  traded close with <= 5 untraded sessions, applies the hard bounds and 3-session persistence: **22 candidates**, 57 rejected,
+  3 unresolved. All 22 are actions that happened under an old symbol (gap on the listed date, 0 untraded sessions, errors 0-4.9%);
+  they would touch 19 symbols, 13 in the universe. Before/after diff: events changed 0, removed 0, added 22 (if all approved).
+  They are written to `corp_action_candidates` and to `infra/data/corp_action_approvals_PROPOSED_v3.json` (NOT loaded); evidence
+  packs are in `data/reports/corp_actions/evidence/`. `apply_approvals` accepts `apply_to_symbol`, which attaches the event to the
+  old symbol and supersedes any price-inferred research event for the same gap.
+* **Not yet done for renames:** features are still computed per symbol, so a renamed stock's history is two series. Computing
+  features on the stitched `security_id` series (and a snapshot keyed by security) is the next step after the candidates are decided.
+* **Streaming foundation (S0) built, nothing enabled** (`qsde/stream/`, migration 031 `source_health`): adapter contract
+  (fetch/parse/validate), raw-first landing zone (immutable, atomic, hash-verified), `known_at` stamping (live and backfill modes;
+  never earlier than the fetch; corrections are new rows), runner with checkpoints advanced only after commit, health stores
+  (memory, JSON, Postgres), alert sink with dedupe, due-time scheduler with backoff and market-hours-aware staleness, replay from
+  landed bytes. 20 tests cover raw-first on parse failure, idempotence, corrections, replay equals live, checkpoint safety,
+  failure escalation, staleness only while the market is open, and one failing source not stopping the others. No external
+  polling and no Kite streaming is enabled.
+
 ## Out of scope here
 
 Kite backfill/live (needs a session and the owner's go-ahead for any network call), a verified corporate-actions
