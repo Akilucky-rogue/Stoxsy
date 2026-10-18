@@ -60,7 +60,7 @@ def trial_key(ds: LabelledDataset) -> TrialKey:
 
 def run_experiment(ds: LabelledDataset, fit_predict: Callable, model_name: str, params: dict,
                    ledger_dir: Path = LEDGER_DIR, groups: int = 10, k: int = 2, baseline_seeds: int = 10,
-                   card_path: Optional[Path] = None) -> dict:
+                   card_path: Optional[Path] = None, force_plumbing: Optional[str] = None) -> dict:
     spec, lab = ds.spec, ds.frame
     key = trial_key(ds)
     ledger_dir = Path(ledger_dir)
@@ -99,6 +99,10 @@ def run_experiment(ds: LabelledDataset, fit_predict: Callable, model_name: str, 
     order = sorted(range(len(results)), key=lambda i: results[i]["headline"]["sharpe_ann"])
     mid = order[len(order) // 2]
     med = results[mid]
+    if force_plumbing:                             # smoke run: the result is a wiring check, never evidence
+        med["verdict_allowed"] = False
+        med["evidence_class"] = "PLUMBING_ONLY"
+        med["evidence_reasons"] = list(med["evidence_reasons"]) + [force_plumbing]
     if not ds.adjustment_complete:                 # research policy: never a verdict
         med["verdict_allowed"] = False
         med["evidence_class"] = "PLUMBING_ONLY"

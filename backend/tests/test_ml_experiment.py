@@ -77,3 +77,13 @@ def test_constant_features_are_excluded_from_model_inputs(world):
     ds = build_labelled_dataset("swing_5d", feats=f, prices=prices, exclusions=pd.DataFrame(columns=["symbol", "ex_date"]),
                                 snapshot=snap)
     assert "smc_dead_zone" not in ds.feature_cols and any("smc_dead_zone" in n for n in ds.notes)
+
+
+def test_entry_contract_holds_on_labels_and_flags_a_tampered_one(world):
+    from qsde.ml.contract import check_entry_contract
+    ds = _ds(world)
+    res = check_entry_contract(ds, n=150)
+    assert res["n_checked"] >= 100 and res["failures"] == []
+    ds.frame.loc[ds.frame.index[:200], "entry"] = ds.frame.loc[ds.frame.index[:200], "entry"] * 1.5   # entry that is not the open
+    bad = check_entry_contract(ds, n=len(ds.frame))
+    assert bad["failures"], "a label with a non-open entry must be reported"

@@ -46,3 +46,15 @@ def test_helpers_have_no_callers():
         if re.search(r"\bpit_query(_bulk)?\s*\(", p.read_text(encoding="utf-8", errors="ignore")):
             callers.append(rel)
     assert not callers, f"deprecated pit_query helpers still called from: {callers}"
+
+
+def test_no_live_module_imports_the_legacy_writer():
+    """After the analyze.py pin flow moved to the feature store, factor_pit has no writer on any live path."""
+    importers = []
+    for p in _py_files():
+        rel = p.relative_to(BACKEND).as_posix()
+        if rel == "qsde/factors/pit_writer.py":
+            continue
+        if re.search(r"(from|import)s+[w.]*pit_writer|write_factors_to_pit", p.read_text(encoding="utf-8", errors="ignore")):
+            importers.append(rel)
+    assert not importers, f"legacy factor_pit writer still referenced from: {importers}"

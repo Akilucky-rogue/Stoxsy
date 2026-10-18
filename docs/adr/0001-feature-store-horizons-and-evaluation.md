@@ -127,8 +127,31 @@ files; corporate-actions source evaluation (`docs/CORPORATE_ACTIONS_EVALUATION.m
 * DQ: 1,946 feature-row gaps >5 sessions are all universe exit/re-entry (no missing bars). The 14 "event applied but cliff" rows are
   20% circuit days, not failed adjustments. Several `smc_*_dist` features reach 500-770 sd (absolute price distances): fine for trees,
   need a per-date transform for linear/deep models.
-* **`factor_pit` drop record (PROPOSED, NOT EXECUTED):** ~8.2M rows (8,195,321 ffd_v2 pilot cells), 2.1 GB, factor_version ffd_v2,
-  46-symbol pilot. Before dropping: archive schema, record row count + hash here, remove the `analyze.py` pin-flow writer. Awaiting owner sign-off.
+* **`factor_pit` retention record (owner decision 2026-10-18: keep until migrated).** ~8.2M rows (8,195,321 ffd_v2 cells matched
+  exactly against the Parquet store), ~2.1 GB, factor_version ffd_v2, 46-symbol pilot snapshot `20261018T121111Z-38f2c45749`
+  (dataset hash recorded in its MANIFEST). Kept as the parity reference. The `analyze.py` pin flow, its last live writer, now
+  writes through the feature store (`compute_factors_batch`), and a test fails if any live module imports `pit_writer`.
+  **Deletion conditions:** zero production references (test-enforced), parity test retargeted or retired, and one full backup
+  with manifest verification; then archive the schema, record row count + hash here, drop. Two writable factor paths must
+  never coexist.
+
+### Owner review of the snapshot packet (2026-10-18) and what was done
+* **The five `confirm_and_apply` proposals are HELD.** Evidence packs (`data/reports/corp_actions/evidence/`, script
+  `scripts/evidence_packs.py`): DOLPHIN, DRCSYSTEMS, NDRAUTO and UEL pass all four checks (gap matches listing, 3-session
+  persistence, adjusted-return continuity, same symbol trades both sides); VERTOZ fails persistence (price fell ~12.8% off the
+  factor over the first three sessions after a 12-session halt). The feed has no record date or ISIN for these. Nothing applied;
+  approval is the owner's, per pack.
+* **Symbol renames:** `symbol_changes` table (migration 028) holds 16 handoff-consistent CANDIDATES (old series ends the session
+  before the new one starts, no overlap; e.g. MOTHERSUMI->MOTHERSON, MINDAIND->UNOMINDA, MCDOWELL-N->UNITDSPR,
+  ESSELPACK->EPL) and rejected 50 same-ratio chance twins. All `verified = FALSE`, price-archive inference, used for nothing yet.
+  The next step is an NSE symbol-change source (or Kite instruments for the current side), then stitching under a stable
+  internal security id.
+* **Reconciler widening:** approved only as a separate reviewed change (bounded skipped sessions, NSE confirmation, resolved
+  symbol mapping, `reconciler_version` + evidence + confidence logged, prior snapshot retained). Not implemented.
+* **Smoke retrain** (`scripts/retrain.py --smoke --reviewed-snapshot <id>`): 60 explicitly listed liquid names, PLUMBING_ONLY,
+  NOT_ASSESSED, separate ledger (`data/ledger_smoke`), no candidates. First run: 114,906 labels, 300 regraded through the
+  Scorecard resolver and the paper-journal path with 0 disagreements on fill, status and exit price. Its Sharpe (-0.54 net) is
+  not evidence and says nothing about any model. The subset is today's liquid names, i.e. survivor-selected.
 
 ## Out of scope here
 

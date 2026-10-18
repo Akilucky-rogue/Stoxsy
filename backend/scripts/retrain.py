@@ -43,6 +43,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s [retra
 log = logging.getLogger("retrain")
 
 CARDS = Path(r"D:\Stoxsy\data\reports\model_cards")
+SMOKE_LEDGER = Path(r"D:\Stoxsy\data\ledger_smoke")      # smoke trials never count towards a real key's DSR
 CANDIDATES = Path(r"D:\Stoxsy\data\models\candidates")
 
 
@@ -79,6 +80,17 @@ def review_gate(snapshot_id: str, universe_version: str, reviewed: str | None, s
     return None
 
 
+def smoke_subset(symbols, n: int) -> list:
+    """Explicit symbols, or the n most liquid names on the last universe date (deterministic, ties by symbol)."""
+    if symbols:
+        return sorted(set(s.upper() for s in symbols))
+    from qsde.db.connection import read_sql
+    d = read_sql("SELECT symbol FROM universe_pit WHERE method = 'adv60_top500_v1' AND date = "
+                 "(SELECT max(date) FROM universe_pit WHERE method = 'adv60_top500_v1') ORDER BY rank, symbol LIMIT :n",
+                 params={"n": n})
+    return sorted(d["symbol"].tolist())
+
+
 def save_candidate(ds, exp, horizon_id: str) -> Path:
     """Fit on ALL labelled rows and store as a CANDIDATE (never the active model)."""
     import joblib
@@ -112,6 +124,11 @@ def main() -> int:
     ap.add_argument("--reviewed-snapshot", default=None,
                     help="current snapshot id; required for any non-plumbing universe (proves the DQ report was read)")
     ap.add_argument("--save-candidate", action="store_true")
+    ap.add_argument("--smoke", action="store_true",
+                    help="plumbing run: small explicit symbol subset, PLUMBING_ONLY card, no verdict, separate ledger, "
+                         "entry-convention contract check; implies no candidate saving")
+    ap.add_argument("--symbols", nargs="*", default=None, help="explicit symbols for --smoke (default: --smoke-n liquid names)")
+    ap.add_argument("--smoke-n", type=int, default=60, help="size of the default deterministic smoke subset")
     ap.add_argument("--ledger-dir", default=None)
     ap.add_argument("--start-date", default="2018-01-01", help="legacy; used by dataset_kwargs only")
     ap.add_argument("--label-method", default="triple_barrier", help="legacy; only triple_barrier exists")
@@ -131,28 +148,48 @@ def main() -> int:
         log.error("no current feature snapshot for %s", FFD_VERSION)
         return 1
     snap = snaps[-1]
+    if args.smoke and args.save_candidate:
+        log.error("--smoke never saves candidates")
+        return 3
     blocked = review_gate(snap.snapshot_id, snap.universe_version, args.reviewed_snapshot, args.save_candidate)
     if blocked:
         log.error(blocked)
         return 3
 
-    ledger = Path(args.ledger_dir) if args.ledger_dir else LEDGER_DIR
+    ledger = Path(args.ledger_dir) if args.ledger_dir else (SMOKE_LEDGER if args.smoke else LEDGER_DIR)
+    smoke_symbols = None
+    if args.smoke:
+        smoke_symbols = smoke_subset(args.symbols, args.smoke_n)
+        log.info("SMOKE RUN on %d symbols: %s", len(smoke_symbols), ", ".join(smoke_symbols))
     t0 = time.time()
     results: dict[str, dict] = {}
     for h in args.horizons:
         spec = get_horizon(h)
         _banner(f"{spec.id}: dataset (policy={args.policy}, snapshot {snap.snapshot_id})")
         try:
-            ds = build_labelled_dataset(spec, policy=args.policy)
+            ds = build_labelled_dataset(spec, policy=args.policy, symbols=smoke_symbols)
             params = {"n_estimators": 150, "num_leaves": 15}
-            card = CARDS / f"{spec.id}_{snap.snapshot_id}{'_research' if args.policy == 'research' else ''}.md"
+            card = CARDS / (f"{'smoke_' if args.smoke else ''}{spec.id}_{snap.snapshot_id}"
+                            f"{'_research' if args.policy == 'research' else ''}.md")
             _banner(f"{spec.id}: CPCV {args.groups}x{args.k} -> harness -> ledger")
             exp = run_experiment(ds, lightgbm_fit_predict(**params), "lightgbm", params, ledger_dir=ledger,
-                                 groups=args.groups, k=args.k, card_path=card)
+                                 groups=6 if args.smoke else args.groups, k=args.k, card_path=card,
+                                 baseline_seeds=3 if args.smoke else 10,
+                                 force_plumbing=("smoke run on %d listed symbols: wiring check only" % len(smoke_symbols))
+                                 if args.smoke else None)
+            contract = None
+            if args.smoke:
+                from qsde.ml.contract import check_entry_contract
+                contract = check_entry_contract(ds)
+                log.info("entry-convention contract: %d labels regraded through the Scorecard resolver and the paper "
+                         "journal, %d disagreements", contract["n_checked"], len(contract["failures"]))
             cand = save_candidate(ds, exp, spec.id) if args.save_candidate else None
             results[spec.id] = {"ok": True, "verdict": exp["verdict"], "evidence": exp["median"]["evidence_class"],
                                 "pbo": exp["pbo"], "card": str(card), "candidate": str(cand) if cand else None,
-                                "per_path_sharpe": exp["per_path_sharpe"]}
+                                "per_path_sharpe": exp["per_path_sharpe"],
+                                "contract_failures": None if contract is None else contract["failures"][:5],
+                                "contract_checked": None if contract is None else contract["n_checked"],
+                                "rows": int(len(ds.frame)), "features": len(ds.feature_cols)}
         except Exception as e:  # noqa: BLE001
             log.exception("%s failed: %s", spec.id, e)
             results[spec.id] = {"ok": False, "error": str(e)}
