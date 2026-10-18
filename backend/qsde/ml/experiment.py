@@ -32,6 +32,8 @@ log = logging.getLogger(__name__)
 
 TOP_Q = 0.2
 MIN_NAMES = 10
+TARGETS = ("cs_rank_gauss", "raw")
+NULL_IC_LIMIT = 0.015          # a shuffled-label run must score |IC| below this, or the harness/target is biased
 
 
 def fit_lightgbm(Xtr, ytr, wtr=None, n_estimators: int = 150, num_leaves: int = 15, learning_rate: float = 0.05,
@@ -52,6 +54,53 @@ def lightgbm_fit_predict(**kw):
     return fp
 
 
+def cross_sectional_target(lab: pd.DataFrame, col: str = "ret_net", date: str = "as_of_date") -> np.ndarray:
+    """Per-date rank -> normal score of the net return: the model learns WHICH names do better on a date, not the market level.
+
+    Regressing the pooled raw return lets trees spend their capacity on the market component and the heavy tails (measured on
+    60 names: raw target OOF rank IC ~ -0.01 while a single feature scored +0.14 through the same harness; rank-gauss target
+    recovered ~+0.12-0.13; the shuffled-label null stayed ~0)."""
+    from scipy.special import ndtri
+
+    g = lab.groupby(date)[col]
+    n = g.transform("count").to_numpy(float)
+    r = g.rank(method="average").to_numpy(float)
+    p = np.clip((r - 0.5) / np.where(n > 0, n, 1.0), 1e-3, 1 - 1e-3)
+    z = ndtri(p)
+    z[n < 3] = 0.0
+    return np.nan_to_num(z, nan=0.0)
+
+
+def null_control(lab: pd.DataFrame, X: np.ndarray, y: np.ndarray, t0, t1, w, fit_predict: Callable, groups: int, k: int,
+                 embargo: int, seed: int = 0) -> dict:
+    """Same CPCV, same model, labels shuffled WITHIN each date, scored against those same shuffled labels.
+
+    With no cross-sectional structure left the OOF rank IC is zero in expectation, so anything beyond sampling noise is a
+    mechanical bias of the CV/evaluation pipeline (leakage through overlap, identity memorisation, an alignment bug).
+    `ic_vs_true` (same OOF scores against the REAL returns) is informational only: a low-capacity model with a strong feature
+    can score +/- that feature's IC from the sign of a noise coefficient, so it cannot be gated."""
+    from qsde.ml.eval import spearman_by_date
+
+    rng = np.random.default_rng(seed)
+    ys = np.asarray(y, float).copy()
+    for idx in lab.groupby("as_of_date").indices.values():
+        ys[idx] = rng.permutation(ys[idx])
+    out = cvmod.run_cpcv(X, ys, t0, t1, fit_predict, weights=w, n_groups=groups, k_test=k, embargo=embargo)
+    ics, ics_true = [], []
+    for sc in out["paths"]:
+        f = lab[["as_of_date", "ret_net"]].copy()
+        f["score"], f["shuf"] = sc, ys
+        f = f.dropna(subset=["score"])
+        ics.append(float(spearman_by_date(f, "score", "shuf", min_names=MIN_NAMES).mean()))
+        ics_true.append(float(spearman_by_date(f, "score", "ret_net", min_names=MIN_NAMES).mean()))
+    m = float(np.nanmean(ics))
+    n_dates = max(lab["as_of_date"].nunique(), 1)
+    names = max(float(lab.groupby("as_of_date").size().median()), 2.0)
+    limit = max(NULL_IC_LIMIT, 3.0 / np.sqrt(n_dates * names))      # small samples get a statistically honest allowance
+    return {"null_ic_mean": m, "null_ic_paths": [round(i, 4) for i in ics], "ic_vs_true": round(float(np.nanmean(ics_true)), 4),
+            "limit": float(limit), "ok": bool(abs(m) < limit)}
+
+
 def trial_key(ds: LabelledDataset) -> TrialKey:
     # the price policy is part of the key: research-policy trials must not deflate/inflate official ones
     uv = ds.universe_version if ds.price_policy == "official" else f"{ds.universe_version}|{ds.price_policy}"
@@ -60,8 +109,12 @@ def trial_key(ds: LabelledDataset) -> TrialKey:
 
 def run_experiment(ds: LabelledDataset, fit_predict: Callable, model_name: str, params: dict,
                    ledger_dir: Path = LEDGER_DIR, groups: int = 10, k: int = 2, baseline_seeds: int = 10,
-                   card_path: Optional[Path] = None, force_plumbing: Optional[str] = None) -> dict:
+                   card_path: Optional[Path] = None, force_plumbing: Optional[str] = None,
+                   target: str = "cs_rank_gauss", run_null_control: bool = True) -> dict:
+    if target not in TARGETS:
+        raise ValueError(f"target must be one of {TARGETS}")
     spec, lab = ds.spec, ds.frame
+    params = {**params, "target": target}
     key = trial_key(ds)
     ledger_dir = Path(ledger_dir)
     if lab.empty:
@@ -77,8 +130,10 @@ def run_experiment(ds: LabelledDataset, fit_predict: Callable, model_name: str, 
         t1 = lab["label_end_session"].to_numpy().astype(int)
         w = cvmod.average_uniqueness(lab["symbol"].to_numpy(), t0, t1)
         t_fit = time.time()
-        out = cvmod.run_cpcv(lab[ds.feature_cols].to_numpy(float), lab["ret_net"].to_numpy(float), t0, t1,
-                             fit_predict, weights=w, n_groups=groups, k_test=k, embargo=spec.embargo_days)
+        X = lab[ds.feature_cols].to_numpy(float)
+        y = cross_sectional_target(lab) if target == "cs_rank_gauss" else lab["ret_net"].to_numpy(float)
+        out = cvmod.run_cpcv(X, y, t0, t1, fit_predict, weights=w, n_groups=groups, k_test=k, embargo=spec.embargo_days)
+        null = (null_control(lab, X, y, t0, t1, w, fit_predict, groups, k, spec.embargo_days) if run_null_control else None)
         log.info("CPCV %dx%d: %d splits, %d paths, %.0fs", groups, k, len(out["splits"]), out["n_paths"],
                  time.time() - t_fit)
 
@@ -103,6 +158,11 @@ def run_experiment(ds: LabelledDataset, fit_predict: Callable, model_name: str, 
         med["verdict_allowed"] = False
         med["evidence_class"] = "PLUMBING_ONLY"
         med["evidence_reasons"] = list(med["evidence_reasons"]) + [force_plumbing]
+    if null is not None and not null["ok"]:       # the harness reads noise as signal in this configuration
+        med["verdict_allowed"] = False
+        med["evidence_class"] = "PLUMBING_ONLY"
+        med["evidence_reasons"] = list(med["evidence_reasons"]) + [
+            f"null control biased: shuffled-label OOF rank IC {null['null_ic_mean']:+.4f} (limit +/-{null['limit']:.3f})"]
     if not ds.adjustment_complete:                 # research policy: never a verdict
         med["verdict_allowed"] = False
         med["evidence_class"] = "PLUMBING_ONLY"
@@ -127,12 +187,20 @@ def run_experiment(ds: LabelledDataset, fit_predict: Callable, model_name: str, 
             "universe_version": ds.universe_version, "n_symbols": ds.n_symbols, "label_id": spec.label,
             "params": {**params, "cpcv": f"{groups}x{k}", "median_of_paths": len(results),
                        "price_policy": ds.price_policy, "exclusion_events": ds.exclusion_events}}
+    if null is not None:
+        meta["params"]["null_control_ic"] = round(null["null_ic_mean"], 4)
     try:
         from qsde.features.store import git_sha
         meta["git_sha"] = git_sha()
     except Exception:  # noqa: BLE001
         meta["git_sha"] = "unknown"
     card = render_card(med, meta, pbo)
+    if null is not None:
+        nl = chr(10)
+        card = card.replace(nl + "## Known limits",
+                            f"- null control (labels shuffled within date, same model/CV): OOF rank IC "
+                            f"vs the shuffled labels {null['null_ic_mean']:+.4f} (vs real returns, informational: {null['ic_vs_true']:+.4f}) per-path {null['null_ic_paths']} - {'OK' if null['ok'] else 'BIASED'} "
+                            f"(limit +/-{null['limit']:.3f})" + nl + f"- training target: `{target}`" + nl + nl + "## Known limits", 1)
     if ds.notes:
         card = card.replace("\n## Lineage", "\n> " + " ".join(ds.notes) + "\n\n## Lineage", 1)
     if card_path is not None:
@@ -140,5 +208,5 @@ def run_experiment(ds: LabelledDataset, fit_predict: Callable, model_name: str, 
         Path(card_path).write_text(card, encoding="utf-8")
     v, why = verdict(med, pbo)
     return {"trial_id": trial_id, "key": key, "results": results, "median": med, "pbo": pbo, "verdict": v,
-            "verdict_reasons": why, "card": card, "leak_flags": flagged,
+            "verdict_reasons": why, "card": card, "leak_flags": flagged, "null_control": null,
             "per_path_sharpe": [round(r["headline"]["sharpe_ann"], 3) for r in results]}

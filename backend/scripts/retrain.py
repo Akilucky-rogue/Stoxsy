@@ -102,7 +102,8 @@ def save_candidate(ds, exp, horizon_id: str) -> Path:
     pos = {d: i for i, d in enumerate(ds.calendar)}
     t0 = lab["as_of_date"].map(pos).to_numpy().astype(int)
     w = average_uniqueness(lab["symbol"].to_numpy(), t0, lab["label_end_session"].to_numpy().astype(int))
-    model = fit_lightgbm(lab[ds.feature_cols].to_numpy(float), lab["ret_net"].to_numpy(float), w)
+    from qsde.ml.experiment import cross_sectional_target
+    model = fit_lightgbm(lab[ds.feature_cols].to_numpy(float), cross_sectional_target(lab), w)   # same target the CPCV trial used
     out = CANDIDATES / horizon_id
     out.mkdir(parents=True, exist_ok=True)
     path = out / f"{exp['trial_id']}.joblib"

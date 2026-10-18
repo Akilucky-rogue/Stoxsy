@@ -101,3 +101,38 @@ def test_model_frame_gives_trees_raw_and_linear_models_ranked_heavy_tails(world)
     lin, rep_l = ds.model_frame("linear")
     assert rep_t["transformed"] == [] and raw["smc_demo_dist"].max() >= 5000.0
     assert "smc_demo_dist" in rep_l["transformed"] and lin["smc_demo_dist"].abs().max() <= 4.0
+
+
+# ── cross-sectional target + null control ────────────────────────────────────
+
+def test_cross_sectional_target_is_per_date_rank_gauss(world):
+    from qsde.ml.experiment import cross_sectional_target
+    lab = _ds(world).frame
+    z = cross_sectional_target(lab)
+    f = lab[["as_of_date"]].assign(z=z, r=lab["ret_net"])
+    assert np.isfinite(z).all()
+    assert f.groupby("as_of_date")["z"].mean().abs().max() < 0.05           # no market-level component left
+    # monotone within a date: a higher raw return never gets a lower score
+    d = f[f["as_of_date"] == f["as_of_date"].iloc[0]].sort_values("r")
+    assert d["z"].is_monotonic_increasing
+
+
+def test_null_control_is_reported_on_the_card_and_is_near_zero(world, tmp_path):
+    r = run_experiment(_ds(world), ridge_fit_predict(), "ridge", {}, ledger_dir=tmp_path, groups=6, k=2, baseline_seeds=2)
+    nc = r["null_control"]
+    assert nc["ok"] and abs(nc["null_ic_mean"]) < nc["limit"] and len(nc["null_ic_paths"]) >= 1
+    assert "null control" in r["card"] and "training target: `cs_rank_gauss`" in r["card"]
+
+
+def test_a_biased_null_downgrades_the_run_to_plumbing(world, tmp_path, monkeypatch):
+    from qsde.ml import experiment as ex
+    monkeypatch.setattr(ex, "null_control", lambda *a, **k: {"null_ic_mean": 0.05, "null_ic_paths": [0.05], "ic_vs_true": 0.0,
+                                                             "limit": 0.015, "ok": False})
+    r = ex.run_experiment(_ds(world, uv="uni-null"), ridge_fit_predict(), "ridge", {}, ledger_dir=tmp_path, groups=6, k=2, baseline_seeds=2)
+    assert r["median"]["verdict_allowed"] is False
+    assert any("null control biased" in x for x in r["median"]["evidence_reasons"])
+
+
+def test_unknown_target_is_rejected(world, tmp_path):
+    with pytest.raises(ValueError):
+        run_experiment(_ds(world), ridge_fit_predict(), "ridge", {}, ledger_dir=tmp_path, target="nope")
