@@ -123,6 +123,7 @@ def compute_factors_batch(
     start: str = "2006-01-01",
     write_tail_days: "int | None" = None,
     today: "pd.Timestamp | None" = None,
+    universe: "pd.DataFrame | None" = None,
 ) -> pd.DataFrame:
     """
     Compute factors for all symbols in the universe.
@@ -140,6 +141,10 @@ def compute_factors_batch(
                          (default) writes everything, as a full backfill wants.
         today:           reference date for the write_tail_days cutoff
                          (default: the real today; tests pin it).
+        universe:        optional DataFrame with columns (date, symbol), e.g. rows of
+                         `universe_pit`. When given, only those symbol-dates are
+                         PERSISTED (the full history is still used to compute them),
+                         which keeps factor_pit to the tradable universe.
 
     Returns:
         Wide DataFrame (date-indexed) of all computed factors (the FULL
@@ -186,6 +191,17 @@ def compute_factors_batch(
             to_write = ffd_full[pd.to_datetime(ffd_full["date"]) >= cutoff]
         log.info("write_tail_days=%d -> persisting %d of %d rows (last %dd only)",
                  write_tail_days, len(to_write), len(ffd_full), write_tail_days)
+
+    if universe is not None:
+        wanted = pd.MultiIndex.from_arrays(
+            [pd.to_datetime(universe["date"]), universe["symbol"].astype(str)])
+        if isinstance(to_write.index, pd.DatetimeIndex):
+            have = pd.MultiIndex.from_arrays([to_write.index, to_write["symbol"].astype(str)])
+        else:
+            have = pd.MultiIndex.from_arrays(
+                [pd.to_datetime(to_write["date"]), to_write["symbol"].astype(str)])
+        to_write = to_write[have.isin(wanted)]
+        log.info("universe filter -> persisting %d symbol-days", len(to_write))
 
     written = write_factors_to_pit(to_write, factor_version=version)
     log.info("Persisted %d individual factor records to factor_pit (version=%s).",

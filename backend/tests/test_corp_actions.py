@@ -18,17 +18,34 @@ from qsde.ingestion.corp_actions import adjust_prices, detect_events, snap_ratio
 # ── ratio snapping ───────────────────────────────────────────────────
 
 class TestSnap:
-    @pytest.mark.parametrize("r,label_part,factor", [
-        (0.5, "", 0.5),                 # 1:2 split or 1:1 bonus
-        (0.2, "1:5 split", 0.2),
-        (0.1, "1:10 split", 0.1),
-        (2 / 3, "1:2 bonus", 2 / 3),
-        (0.75, "1:3 bonus", 0.75),
+    @pytest.mark.parametrize("r,label,factor", [
+        (0.5, "clean 1/2", 0.5),                 # 1:2 split or 1:1 bonus
+        (0.2, "clean 1/5", 0.2),
+        (0.1, "clean 1/10", 0.1),
+        (2 / 3, "clean 2/3", 2 / 3),
+        (0.75, "clean 3/4", 0.75),
     ])
-    def test_clean_down_ratios(self, r, label_part, factor):
+    def test_common_down_ratios(self, r, label, factor):
         s = snap_ratio(r, r, 500.0)
-        assert s is not None and s[2] == "SPLIT_BONUS" and label_part in s[1]
-        assert s[0] == pytest.approx(factor, rel=1e-3)
+        assert s is not None and s[2] == "SPLIT_BONUS" and s[1] == label
+        assert s[0] == pytest.approx(factor, rel=1e-9)
+
+    def test_one_to_five_split_does_not_snap_to_an_odd_bonus_ratio(self):
+        # regression: ADANIPOWER's 1:5 split measured ~0.215 used to snap to a 7:2 bonus (0.222)
+        s = snap_ratio(0.209, 0.240, 700.0)       # the real open/close ratios of that day
+        assert s is not None and s[0] == 0.2
+
+    @pytest.mark.parametrize("r", [0.356, 0.45, 0.55, 0.36, 0.28])
+    def test_odd_ratios_are_not_forced_onto_a_common_one(self, r):
+        assert snap_ratio(r, r, 500.0) is None
+
+    def test_five_for_one_bonus_snaps(self):
+        # Nykaa 2022-11-10: open ratio 0.158 against the exact 1/6
+        s = snap_ratio(0.158, 0.178, 1500.0)
+        assert s is not None and s[0] == pytest.approx(1 / 6) and s[1] == "clean 1/6"
+
+    def test_penny_stock_tick_noise_is_ignored(self):
+        assert snap_ratio(2.0, 2.0, 0.10) is None          # Rs0.10 -> Rs0.20 is one tick
 
     def test_consolidation(self):
         s = snap_ratio(10.0, 10.1, 5.0)
@@ -110,6 +127,19 @@ class TestDetect:
         b = _series("BBB", [20.0] * 12)
         ev = detect_events(pd.concat([a, b], ignore_index=True))
         assert list(ev["symbol"]) == ["AAA"]
+
+    def test_rights_entitlement_symbols_are_excluded(self):
+        ev = detect_events(_series("GODHA-RE", [100.0] * 6 + [50.0] * 6))
+        assert ev.empty
+
+    def test_penny_stock_tick_gap_is_not_a_corporate_action(self):
+        # 0.10 -> 0.15 -> 0.30: the former false "consolidation" population
+        assert detect_events(_series("PENNY", [0.10] * 6 + [0.20] * 6)).empty
+
+    def test_odd_ratio_gap_is_unexplained_and_not_applied(self):
+        # a persistent -64% gap whose ratio (0.36) matches no common action: a cliff, not a guess
+        ev = detect_events(_series("ODD", [100.0] * 6 + [36.0] * 6))
+        assert len(ev) == 1 and ev.iloc[0].kind == "UNEXPLAINED" and not bool(ev.iloc[0].applied)
 
 
 # ── adjustment ───────────────────────────────────────────────────────

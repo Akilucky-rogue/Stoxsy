@@ -46,49 +46,64 @@ ADJ_SOURCE = "nse_bhavcopy_adj_v1"
 
 GAP_DOWN_MAX = 0.82         # open/prev_close below this: split/bonus candidate
 GAP_UP_MIN = 1.40           # above this: consolidation candidate
-SNAP_TOL = 0.06             # tolerance of r_open vs a clean ratio
+SNAP_TOL = 0.06             # tolerance of the open ratio vs a common ratio
 TICK = 0.05                 # NSE tick (price rounding on thin prices)
+MIN_PRICE = 2.0             # below this a single tick is >=2.5% and gaps are tick noise
 DAY_RANGE = (0.75, 1.30)    # plausible close/open on the ex-date
 PERSIST_RANGE = (0.70, 1.45)
 PERSIST_DAYS = 3
+# Rights entitlements and warrants trade as separate "securities" with wild prices.
+_EXCLUDED_SYMBOL = r"(?:-RE\d*|-W\d*|-PP\d*)$"
+
+# Ratios that real splits / bonuses actually use (new price / old price). A dense
+# grid of a:b bonus ratios over-fits: a 1:5 split (0.2) was snapping to "7:2 bonus"
+# (0.222), an 11% factor error. Anything that is not within SNAP_TOL of one of
+# these is UNEXPLAINED and NOT applied (a visible cliff beats a wrong factor).
+COMMON_DOWN: tuple[float, ...] = (
+    1 / 2,      # 1:2 split, 1:1 bonus
+    1 / 3,      # 1:3 split, 2:1 bonus
+    1 / 4,      # 1:4 split, 3:1 bonus
+    1 / 5,      # 1:5 split, 4:1 bonus
+    1 / 6,      # 5:1 bonus (e.g. Nykaa 2022)
+    1 / 10, 1 / 20, 1 / 25, 1 / 50, 1 / 100,
+    2 / 3,      # 1:2 bonus
+    3 / 4,      # 1:3 bonus
+    4 / 5,      # 1:4 bonus
+    2 / 5,      # 3:2 bonus
+    3 / 5,      # 2:3 bonus
+)
+COMMON_UP: tuple[float, ...] = (2.0, 3.0, 4.0, 5.0, 10.0, 20.0, 25.0, 50.0, 100.0)
 
 
-def _candidates() -> list[tuple[float, str]]:
-    out: dict[float, str] = {}
-    for k in (2, 3, 4, 5, 8, 10, 20, 25, 50, 100):               # face-value split 1:k
-        out[round(1.0 / k, 6)] = f"1:{k} split"
-    for a in range(1, 11):                                         # bonus a new for b held
-        for b in range(1, 11):
-            r = round(b / (a + b), 6)
-            if r <= 0.80:
-                out.setdefault(r, f"{a}:{b} bonus")
-    return sorted((r, lab) for r, lab in out.items())
-
-
-_DOWN = _candidates()
-_UP = [(float(k), f"{k}:1 consolidation") for k in (2, 3, 4, 5, 8, 10, 20, 25, 50, 100)]
+def _label(r: float) -> str:
+    from fractions import Fraction
+    f = Fraction(r).limit_denominator(100)
+    return f"clean {f.numerator}/{f.denominator}"
 
 
 def snap_ratio(r_open: float, r_close: float, ref_price: float) -> tuple[float, str, str] | None:
-    """-> (price_factor, label, kind) for the nearest clean ratio, or None.
+    """-> (price_factor, label, kind) for the nearest COMMON ratio, or None.
 
-    Compares the geometric mean of the open and close ratios (the close adds
-    information, the open is the cleaner signal) to each candidate.
+    Matches on the OPEN ratio only. Measured on 174 liquid detections (>= Rs100cr
+    traded on the ex-date) the open lands within 4% of a common ratio 83% of the
+    time and within 6% 93% of the time, whereas the close (which absorbs the
+    whole day's move) manages 63% / 75%; blending in the close made things
+    worse. `r_close` is accepted for API symmetry and used only by the caller's
+    day-range check. The factor returned is the exact common ratio, not the
+    noisy measurement.
     """
-    if not (np.isfinite(r_open) and r_open > 0):
+    if not (np.isfinite(r_open) and r_open > 0) or ref_price < MIN_PRICE:
         return None
     if r_open <= GAP_DOWN_MAX:
-        cands, kind = _DOWN, "SPLIT_BONUS"
+        cands, kind = COMMON_DOWN, "SPLIT_BONUS"
     elif r_open >= GAP_UP_MIN:
-        cands, kind = _UP, "CONSOLIDATION"
+        cands, kind = COMMON_UP, "CONSOLIDATION"
     else:
         return None
-    r = float(np.sqrt(r_open * r_close)) if (np.isfinite(r_close) and r_close > 0) else r_open
-    best = min(cands, key=lambda c: abs(np.log(r / c[0])))
-    tol = max(SNAP_TOL, 2 * TICK / max(ref_price, TICK))
-    if abs(r_open - best[0]) / best[0] > tol and abs(r - best[0]) / best[0] > tol:
+    best = min(cands, key=lambda c: abs(np.log(r_open / c)))
+    if abs(r_open - best) / best > SNAP_TOL:
         return None
-    return best[0], best[1], kind
+    return best, _label(best), kind
 
 
 def detect_events(primary: pd.DataFrame) -> pd.DataFrame:
@@ -98,6 +113,7 @@ def detect_events(primary: pd.DataFrame) -> pd.DataFrame:
     Returns one row per event with the columns of `corp_action_events`.
     """
     d = primary.sort_values(["symbol", "date"]).reset_index(drop=True).copy()
+    d = d[~d["symbol"].str.contains(_EXCLUDED_SYMBOL, regex=True)].reset_index(drop=True)
     sessions = np.sort(d["date"].unique())
     sess_pos = {x: i for i, x in enumerate(sessions)}
     d["sess"] = d["date"].map(sess_pos)
@@ -114,7 +130,8 @@ def detect_events(primary: pd.DataFrame) -> pd.DataFrame:
     consecutive = d["s0"].notna() & (d["sess"] - d["s0"] == 1) & (d["c0"] > 0) & (d["open"] > 0)
     d["r_open"] = d["open"] / d["c0"]
     d["r_close"] = d["close"] / d["c0"]
-    cand = d[consecutive & ((d["r_open"] <= GAP_DOWN_MAX) | (d["r_open"] >= GAP_UP_MIN))]
+    cand = d[consecutive & (d["c0"] >= MIN_PRICE)
+             & ((d["r_open"] <= GAP_DOWN_MAX) | (d["r_open"] >= GAP_UP_MIN))]
 
     rows = []
     for t in cand.itertuples(index=False):

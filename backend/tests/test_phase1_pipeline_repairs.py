@@ -202,6 +202,19 @@ class TestTailWriteMatchesBackfill:
         f = f.loc[t.index]
         pd.testing.assert_frame_equal(t, f, check_exact=False, rtol=1e-9, atol=1e-9)
 
+    def test_universe_filter_persists_only_member_symbol_days_but_uses_full_history(self, monkeypatch):
+        frames = self._frames()
+        full, _ = self._run(monkeypatch, frames)                      # unfiltered reference
+        d_all = sorted(frames["AAA"].index)
+        members = pd.DataFrame({"date": d_all[-30:-10], "symbol": "AAA"})   # AAA only, 20 days
+        filt, kw = self._run(monkeypatch, frames, universe=members)
+        assert set(filt["symbol"]) == {"AAA"} and len(filt) == 20
+        assert kw["factor_version"] == "ffd_v2"
+        ref = full[(full["symbol"] == "AAA") & (full.index.isin(members["date"]))]
+        # differenced from the FULL history, not from the 20 persisted rows
+        np.testing.assert_allclose(filt["tech_obv_slope"].to_numpy(),
+                                   ref["tech_obv_slope"].to_numpy(), rtol=1e-9)
+
     def test_value_at_date_does_not_depend_on_later_history(self, monkeypatch):
         frames = self._frames()
         cut = frames["AAA"].index[-40]
