@@ -44,7 +44,9 @@ log = logging.getLogger(__name__)
 METHOD = "price_gap_fingerprint_v1"
 ADJ_SOURCE = "nse_bhavcopy_adj_v1"
 
-GAP_DOWN_MAX = 0.82         # open/prev_close below this: split/bonus candidate
+GAP_DOWN_MAX = 0.78         # open/prev_close at/below this: split/bonus candidate. NSE price bands cap a
+                            # banded stock's one-day fall at 20%, so a gap to ~0.80 is a circuit move and
+                            # indistinguishable from a 1:4 bonus: those need the corporate-actions source.
 GAP_UP_MIN = 1.40           # above this: consolidation candidate
 SNAP_TOL = 0.06             # tolerance of the open ratio vs a common ratio
 TICK = 0.05                 # NSE tick (price rounding on thin prices)
@@ -68,7 +70,8 @@ COMMON_DOWN: tuple[float, ...] = (
     1 / 10, 1 / 20, 1 / 25, 1 / 50, 1 / 100,
     2 / 3,      # 1:2 bonus
     3 / 4,      # 1:3 bonus
-    4 / 5,      # 1:4 bonus
+    # 4/5 (1:4 bonus) is DELIBERATELY absent: it equals a 20% lower circuit. 458 of the first
+    # version's 1,195 applied events sat at 0.8 and only 3% matched any NSE action.
     2 / 5,      # 3:2 bonus
     3 / 5,      # 2:3 bonus
 )
@@ -165,11 +168,59 @@ def detect_events(primary: pd.DataFrame) -> pd.DataFrame:
             "price_factor": snap[0] if ok else None,
             "applied": bool(ok),
             "method": METHOD,
+            "source": "price_inferred", "source_purpose": None, "ex_date_shift": 0,
         })
     cols = ["exchange", "symbol", "ex_date", "prev_session", "close_prev_session", "open_ex_date",
             "close_ex_date", "open_ratio", "close_ratio", "volume_ratio", "persistence_ratio",
-            "kind", "snapped_ratio", "price_factor", "applied", "method"]
+            "kind", "snapped_ratio", "price_factor", "applied", "method", "source", "source_purpose",
+            "ex_date_shift"]
     return pd.DataFrame(rows, columns=cols)
+
+
+def combine_events(source_events: pd.DataFrame, inferred: pd.DataFrame, source_all: pd.DataFrame,
+                   sessions: "pd.DatetimeIndex | np.ndarray", window: int = 2) -> pd.DataFrame:
+    """Merge source-confirmed and price-inferred events into the one set that gets applied.
+
+      * a price-inferred event next to a SOURCE split/bonus/consolidation row (+-window sessions) is
+        dropped: the source row already decided (applied or SOURCE_UNCONFIRMED);
+      * next to a source DEMERGER / scheme row it becomes UNEXPLAINED and is NOT applied (a
+        demerger's price cliff is real value leaving the stock, not a ratio we can trust);
+      * otherwise it stands as a price-inferred event.
+    """
+    sess = np.sort(np.asarray(pd.to_datetime(pd.Series(sessions)).unique()))
+
+    def pos(dates) -> np.ndarray:
+        return np.searchsorted(sess, np.asarray(pd.to_datetime(pd.Series(dates)), dtype="datetime64[ns]"))
+
+    inf = inferred.copy()
+    if len(inf):
+        inf["_p"] = pos(inf["ex_date"])
+        src_sb = source_all[source_all["category"].isin(["SPLIT_BONUS", "CONSOLIDATION"])]
+        src_dm = source_all[source_all["category"].isin(["DEMERGER"])]
+        sb_by = {s: pos(g["ex_date"]) for s, g in src_sb.groupby("symbol")}
+        dm_by = {s: pos(g["ex_date"]) for s, g in src_dm.groupby("symbol")}
+        keep, demote = [], []
+        for i, r in inf.iterrows():
+            near = lambda arr: arr is not None and bool((np.abs(arr - r["_p"]) <= window).any())  # noqa: E731
+            if near(sb_by.get(r["symbol"])):
+                keep.append(False)
+            else:
+                keep.append(True)
+            demote.append(near(dm_by.get(r["symbol"])))
+        inf = inf[np.array(keep)].copy()
+        dm = np.array(demote)[np.array(keep)] if len(keep) else np.array([], bool)
+        if dm.any():
+            inf.loc[dm, ["kind", "applied", "price_factor"]] = ["UNEXPLAINED", False, np.nan]
+            inf.loc[dm, "snapped_ratio"] = "demerger/scheme in source"
+        inf = inf.drop(columns="_p")
+    out = pd.concat([source_events, inf], ignore_index=True) if len(source_events) else inf
+    return out[EVENT_COLS_ALL].reset_index(drop=True) if len(out) else out
+
+
+EVENT_COLS_ALL = ["exchange", "symbol", "ex_date", "prev_session", "close_prev_session", "open_ex_date",
+                  "close_ex_date", "open_ratio", "close_ratio", "volume_ratio", "persistence_ratio",
+                  "kind", "snapped_ratio", "price_factor", "applied", "method", "source", "source_purpose",
+                  "ex_date_shift"]
 
 
 def cumulative_factors(events: pd.DataFrame) -> dict[str, list[tuple]]:
@@ -232,7 +283,8 @@ def summarize(events: pd.DataFrame) -> EventSummary:
 
 _EVENT_COLS = ["exchange", "symbol", "ex_date", "prev_session", "close_prev_session", "open_ex_date",
                "close_ex_date", "open_ratio", "close_ratio", "volume_ratio", "persistence_ratio",
-               "kind", "snapped_ratio", "price_factor", "applied", "method"]
+               "kind", "snapped_ratio", "price_factor", "applied", "method", "source", "source_purpose",
+               "ex_date_shift"]
 
 
 def _py(df: pd.DataFrame) -> list[tuple]:
@@ -241,8 +293,28 @@ def _py(df: pd.DataFrame) -> list[tuple]:
             for r in o.itertuples(index=False, name=None)]
 
 
+def _source_events(primary: pd.DataFrame, inferred: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """Source-confirmed events + price-inferred ones that the source does not already cover."""
+    from qsde.ingestion import corp_actions_source as cas
+
+    if not cas.SOURCE_FILE.exists():
+        log.warning("corporate-actions source %s not found: price-inferred events only (large ratios)",
+                    cas.SOURCE_FILE)
+        return inferred, {"source": "absent"}
+    src = cas.load_source()
+    confirmed = cas.reconcile(src, primary)
+    sessions = np.sort(primary["date"].unique())
+    events = combine_events(confirmed, inferred, src, sessions)
+    summ = {"source_rows": int(len(src)),
+            "source_split_bonus_rows": int(src["category"].isin(["SPLIT_BONUS", "CONSOLIDATION"]).sum()),
+            "source_confirmed": int(confirmed["applied"].sum()) if len(confirmed) else 0,
+            "source_unconfirmed": int((confirmed["kind"] == "SOURCE_UNCONFIRMED").sum()) if len(confirmed) else 0,
+            "price_inferred_kept": int((events["source"] == "price_inferred").sum()) if len(events) else 0}
+    return events, summ
+
+
 def rebuild_from_db(symbols: list[str] | None = None) -> dict:
-    """Read eod_raw -> detect events -> upsert corp_action_events -> write ohlcv.
+    """Read eod_raw -> source-confirmed + price-inferred events -> corp_action_events -> write ohlcv.
 
     Idempotent. Detection always runs over the whole market (a symbol filter
     only narrows what is *written* to ohlcv), because the session calendar
@@ -260,11 +332,12 @@ def rebuild_from_db(symbols: list[str] | None = None) -> dict:
     if raw.empty:
         return {"events": 0, "ohlcv_rows": 0}
     primary = pick_primary_series(raw)
-    events = detect_events(primary)
+    inferred = detect_events(primary)
+    events, src_summary = _source_events(primary, inferred)
 
     with get_sync_conn() as conn:
         cur = conn.cursor()
-        cur.execute("DELETE FROM corp_action_events WHERE method = %s", (METHOD,))
+        cur.execute("DELETE FROM corp_action_events")        # derived table: always rebuilt whole
         if len(events):
             execute_values(cur, f"""
                 INSERT INTO corp_action_events ({', '.join(_EVENT_COLS)}) VALUES %s
@@ -291,4 +364,5 @@ def rebuild_from_db(symbols: list[str] | None = None) -> dict:
         """, recs, page_size=5000)
     s = summarize(events)
     return {"events": s.total, "events_by_kind": s.by_kind, "events_applied": s.applied,
+            "source": src_summary,
             "ohlcv_rows": len(recs), "symbols_skipped_len_gt_20_rows": too_long}
