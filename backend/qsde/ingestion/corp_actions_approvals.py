@@ -42,6 +42,9 @@ MAX_UNTRADED_SESSIONS = 5        # market sessions the symbol did not trade befo
 FACTOR_TOL_STRONG = 0.05         # |observed gap / listed factor - 1| for factors <= 0.8 or >= 1.25
 FACTOR_TOL_MILD = 0.03           # milder factors barely clear noise, so the match must be tighter
 NOT_APPLIED_DECISIONS = ("reject", "rejected_pending_evidence", "manual_review", "proposed")
+OFFICIAL_TIER = "official_confirmed"
+EVIDENCE_DIR = Path(os.getenv("STOXSY_EVIDENCE_DIR", r"D:\Stoxsy\data\reports\corp_actions\evidence"))
+CA_API_URL = "https://www.nseindia.com/api/corporates-corporateActions"
 
 
 def check_bounds(factor: float, observed_ratio: float, shift_sessions: int, untraded_sessions: int) -> list:
@@ -56,6 +59,55 @@ def check_bounds(factor: float, observed_ratio: float, shift_sessions: int, untr
     if untraded_sessions > MAX_UNTRADED_SESSIONS:
         out.append(f"{untraded_sessions} untraded sessions before the gap bar (> {MAX_UNTRADED_SESSIONS})")
     return out
+
+
+def rename_reachable(renames: Optional[pd.DataFrame], old: str, new: str, depth: int = 4) -> bool:
+    """True if `old` -> ... -> `new` through OFFICIAL NSE symbol changes (renames: old_symbol, new_symbol)."""
+    if renames is None or renames.empty:
+        return False
+    nxt: dict = {}
+    for r in renames.itertuples():
+        nxt.setdefault(r.old_symbol, set()).add(r.new_symbol)
+    frontier, seen = {old}, {old}
+    for _ in range(depth):
+        frontier = {n for o in frontier for n in nxt.get(o, ())} - seen
+        if new in frontier:
+            return True
+        seen |= frontier
+    return False
+
+
+def verify_official(a: dict, nse: Optional[pd.DataFrame], renames: Optional[pd.DataFrame], prev_bar: pd.Timestamp,
+                    gap: pd.Timestamp, evidence_dir: Optional[Path]):
+    """The mandatory conditions of the `official_confirmed` tier that are not price-factor bounds.
+
+    (1) an NSE record for the SAME symbol with the same action type and an equal parsed ratio near the listed date;
+    (2) its ex-date lies after the stock's last pre-gap bar and on/before the gap bar (on the gap bar, or inside the untraded window);
+    (3) continuity from the traded symbol to the symbol NSE keys the action under is explained by an OFFICIAL rename;
+    (4) the evidence pack referenced by the approval exists.
+    Returns (reasons_for_refusal, record)."""
+    why, rec = [], None
+    f = float(a["factor"])
+    if nse is None or nse.empty:
+        return ["no NSE records supplied to verify against"], None
+    c = nse[(nse["symbol"] == a["symbol"]) & nse["category"].isin(["SPLIT_BONUS", "CONSOLIDATION"]) & nse["factor"].notna()]
+    c = c[((c["factor"].astype(float) / f) - 1.0).abs() < 1e-6]
+    c = c[(pd.to_datetime(c["ex_date"]) - pd.Timestamp(a["listed_ex_date"])).abs() <= pd.Timedelta(days=12)]
+    if c.empty:
+        why.append("no NSE record with the same symbol, action type and ratio near the listed date")
+    else:
+        rec = c.sort_values("known_at").iloc[0]
+        ex = pd.Timestamp(rec["ex_date"])
+        if not (prev_bar < ex <= gap):
+            why.append(f"official ex-date {ex.date()} is not inside ({prev_bar.date()}, {gap.date()}]")
+    traded = a.get("apply_to_symbol", a["symbol"])
+    if traded != a["symbol"] and not rename_reachable(renames, traded, a["symbol"]):
+        why.append(f"{traded} -> {a['symbol']} is not an official NSE rename")
+    if evidence_dir is not None:
+        pack = a.get("evidence_pack")
+        if not pack or not (Path(evidence_dir) / pack).exists():
+            why.append(f"evidence pack {pack!r} not found")
+    return why, rec
 
 
 def load_approvals(path: Optional[Path] = None) -> list[dict]:
@@ -75,7 +127,9 @@ def approvals_fingerprint(path: Optional[Path] = None) -> dict:
             "rejected": sum(1 for x in d if x["decision"] in NOT_APPLIED_DECISIONS)}
 
 
-def apply_approvals(events: pd.DataFrame, primary: pd.DataFrame, approvals: Optional[list] = None) -> tuple[pd.DataFrame, dict]:
+def apply_approvals(events: pd.DataFrame, primary: pd.DataFrame, approvals: Optional[list] = None,
+                    nse_records: Optional[pd.DataFrame] = None, renames: Optional[pd.DataFrame] = None,
+                    evidence_dir: Optional[Path] = EVIDENCE_DIR) -> tuple[pd.DataFrame, dict]:
     """Return (events with approved actions applied, report). `primary`: one row per (symbol, date) with open/close."""
     approvals = load_approvals() if approvals is None else approvals
     report = {"applied": [], "rejected": [], "refused": []}
@@ -107,7 +161,15 @@ def apply_approvals(events: pd.DataFrame, primary: pd.DataFrame, approvals: Opti
         ro = op / prev_close
         base = ev[near].iloc[0]
         skipped = int(((sessions > np.datetime64(b.loc[i - 1, "date"])) & (sessions < np.datetime64(g))).sum())
-        listed_pos = int(np.searchsorted(sessions, np.datetime64(listed)))
+        official, rec = a.get("tier") == OFFICIAL_TIER, None
+        if official:                                          # second tier: the NSE record corroborates, bounds still apply
+            why, rec = verify_official(a, nse_records, renames, b.loc[i - 1, "date"], g, evidence_dir)
+            if why:
+                report["refused"].append(f"{sym} {a['listed_ex_date']}: official_confirmed conditions failed - " + "; ".join(why))
+                continue
+        # timing is measured from the OFFICIAL ex-date under the second tier, from the listed date otherwise
+        ref_date = pd.Timestamp(rec["ex_date"]) if official else listed
+        listed_pos = int(np.searchsorted(sessions, np.datetime64(ref_date)))
         gap_pos = int(np.searchsorted(sessions, np.datetime64(g)))
         bad = check_bounds(f, ro, gap_pos - listed_pos, skipped)      # re-measured on the data as it is NOW
         if bad:
@@ -125,9 +187,13 @@ def apply_approvals(events: pd.DataFrame, primary: pd.DataFrame, approvals: Opti
             "ex_date": g.date(), "prev_session": b.loc[i - 1, "date"].date(), "close_prev_session": prev_close,
             "open_ex_date": op, "close_ex_date": cl, "open_ratio": ro, "close_ratio": cl / prev_close,
             "kind": "CONSOLIDATION" if f > 1 else "SPLIT_BONUS", "price_factor": f, "applied": True,
-            "applied_research": True, "confidence": a.get("confidence", "high"), "method": APPROVALS_VERSION,
+            "applied_research": True, "confidence": OFFICIAL_TIER if official else a.get("confidence", "high"),
+            "method": APPROVALS_VERSION, "approval_tier": OFFICIAL_TIER if official else None,
+            "isin": (rec["isin"] if official else None), "source_url": (CA_API_URL if official else None),
+            "retrieved_at": (rec["known_at"] if official else None), "evidence_ref": (a.get("evidence_pack") if official else None),
             "ex_date_shift": gap_pos - listed_pos,
-            "snapped_ratio": f"{base['snapped_ratio']} [owner-approved; {skipped} market sessions untraded before the gap bar]",
+            "snapped_ratio": f"{base['snapped_ratio']} [{'official_confirmed' if official else 'owner-approved'}; "
+                             f"{skipped} market sessions untraded before the gap bar]",
         })
         ev = pd.concat([ev[~near], pd.DataFrame([row])], ignore_index=True)
         report["applied"].append(f"{sym} {g.date()} x{f:.4f} (listed {a['listed_ex_date']}, {skipped} untraded sessions before)")

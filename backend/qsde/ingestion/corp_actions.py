@@ -358,7 +358,8 @@ def summarize(events: pd.DataFrame) -> EventSummary:
 _EVENT_COLS = ["exchange", "symbol", "ex_date", "prev_session", "close_prev_session", "open_ex_date",
                "close_ex_date", "open_ratio", "close_ratio", "volume_ratio", "persistence_ratio",
                "kind", "snapped_ratio", "price_factor", "applied", "method", "source", "source_purpose",
-               "ex_date_shift", "applied_research", "confidence"]
+               "ex_date_shift", "applied_research", "confidence",
+               "approval_tier", "isin", "source_url", "retrieved_at", "evidence_ref"]
 
 
 def _py(df: pd.DataFrame) -> list[tuple]:
@@ -386,7 +387,19 @@ def _source_events(primary: pd.DataFrame, inferred: pd.DataFrame) -> tuple[pd.Da
     sessions = np.sort(primary["date"].unique())
     events = combine_events(confirmed, inferred, src, sessions)
     from qsde.ingestion.corp_actions_approvals import apply_approvals
-    events, approval_report = apply_approvals(events, primary)
+    try:
+        from qsde.db.connection import read_sql
+        nse = read_sql("SELECT symbol, category, factor, ex_date, isin, known_at FROM nse_corporate_actions "
+                       "WHERE category IN ('SPLIT_BONUS', 'CONSOLIDATION') AND factor IS NOT NULL")
+        ren = read_sql("SELECT old_symbol, new_symbol FROM symbol_changes "
+                       "WHERE verification_status = 'official' AND change_type = 'symbol_change'")
+    except Exception as e:  # noqa: BLE001 - without the NSE tables only the price-confirmed tier can apply
+        log.warning("official-record tables unavailable (%s): official_confirmed approvals will be refused", e)
+        nse = ren = None
+    events, approval_report = apply_approvals(events, primary, nse_records=nse, renames=ren)
+    for c in ("approval_tier", "isin", "source_url", "retrieved_at", "evidence_ref"):
+        if c not in events.columns:
+            events[c] = None
     summ = {"source_rows": int(len(src)),
             "source_split_bonus_rows": int(src["category"].isin(["SPLIT_BONUS", "CONSOLIDATION"]).sum()),
             "source_confirmed": int(confirmed["applied"].sum()) if len(confirmed) else 0,

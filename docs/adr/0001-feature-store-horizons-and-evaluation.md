@@ -285,8 +285,50 @@ files; corporate-actions source evaluation (`docs/CORPORATE_ACTIONS_EVALUATION.m
   decides that the official record may override them. DRCSYSTEMS: the record (FV 10 -> 1, ex 2022-03-16, record 2022-03-17) confirms its
   factor; the gap bar is 3 sessions later because the stock did not trade; it stays `medium`, as instructed, pending the owner's review.
 
+### Sixth review (2026-10-18): `official_confirmed` tier, reviewed adjustment pipeline
+
+* **Tier `official_confirmed` (confidence value of the same name).** An event is applied under it only when ALL hold: the NSE record
+  matches the action type, ratio and ex-date; the official ex-date is on the gap bar or inside the symbol's untraded window
+  (`(last pre-gap bar, gap bar]`); the observed factor is within the existing tolerance (5%, 3% for mild factors 0.8-1.25) and the other hard
+  bounds (gap <= 5 sessions from the ex-date, <= 5 untraded sessions) hold; symbol/security continuity is explained by the official
+  rename map; and the event row records source URL, retrieval time, ISIN and an evidence-pack reference. An official record can NEVER
+  override a hard timing/factor failure.
+* **Decisions.** Approved under the tier: the eight 3-5% renames (AURIGROW/GODHA, CCAVENUE/INFIBEAM, COSMOFIRST/COSMOFILMS,
+  DHARAN/KBCGLOBAL, GANESHHOU/GANESHHOUC, LANDSMILL/EXCEL, MOTHERSON/MOTHERSUMI, SECURKLOUD/8KMILES) and UEL. **DRCSYSTEMS:** it was
+  initially applied at `medium` confidence under the earlier policy and was reclassified to `official_confirmed` after reconciliation
+  against the official NSE record (FV 10 -> 1, ex 2022-03-16, gap bar three sessions later because the stock did not trade). The
+  original approval and its audit trail are preserved in the entry's `history` list in `infra/data/corp_action_approvals.json`.
+  **NDRAUTO (7.9% off, 19 sessions after the ex-date) and VERTOZ (12 untraded sessions, persistence 12.8% off) stay held**; the file records
+  that the official record does not override the bounds. Applied after rebuild: 25 approvals, 0 refused; 10 `official_confirmed` events.
+* **Snapshots after the tier** (corporate-action source unchanged otherwise): per-symbol `ffd_v2` `20261018T175041Z-528561aa2c`, stitched
+  `ffd_v2s` `20261018T180008Z-aae491a930` (890,773 rows, 1,147 symbols, 95 features each; DQ reports in `data/reports/data_quality/`). Stitched vs
+  per-symbol: 44,374 rows (4.98%) differ, all inside stitched securities (0 outside), 201,880 warm-up NaN cells removed, 0 introduced.
+* **Split/bonus-adjusted series (`ohlcv_split_bonus_adjusted`, `sbadj_v1-34759406b1`, VALIDATED).** Separate Parquet materialization
+  under `data/adjusted/split_bonus/`, never written into `ohlcv`. Inputs: only `confirmed` (ca_reconcile_v1) and `official_confirmed`/owner-approved
+  events (508 events: 483 confirmed, 15 owner_approved, 10 official_confirmed). The NSE-LISTED factor is applied to bars strictly before the
+  gap bar and volume is divided. Every applied event is recorded in `adjustment_events_applied` with source record, tier, factor, ex-date, gap
+  date, ISIN and evidence reference; the run (input fingerprints, output hash, validation) is in `adjustment_runs`. Rebuilt from scratch from the
+  same inputs: **identical output hash**. Event continuity: 508/508 ok (adjusted overnight move < 20%), 0 hard failures, 0 missing gap bars.
+  Reports: `data/reports/adjustment/split_bonus_*.md` (+ per-event CSV).
+* **Difference from the current official `ohlcv` - not hidden.** 187 events adjusted in `ohlcv` (price-confirmed `source_confirmed_v2`, high)
+  are NOT in the new series because ca_reconcile_v1 classifies their NSE record `needs_review` (price did not persist / factor error > 5%).
+  29 events are in the new series but not in `ohlcv` (mostly 2026, after the last official rebuild). No shared event has a different factor. The two
+  series therefore disagree at those 216 dates; the 187 are a review queue, not a defect of either series.
+* **Total-return series (`tr_v1-f15f02f736`, VALIDATED).** Built on the split-adjusted series; dividends are not in `ohlcv` or the adjusted
+  prices. Separate labelled columns `price_return_1d`, `dividend_return_1d`, `total_return_1d` (= sum) and the two indices; dividends are GROSS cash
+  per share as announced (no tax modelled), attached to the ex-date bar (next bar if the ex-date had none), amount over the previous
+  adjusted close; 14,023 confirmed (symbol, ex-date) groups -> 14,020 used, 3 skipped as non-positive. Rebuild: identical hash.
+* **Rights and demergers** are event-level cases with no universal ratio: `scripts/ca_review_worksheet.py` writes evidence worksheets
+  (`data/reports/corp_actions/review_rights.csv` 274 events, `review_demergers.csv` 147) with a blank owner `decision` column. Nothing is adjusted.
+* **Not yet allowed:** the adjusted series (price or total-return) must not be used for training until the full data-quality and event-level
+  validation passes (still pending: review of the 187 and of the rights/demerger worksheets). Smoke retraining on it is deferred; promotion stays
+  disabled (`QSDE_ML_PROMOTION_ENABLED=false`); scheduled NSE downloads remain off.
+* **Model-card requirement.** Every model card must name: `factor_version`, snapshot ID, universe version, label exclusions (count and rule),
+  and the corporate-action source hash. The 144 large moves in stitched securities are acceptable for research only while the 39 with an
+  unapplied NSE record stay out of the labels and the 105 without a record stay out where they make a label ambiguous.
+
 ## Out of scope here
 
 Kite backfill/live (needs a session and the owner's go-ahead for any network call), a verified corporate-actions
-source (dividends, rights, symbol changes, demergers) and `total_return` vs `price_return`, dropping `factor_pit` (after the
+source for fundamentals/news, review of the 187 price-only split events and the rights/demerger worksheets, dropping `factor_pit` (after the
 first validated full snapshot).

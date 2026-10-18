@@ -68,18 +68,20 @@ def test_repository_file_reflects_the_owner_decisions():
 
     from qsde.ingestion.corp_actions_approvals import load_approvals
     dec = load_approvals()
-    by = {(x["symbol"], x.get("apply_to_symbol")): x["decision"] for x in dec}
-    assert by[("DOLPHIN", None)] == "approve" and by[("DRCSYSTEMS", None)] == "approve"
-    assert by[("NDRAUTO", None)] == "rejected_pending_evidence" and by[("VERTOZ", None)] == "reject"
-    assert by[("UEL", None)] == "manual_review"                      # 4.96% off: never automatic
-    assert {x["symbol"]: x.get("confidence", "high") for x in dec}["DRCSYSTEMS"] == "medium"
-    # tiered policy for renamed stocks: approve only when the factor error is within 3%
-    for x in dec:
-        if x.get("apply_to_symbol"):
-            assert x["decision"] in ("approve", "manual_review")
-    assert Counter(x["decision"] for x in dec)["approve"] == 16
+    by = {(x["symbol"], x.get("apply_to_symbol"), x["listed_ex_date"]): x for x in dec}
+    # held: official record does not override a hard timing / factor failure
+    assert by[("NDRAUTO", None, "2023-07-24")]["decision"] == "rejected_pending_evidence"
+    assert by[("VERTOZ", None, "2025-06-24")]["decision"] == "reject"
+    for k in (("UEL", None, "2025-10-08"), ("DRCSYSTEMS", None, "2022-03-16")):
+        x = by[k]
+        assert x["decision"] == "approve" and x["tier"] == "official_confirmed" and x["evidence"]["isin"] and x["evidence_pack"]
+        assert x["history"], "the original approval trail must be preserved"
+    assert by[("DRCSYSTEMS", None, "2022-03-16")]["history"][0]["state"]["confidence"] == "medium"      # earlier state kept
+    tiers = Counter((x["decision"], x.get("tier")) for x in dec)
+    assert tiers[("approve", "official_confirmed")] == 10 and tiers[("approve", None)] == 15
+    assert not [x for x in dec if x["decision"] == "manual_review"]
     fp = approvals_fingerprint()
-    assert fp["approved"] == 16 and fp["sha256"]
+    assert fp["approved"] == 25 and fp["sha256"]
 
 
 def test_confidence_from_the_approval_is_stored_on_the_event():
