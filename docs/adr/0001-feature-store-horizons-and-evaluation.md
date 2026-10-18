@@ -327,6 +327,34 @@ files; corporate-actions source evaluation (`docs/CORPORATE_ACTIONS_EVALUATION.m
   and the corporate-action source hash. The 144 large moves in stitched securities are acceptable for research only while the 39 with an
   unapplied NSE record stay out of the labels and the 105 without a record stay out where they make a label ambiguous.
 
+### Seventh review (2026-10-19): first smoke results, a harness defect found, triage, prediction ledger
+
+* **Smoke retrain on `ffd_v2s` `20261018T180008Z-aae491a930`** (60 liquid names, `PLUMBING_ONLY`, verdict `NOT_ASSESSED`, nothing saved or promoted;
+  the symbol subset is today's most liquid names, so it is survivor-biased by construction). Cards: `data/reports/model_cards/smoke_*_ffd_v2s_20261018T180008Z-aae491a930.md`.
+* **Defect found and fixed.** The first run regressed the pooled raw `ret_net`. Through the same harness a no-fit rule (-ATR%) scored OOF rank IC
+  +0.139 while LightGBM scored about -0.01 (and the within-date shuffled-label control was -0.03, i.e. biased): the pooled target lets trees spend
+  capacity on the market component and tails. Training on a per-date rank-gauss target (`cs_rank_gauss`, now the default) gives OOF rank IC +0.124 (swing_5d)
+  and +0.109 (position_20d) with a shuffled-label null of ~0.000. The null control is now part of every run and card; a biased null downgrades the run to
+  `PLUMBING_ONLY`. (A first null design scored the shuffled model against the real returns and was wrong for low-capacity models with one strong
+  feature; it now scores against the shuffled labels and reports the real-return IC as information only.)
+* **What the smoke result does and does not say.** IC is positive and significant, but it is mostly one low-volatility effect (-ATR% alone has IC 0.14),
+  and a top-quintile long-only book is NOT profitable net of costs at swing_5d (net Sharpe -0.72 at 30 bps; 0.47 at 10 bps) and is not better than
+  baselines at position_20d (0.72 vs equal-weight 0.63, 12-1 momentum 0.95, random 0.54). PBO 0.66/0.74 with 2-4 trials. DSR 0.953 at position_20d rests
+  on N=2 and the single-estimate fallback and must not be read as a pass. Rank IC is not an edge until it survives costs and baselines.
+* **Triage of the 187 price-only split events** (`scripts/triage_price_only_splits.py`; ordering aid, nothing approved): A 69 (exact NSE record, gap on
+  the ex-date, 0 untraded, factor error 3-10%: they fail only the 5%/3% tolerance), B 113 (price did not persist or large factor error), C 5. Bucket A is
+  the owner's decision: approving it is a policy exception to the factor tolerance, not an application of an existing tier.
+* **Prediction ledger** (migration 037, `qsde/live_loop/`): `prediction_log` is append-only (UPDATE/DELETE rejected by trigger); re-logging a key with
+  different content raises `ImmutableViolation`; a prediction stamped before its session's close is a `PITViolation`; the label definition comes from the
+  registry. The outcome joiner resolves with `make_labels` itself (same labels as training), cannot see bars after `data_through`, and omits predictions
+  whose window is incomplete. The monitor computes calibration (Brier, log loss, slope/intercept), ranking (rank IC, precision@q, lift), economics (top-q net
+  mean, excess, profit factor, drawdown) and PSI drift; `retrain_decision` recommends only a CANDIDATE retrain (scheduled / drift / data triggers, drift
+  triggers suppressed on thin live evidence) and `kill_switch` lists reasons to halt a model. Not yet built: candidate registry and the promotion gate that
+  requires the offline gate + live-paper evidence + owner approval.
+* **Housekeeping.** Full `pg_dump` (`data/backup/qsde_full_2026-10-19.dump`, 434 MB, sha256 recorded, table of contents lists 6,950 entries) and key table row
+  counts (`counts_2026-10-19.csv`) taken; no restore drill has been done, so `factor_pit` must still not be dropped. A regex scan of all 38 commits found no
+  secret-shaped additions (a heuristic, not gitleaks); keys named in HANDOVER still need your rotation, and nothing has been pushed.
+
 ## Out of scope here
 
 Kite backfill/live (needs a session and the owner's go-ahead for any network call), a verified corporate-actions
