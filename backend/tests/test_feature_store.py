@@ -183,7 +183,10 @@ class TestValidation:
     def test_manifest_declares_policies_and_hash_matches_files(self, tmp_path):
         s = _build(tmp_path)
         m = s.manifest
-        assert m["nan_policy"].startswith("preserved") and "unexplained_events" in m["corporate_action_policy"]
+        pol = m["corporate_action_policy"]
+        assert m["nan_policy"].startswith("preserved") and pol["method"] == "source_confirmed_v2"
+        assert "SOURCE_UNCONFIRMED" in pol["label_exclusions"] and "price_inferred" in " ".join(pol["adjusted"])
+        assert "recent_gap_symbols_from_db" in pol["serving"]
         assert m["params"]["fracdiff_auto_widen"] is False and m["files"][0]["sha256"]
         assert sum(f["rows"] for f in m["files"]) == m["rows"]
 

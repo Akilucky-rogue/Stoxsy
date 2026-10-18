@@ -142,13 +142,19 @@ def detect_events(primary: pd.DataFrame) -> pd.DataFrame:
         day_move = float(t.close) / float(t.open) if t.open else np.nan
         fut = [getattr(t, f"n{k}") for k in range(1, PERSIST_DAYS + 1)
                if pd.notna(getattr(t, f"n{k}"))]
-        persist = float(np.median(fut) / (t.c0 * snap[0])) if (fut and snap) else np.nan
+        # An event is only CONFIRMED once PERSIST_DAYS later sessions exist: with fewer (the last sessions of
+        # the data, i.e. every daily run) a one-day crash that happens to snap to a common ratio would be
+        # adjusted away on the day it happens. Such gaps stay "pending" (UNEXPLAINED, not applied) until
+        # the new level has held.
+        pending = bool(snap) and len(fut) < PERSIST_DAYS
+        persist = float(np.median(fut) / (t.c0 * snap[0])) if (len(fut) >= PERSIST_DAYS and snap) else np.nan
         vol_ratio = (float(t.volume) / float(t.v0)) if (getattr(t, "v0", np.nan) and t.v0 and
                                                        pd.notna(t.v0) and t.v0 > 0) else np.nan
         ok = (
             snap is not None
+            and not pending
             and DAY_RANGE[0] <= day_move <= DAY_RANGE[1]
-            and (np.isnan(persist) or PERSIST_RANGE[0] <= persist <= PERSIST_RANGE[1])
+            and PERSIST_RANGE[0] <= persist <= PERSIST_RANGE[1]
         )
         kind = snap[2] if ok else "UNEXPLAINED"
         rows.append({
@@ -175,6 +181,49 @@ def detect_events(primary: pd.DataFrame) -> pd.DataFrame:
             "kind", "snapped_ratio", "price_factor", "applied", "method", "source", "source_purpose",
             "ex_date_shift"]
     return pd.DataFrame(rows, columns=cols)
+
+
+RECENT_GAP_THRESHOLD = 0.18     # |open/prev close - 1| that makes a fresh gap suspect
+RECENT_GAP_SESSIONS = 3         # = PERSIST_DAYS: how long a gap stays unconfirmed
+
+
+def flag_recent_gaps(recent: pd.DataFrame, applied: pd.DataFrame, n_sessions: int = RECENT_GAP_SESSIONS,
+                     thr: float = RECENT_GAP_THRESHOLD) -> list[str]:
+    """Symbols that must NOT be scored today: a large overnight gap in the last `n_sessions` sessions that is
+    not an applied corporate-action event.
+
+    A price-inferred split needs PERSIST_DAYS later sessions to be confirmed, so on the day it happens (and
+    the two after) the series still contains a raw cliff that would feed every indicator. A genuine
+    crash is also skipped for the same 3 sessions: conservative by design.
+
+    recent:  symbol, date, open, close (a few sessions per symbol, ascending, adjusted or raw).
+    applied: symbol, ex_date of APPLIED events (so already-adjusted gaps do not flag).
+    """
+    d = recent.sort_values(["symbol", "date"]).copy()
+    d["date"] = pd.to_datetime(d["date"])
+    d["prev_close"] = d.groupby("symbol")["close"].shift(1)
+    d["gap"] = d["open"] / d["prev_close"] - 1.0
+    last_dates = sorted(d["date"].unique())[-n_sessions:]
+    cand = d[d["date"].isin(last_dates) & (d["gap"].abs() >= thr)]
+    if cand.empty:
+        return []
+    ap = applied.copy()
+    ap["ex_date"] = pd.to_datetime(ap["ex_date"])
+    keys = set(zip(ap["symbol"], ap["ex_date"]))
+    flagged = [s for s, dt in zip(cand["symbol"], cand["date"]) if (s, dt) not in keys]
+    return sorted(set(flagged))
+
+
+def recent_gap_symbols_from_db(n_sessions: int = RECENT_GAP_SESSIONS, thr: float = RECENT_GAP_THRESHOLD) -> list[str]:
+    from qsde.db.connection import read_sql
+
+    recent = read_sql("""SELECT symbol, date, open, close FROM ohlcv
+                          WHERE date >= (SELECT max(date) FROM ohlcv) - INTERVAL '14 days'
+                       ORDER BY symbol, date""")
+    if recent.empty:
+        return []
+    applied = read_sql("SELECT symbol, ex_date FROM corp_action_events WHERE applied")
+    return flag_recent_gaps(recent, applied, n_sessions, thr)
 
 
 def combine_events(source_events: pd.DataFrame, inferred: pd.DataFrame, source_all: pd.DataFrame,

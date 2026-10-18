@@ -98,6 +98,12 @@ def build_training_dataset(
             f"twice. Leave apply_fracdiff=False."
         )
 
+    log.warning(
+        "LEGACY labels: this builder uses models.triple_barrier (entry at the CLOSE of t, bar t inside the "
+        "window) and the legacy evaluator. The registry label tb_nextopen_v1 (qsde.ml.labels, graded by "
+        "qsde.ml.eval) is the one that matches paper-trading resolution. Models trained here must not be "
+        "promoted on the legacy gate.")
+
     # 1. Fetch OHLCV. For intraday open-to-close we also need open prices.
     log.info("Fetching OHLCV for targets...")
     prices = read_sql(

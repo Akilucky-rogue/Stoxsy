@@ -49,11 +49,21 @@ ZSTD_LEVEL = 3
 ROW_GROUP = 131_072
 
 CORPORATE_ACTION_POLICY = {
-    "adjusted": "split/bonus/consolidation with a clean ratio (price_gap_fingerprint_v1)",
-    "not_adjusted": ["mild bonus 0.80-0.97", "rights", "cash dividends", "demergers", "symbol changes"],
-    "unexplained_events": "label windows and feature dates touching an UNEXPLAINED event must be excluded",
-    "serving": "flag a symbol whose >=18% gap in the last 3 sessions is not yet confirmed",
-    "enforced_by": "label/view layer (not the snapshot)",
+    "method": "source_confirmed_v2",
+    "adjusted": [
+        "NSE-listed split/bonus/consolidation (incl. mild bonuses 0.8-0.97) when prices show the gap within +-2 sessions "
+        "(exact parsed factor)",
+        "price-inferred gaps <= 0.78 that snap to a common ratio and persisted for 3 later sessions, WHEN the NSE "
+        "source lists nothing nearby. These include some demergers (e.g. TATAMOTORS 2025-10-14 at 0.6, KPIT 2019, "
+        "CROMPGREAV 2016); they are tagged source='price_inferred' and can be excluded wholesale",
+    ],
+    "not_adjusted": ["rights issues", "cash dividends", "demergers/schemes the price detector cannot snap",
+                     "symbol changes", "SOURCE_UNCONFIRMED listings", "gaps pending confirmation (< 3 later sessions)"],
+    "label_exclusions": "label windows touching, and feature dates within 60 sessions after, an event of kind "
+                        "UNEXPLAINED or SOURCE_UNCONFIRMED (optionally also applied price_inferred events)",
+    "serving": "qsde.ingestion.corp_actions.recent_gap_symbols_from_db(): symbols with an unconfirmed >=18% gap in "
+               "the last 3 sessions are not scored",
+    "enforced_by": "label builder + signal_generator (not the snapshot itself)",
 }
 
 

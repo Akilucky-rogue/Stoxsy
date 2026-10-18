@@ -65,6 +65,17 @@ def generate_signals(horizon: Literal["intraday", "swing", "long"] = "swing"):
         return 0
     factors_wide = factors_wide.drop(columns=["as_of_date", "known_at"])
 
+    # Serving guard (feature-store manifest policy): do not score a symbol with a fresh, unconfirmed >=18%
+    # overnight gap - it may be a split/bonus whose price-inferred confirmation needs 3 later sessions.
+    try:
+        from qsde.ingestion.corp_actions import recent_gap_symbols_from_db
+        _gap = recent_gap_symbols_from_db()
+        if _gap:
+            log.warning("Skipping %d symbol(s) with a fresh unconfirmed large gap: %s", len(_gap), _gap[:20])
+            factors_wide = factors_wide[~factors_wide["symbol"].isin(_gap)].reset_index(drop=True)
+    except Exception as e:  # noqa: BLE001
+        log.warning("recent-gap guard unavailable (%s); scoring all symbols", e)
+
     # Features the model expects but the store lacks stay NaN (as they were in
     # training); no zero-filling.
     model_features = model.feature_name()

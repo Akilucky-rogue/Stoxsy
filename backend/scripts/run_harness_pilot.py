@@ -34,6 +34,8 @@ def main() -> int:
     ap.add_argument("--horizon", default="swing_5d")
     ap.add_argument("--groups", type=int, default=6)
     ap.add_argument("--k", type=int, default=2)
+    ap.add_argument("--exclude-inferred", action="store_true",
+                    help="also exclude windows touching APPLIED price-inferred corporate-action events")
     ap.add_argument("--ledger-dir", default=r"D:\Stoxsy\data\ledger_pilot")
     ap.add_argument("--out", default=r"D:\Stoxsy\data\reports\model_cards")
     args = ap.parse_args()
@@ -67,9 +69,14 @@ def main() -> int:
                       params={"s": syms})
     prices["date"] = pd.to_datetime(prices["date"])
     cal = pd.DatetimeIndex(sorted(prices["date"].unique()))
-    ue = read_sql("SELECT symbol, ex_date FROM corp_action_events WHERE kind = 'UNEXPLAINED' AND symbol = ANY(:s)",
-                  params={"s": syms})
-    log.info("prices: %d rows; unexplained events in scope: %d", len(prices), len(ue))
+    # Exclusion set: events that leave a raw cliff or a doubtful adjustment in the price series.
+    kinds = ["UNEXPLAINED", "SOURCE_UNCONFIRMED"]
+    inferred_clause = " OR (applied AND source = 'price_inferred')" if args.exclude_inferred else ""
+    ue = read_sql(f"SELECT symbol, ex_date FROM corp_action_events "
+                  f"WHERE (kind = ANY(:k){inferred_clause}) AND symbol = ANY(:s)",
+                  params={"k": kinds, "s": syms})
+    log.info("prices: %d rows; label-exclusion events in scope: %d (kinds %s%s)", len(prices), len(ue), kinds,
+             " + applied price_inferred" if args.exclude_inferred else "")
 
     t0 = time.time()
     ev = feats[["symbol", "as_of_date"]].rename(columns={"as_of_date": "date"})

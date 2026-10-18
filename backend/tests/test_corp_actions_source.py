@@ -107,6 +107,32 @@ class TestReconcile:
         assert ev.iloc[0].kind == "CONSOLIDATION" and ev.iloc[0].price_factor == pytest.approx(10.0)
 
 
+class TestPendingAndServingGuard:
+    def test_gap_in_the_last_sessions_is_pending_until_the_level_has_held(self):
+        # split gap on the second to last session: only 1 later session exists -> NOT applied yet
+        px = _bars("NEW", [100.0] * 10 + [50.0] * 2)
+        ev = ca.detect_events(px)
+        assert len(ev) == 1 and ev.iloc[0].kind == "UNEXPLAINED" and not bool(ev.iloc[0].applied)
+        # the same gap with 3 later sessions confirms
+        ev3 = ca.detect_events(_bars("NEW", [100.0] * 10 + [50.0] * 4))
+        assert bool(ev3.iloc[0].applied) and ev3.iloc[0].price_factor == pytest.approx(0.5)
+
+    def test_one_day_crash_on_the_final_session_is_never_adjusted_away(self):
+        ev = ca.detect_events(_bars("CRASHDAY", [100.0] * 12 + [50.0]))
+        assert ev.empty or not ev["applied"].any()
+
+    def test_recent_gap_guard_flags_unapplied_large_gaps_only(self):
+        px = pd.concat([_bars("GAPPY", [100.0] * 8 + [50.0] * 2), _bars("CALM", [100.0] * 10),
+                        _bars("SPLITOK", [100.0] * 8 + [50.0] * 2)], ignore_index=True)
+        last2 = sorted(px["date"].unique())[8]
+        applied = pd.DataFrame({"symbol": ["SPLITOK"], "ex_date": [last2]})
+        flagged = ca.flag_recent_gaps(px, applied)
+        assert flagged == ["GAPPY"]
+        # a gap older than 3 sessions no longer flags (the pending window has passed)
+        old = pd.concat([_bars("OLDGAP", [100.0] * 3 + [50.0] * 9)], ignore_index=True)
+        assert ca.flag_recent_gaps(old, applied) == []
+
+
 class TestSameDayListings:
     def test_two_actions_on_one_ex_date_multiply_into_one_event(self, tmp_path):
         p = tmp_path / "ca.parquet"

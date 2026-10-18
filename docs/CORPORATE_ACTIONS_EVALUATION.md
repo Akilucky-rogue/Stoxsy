@@ -48,12 +48,12 @@ Conclusion: price-only detection is trustworthy only for gaps larger than a circ
 
 | | v1 price-only | v2 source-first |
 |---|---|---|
-| Events applied | 1,195 | **772** |
+| Events applied | 1,195 | **771** (final, after the 3-later-sessions rule) |
 | of which from the NSE source, price-confirmed, exact factor | 0 | **640** (incl. 15 mild bonuses 0.8-0.97 the price detector could never see) |
-| of which inferred from prices only (gap <= 0.78, no source row) | 1,195 | **132** (34 traded >= Rs10cr on the ex-date) |
+| of which inferred from prices only (gap <= 0.78, no source row, held 3 later sessions) | 1,195 | **131** (34 traded >= Rs10cr on the ex-date) |
 | Applied at factor 0.8 (circuit-limit false positives) | 458 | **0 inferred** (10 source-confirmed genuine 1:4 bonuses) |
 | Source split/bonus rows listed but NOT visible in prices | n/a | **85** `SOURCE_UNCONFIRMED` (logged, not applied) |
-| Gaps logged `UNEXPLAINED` (not applied) | 132 | 91 |
+| Gaps logged `UNEXPLAINED` / pending (not applied) | 132 | 92 |
 | Liquid days (>= Rs5cr) with an adjusted move >= 30% | 70 | **62** |
 
 Source recall (verified): 830 parsed split/bonus rows (same-day listings merged); 725 fall inside the price window

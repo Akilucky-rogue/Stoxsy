@@ -19,7 +19,21 @@ from qsde.models.deflated_sharpe import (
 from qsde.ingestion.universe import build_bse_universe, BSE_SENSEX_SYMBOLS
 
 
-def test_should_promote_threshold():
+def test_promotion_is_paused_by_default(monkeypatch):
+    """The legacy gate (close-of-t labels, subsampled periods, n_trials=1) is superseded by qsde.ml.eval:
+    nothing may be promoted on it unless explicitly re-enabled."""
+    monkeypatch.delenv("QSDE_ML_PROMOTION_ENABLED", raising=False)
+    monkeypatch.delenv("QSDE_FORCE_PROMOTE", raising=False)
+    g = should_promote(0.99, threshold=0.95, force=False)
+    assert g["paused"] and not g["promote"]
+    monkeypatch.setenv("QSDE_FORCE_PROMOTE", "true")
+    assert not should_promote(0.10)["promote"]            # even a force flag cannot override the pause
+    monkeypatch.setenv("QSDE_ML_PROMOTION_ENABLED", "true")
+    assert should_promote(0.10)["promote"]                # explicit research override re-enables it
+
+
+def test_should_promote_threshold(monkeypatch):
+    monkeypatch.setenv("QSDE_ML_PROMOTION_ENABLED", "true")          # threshold logic under test
     g = should_promote(0.96, threshold=0.95, force=False)
     assert g["promote"] and g["passed"] and not g["forced"]
 

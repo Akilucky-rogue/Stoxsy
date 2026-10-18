@@ -46,6 +46,38 @@ Status: accepted (owner decision 2026-10-18). Supersedes the long-form `factor_p
 * No index/VIX history: baselines use an equal-weight `universe_pit` basket and a top-50-ADV proxy; regimes are
   sliced by universe trend/vol. The proxies are documented, not hidden.
 
+## Status after implementation (2026-10-18)
+
+Done and tested: Parquet store + manifest + registry; training/serving/ATR/factors-API readers switched in one change
+(a test fails if any live module reads `factor_pit`); horizon/label/cost registries with derived legacy constants;
+one shared barrier walker (labels, paper journal, Scorecard resolver); `tb_nextopen_v1` labels; CPCV with per-sample
+purge and session embargo; overlapping-sleeve evaluation, cost stress, ledger-based DSR, PBO, bootstrap, baselines,
+regime slices, leakage guard; model-card generator; self-tests on known-answer worlds; calibration against the old OOF
+files; corporate-actions source evaluation (`docs/CORPORATE_ACTIONS_EVALUATION.md`).
+
+### Behaviour changes the owner should know about
+* Promotion cost: the gate now charges the Scorecard's paper cost (**30 bps** delivery, 8 intraday), not 10.
+* Embargo: `long` (20-session label) embargo **5 -> 20** sessions.
+* Gap-aware exits: paper trades and the Scorecard fill a stop/target at the **open** when a bar opens through it
+  (more pessimistic than filling at the stop price).
+* `fillna(0)` removed from training and serving: NaN is preserved (trees handle it; DL must impute explicitly).
+* **Legacy ML promotion is paused by default** (`QSDE_ML_PROMOTION_ENABLED` now defaults to false and is set false in
+  `.env`): see "Known divergences" below.
+
+### Known divergences (not hidden)
+1. **Training and the promotion gate are still the legacy path.** `models.dataset` uses `models.triple_barrier`
+   (entry at the close of t, bar t inside the window) and `lgbm_model` gates with `_evaluate_oos_with_costs`
+   (subsampled periods, `DSR_N_TRIALS=1`). They are marked LEGACY in the logs and cannot promote by default. The
+   registry label `tb_nextopen_v1` + `qsde.ml.eval` + the trial ledger are the intended replacement; wiring a model
+   family through them (and a harness-based promotion gate) is the next build step.
+2. **Scorecard entry vs harness entry.** Engines write `entry` = the close of t (`rule_momentum` takes it from the signal's
+   `entry_price`), and the resolver walks bars after t from that price. Paper trades fill at the next open (H8). The harness
+   enters at the next open with barriers measured from the fill. The shared walker guarantees identical outcomes for an
+   identical (entry, stop, target, path), but the idea log and the harness do not yet agree on the entry price. Fix:
+   re-anchor idea levels to the next-open fill in the resolver (stop/target as offsets from entry).
+3. **Corporate actions:** 132 price-inferred events are applied with no NSE listing; some are demergers. See the
+   evaluation doc. SOURCE_UNCONFIRMED (85) and UNEXPLAINED events are excluded from labels.
+
 ## Out of scope here
 
 Full-universe factor generation (after corporate-actions evaluation), Kite backfill/live (needs a session and
