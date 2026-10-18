@@ -208,5 +208,5 @@ def run_experiment(ds: LabelledDataset, fit_predict: Callable, model_name: str, 
         Path(card_path).write_text(card, encoding="utf-8")
     v, why = verdict(med, pbo)
     return {"trial_id": trial_id, "key": key, "results": results, "median": med, "pbo": pbo, "verdict": v,
-            "verdict_reasons": why, "card": card, "leak_flags": flagged, "null_control": null,
+            "verdict_reasons": why, "card": card, "leak_flags": flagged, "null_control": null, "median_scores": out["paths"][mid],
             "per_path_sharpe": [round(r["headline"]["sharpe_ann"], 3) for r in results]}

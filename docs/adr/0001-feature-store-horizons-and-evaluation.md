@@ -355,6 +355,31 @@ files; corporate-actions source evaluation (`docs/CORPORATE_ACTIONS_EVALUATION.m
   counts (`counts_2026-10-19.csv`) taken; no restore drill has been done, so `factor_pit` must still not be dropped. A regex scan of all 38 commits found no
   secret-shaped additions (a heuristic, not gitleaks); keys named in HANDOVER still need your rotation, and nothing has been pushed.
 
+### Eighth review (2026-10-19): bucket A held, full-universe research evaluation, restore drill
+
+* **Bucket A is NOT approved and the tolerance is NOT widened.** The 69 events carry the status `official_match_price_mismatch`; each is decided on its own
+  evidence (`scripts/ca_bucket_a_review.py` -> `data/reports/corp_actions/review_bucket_a_official_match_price_mismatch.{md,csv}`: NSE record, price series around the gap
+  bar, halt/thin/rename/demerger/neighbouring-action flags, proposed factor and its source, residual move after the LISTED factor in daily sigmas, a blank `decision`).
+  Facts to weigh: 26 events involve a symbol in the point-in-time universe within 60 days (review first); 56 of 69 have no flag; the residual after applying the
+  listed factor is positive in 90% of events (median +6.0%, median |2.2| sigma). Errors in a wrong factor would be symmetric, so this looks like a systematic market
+  reaction at the ex-date rather than 69 bad factors - but that is an inference for the owner to accept or reject per event, not a finding that the factors are right.
+* **Full-universe research evaluation** (`scripts/research_eval.py`; `ffd_v2s` `20261018T180008Z-aae491a930`, official prices, 1,147 symbols, ~870k labelled rows per
+  horizon, 164 label-exclusion events, rank-gauss target, CPCV 10x2 = 9 paths, shuffled-label null -0.0007 / -0.0001 (OK)). RESEARCH_ONLY: nothing saved or promoted.
+  Each horizon is trial 1 on its ledger key (so DSR uses the single-estimate fallback and is optimistic; PBO unavailable).
+  * OOF rank IC +0.171 (swing_5d) and +0.200 (position_20d), stable across liquidity tiers (rank 1-100 / 101-250 / 251-500: 0.15-0.20), NW t 15 and 8.7.
+  * **The model score is 0.91 rank-correlated with low volatility (-ATR%).** What was found is the low-volatility effect.
+  * swing_5d: nothing is profitable net of 25-30 bps - equal-weight is -1.59 Sharpe at 30 bps, model long-only -1.73, 12-1 momentum -1.19, low-vol -2.03;
+    the ATR-residualised variant is better than the baselines (-0.87 vs -1.57) but still negative; long-short +0.84 at 10 bps, -0.78 at 30 bps. REJECT.
+  * position_20d (net Sharpe at 10/25/30 bps): model long-only 0.73/0.41/0.30; ATR-residualised 0.65/0.43/0.35; long-short 0.56/0.23/0.12; baselines: random -0.08,
+    equal-weight -0.04, 12-1 momentum 0.14, low-vol 0.18, **MOP time-series momentum (Tier-1) 0.62/0.41/0.34 - equal to or better than the model**. The model is not
+    shown to beat the simple Tier-1 rule or low-vol. Positive in uptrends and low-vol regimes, negative in downtrends (-0.65). KEEP_RESEARCHING at best (DSR 0.82 on N=1).
+  * Reading, per the pre-agreed decision table: the IC persists but is almost entirely low-vol exposure and does not beat momentum net of costs, so the next build is
+    not a directional alpha model. The long-short leg is optimistic: it uses the delivery cost model and shorting cash equities overnight is not available.
+* **Backup restore drill passed.** `qsde_full_2026-10-19.dump` (sha256 verified) was restored into a scratch database (TimescaleDB pre/post-restore): all 13 key table
+  counts identical (eod_raw 5,104,705; ohlcv 5,104,705; factor_pit 8,195,321; corp_action_events 974; ...) and three content hashes matched (price rows for four symbols,
+  all corporate-action events with confidence/tier, adjustment runs). Scratch database dropped. `factor_pit` may be dropped once the owner decides to; it has not been.
+* **Still open:** secret scan with gitleaks (only a regex scan has been run), key rotation (owner), candidate registry + promotion gate.
+
 ## Out of scope here
 
 Kite backfill/live (needs a session and the owner's go-ahead for any network call), a verified corporate-actions
