@@ -241,8 +241,49 @@ files; corporate-actions source evaluation (`docs/CORPORATE_ACTIONS_EVALUATION.m
   proved land -> parse -> DB: 492 corporate-action rows (467 dividends, 11 split/bonus, 5 rights, 5 demergers; ex-dates 2026-09-03 to
   2026-10-23, all with ISIN and record date); symbol changes added 0 rows (idempotent). The new table is NOT yet a source for price
   adjustment.
-* **Data gap:** `eod_raw` ends 2026-04-30; the live bhavcopy is available to 2026-10-16 (about 115 trading sessions missing). Backfilling it
-  changes universe_pit, ohlcv and every snapshot's end date, so it is a separate decision.
+* **Data gap (closed in the fifth review below).**
+
+### Fifth review (2026-10-18): bhavcopy backfill, corporate-action history, held items, rename correction
+* **Bhavcopy backfill done** (owner-approved): 116 new sessions 2026-05-04 .. 2026-10-16 (323,019 rows). Per-file validation: the date
+  printed INSIDE each file must be the requested session, row-count floor (1,000), schema, OHLC consistency; the SHA-256 of every file
+  is in its landing sidecar (NSE publishes no checksum). **NSE serves the previous trading day's file on a holiday instead of a 404**
+  (1 May, 28 May, 26 Jun, 14 Sep, 2 Oct): the adapter keeps the raw file, loads nothing, and does not treat it as an error. Resumable
+  by landed session; reruns add nothing. Result: 0 OHLC-inconsistent rows, 2,676-2,962 rows/session. `universe_pit` rebuilt to
+  2026-10-16: **0 of 19,500 pre-cutoff rows changed**; 45 symbols entered for the first time; 396 of 500 April members remain.
+  Official `ohlcv` rebuilt (5,104,705 rows, 657 applied events). Successor snapshots (predecessors kept):
+  `ffd_v2` `20261018T171714Z-30c99bfa19` and `ffd_v2s` `20261018T172506Z-21c4623e57`, both 890,773 rows / 1,147 symbols to 2026-10-16;
+  the part up to 2026-04-30 is cell-for-cell identical to its predecessor (0 changed cells); 58,000 new symbol-days.
+* **NSE corporate-action history loaded** (quarterly windows 2016-01 .. 2026-10, raw payloads landed, 43 windows): 24,356 actions,
+  all with ISIN, 11,539 with record date: 14,435 dividends, 792 split/bonus, 279 rights, 148 demergers, 8,701 other (AGMs, buy-backs, ...).
+  Exact duplicate rows in NSE's history are collapsed; a landing-zone sidecar/payload name collision on JSON files was found and fixed.
+  **Candidates only: nothing is applied to prices.** `corp_action_reconciliation` (migration 034, `ca_reconcile_v1`) classifies each
+  action: split/bonus 504 confirmed / 262 needs_review / 26 rejected; dividends 14,046 / 184 / 205; rights 257 / 17 / 5; demergers 0 / 147 / 1.
+* **Unapplied NSE actions are now label-exclusion events** (`qsde.ml.data.label_exclusion_events`): every NSE split / bonus /
+  consolidation / demerger with no applied event within 5 days is excluded from labels and from the 282-session feature window, so a raw
+  -50% / -90% cliff is never trained on as a return. In the new period 601 one-day moves of >= 18% appear, 36 with an NSE record; exclusion
+  events rose from 106 to 169 (full `ffd_v2s` swing_5d: 874,836 of 890,773 rows labelled).
+* **Correction of the "25 renames that coincide with a split" finding.** They were an artifact of my continuity gate: the new symbol's
+  bars are adjusted for ITS later splits (KSB 1:5 in 2024, COFORGE 2025, SHRIRAMFIN 2025, SCHAEFFLER 2022, PAISALO 2022/2024 ...) while the
+  old symbol's are not, which looks like an -80% cliff at the join. `stitched_ohlcv` already rescales older segments; the gate now
+  evaluates the join on the same rescaled basis. With that, **0 renames coincide with a price event** and the map stitches **228
+  securities / 473 intervals**. A genuinely coincident split is still refused (test).
+* **ffd_v2s pre-use checks** (`scripts/stitched_integrity_check.py`): (1) all 16 owner-approved events are ordinary overnight moves in
+  both the official and the stitched series (16/16, 16/16). (2) NOT fully clean: inside the 228 stitched securities there are 144
+  moves of >= 25%: 39 with an NSE record (held renames, demergers and schemes such as CROMPGREAV 2016, BOROSIL, FRL) that the official
+  series does not adjust, and 105 with no NSE record (mostly genuine crashes / 25% circuit runs, e.g. GAMMNINFRA 2020). These cliffs exist
+  in the unstitched series too (stitching did not create them) and are covered by the label exclusions above; they are NOT a licence to
+  treat ffd_v2s as clean. Stitched vs per-symbol: 44,374 rows (4.98%) changed, all inside stitched securities, 201,880 warm-up NaN cells
+  removed, 0 introduced. Data-quality reports exist for both versions. A model card must name the factor version it used.
+* **Held items vs the official NSE record** (`scripts/held_items_review.py`; RECOMMENDATIONS, nothing applied): for UEL, NDRAUTO, VERTOZ,
+  DRCSYSTEMS and the eight 3-5% renames, the NSE record independently confirms the action type, ratio and ex-date (symbol/ISIN, record
+  date, face value), and in every case the official ex-date lies after the stock's last pre-gap bar and on/before the gap bar (UEL: ex-date
+  2025-10-10, no bar that day, first post-ex bar 2025-10-13, which explains the earlier "+1 session" shift). The price gaps differ from
+  the theoretical factor by 3-8%, consistent with ordinary moves in illiquid names. A proposed second tier ("official-record-backed"):
+  official factor equals the approved factor, official ex-date inside the untraded window or on the gap bar, gap within the existing
+  hard bounds. Under it the 8 renames + UEL (all inside 5%) would be approvable; NDRAUTO (7.9%, 19 sessions after the ex-date) and VERTOZ
+  (5.0%, 12 untraded sessions, persistence 12.8% off) would still violate the existing hard bounds and stay held unless the owner
+  decides that the official record may override them. DRCSYSTEMS: the record (FV 10 -> 1, ex 2022-03-16, record 2022-03-17) confirms its
+  factor; the gap bar is 3 sessions later because the stock did not trade; it stays `medium`, as instructed, pending the owner's review.
 
 ## Out of scope here
 

@@ -44,7 +44,8 @@ class SecurityMap:
         return symbol if d.empty else str(d.iloc[0]["symbol"])
 
 
-def build_security_map(official: pd.DataFrame, bars: pd.DataFrame, calendar: np.ndarray) -> SecurityMap:
+def build_security_map(official: pd.DataFrame, bars: pd.DataFrame, calendar: np.ndarray,
+                       events: Optional[pd.DataFrame] = None) -> SecurityMap:
     """official: old_symbol, new_symbol, effective_date. bars: symbol, first_bar, last_bar (archive) and, optionally, first_open /
     last_close (adjusted prices) for the price-continuity gate. calendar: sorted market dates."""
     cal = np.sort(pd.to_datetime(pd.Series(calendar)).to_numpy())
@@ -65,6 +66,12 @@ def build_security_map(official: pd.DataFrame, bars: pd.DataFrame, calendar: np.
             continue
         if "first_open" in b.columns and "last_close" in b.columns:
             lc, fo = float(b.loc[r.old_symbol, "last_close"]), float(b.loc[r.new_symbol, "first_open"])
+            # The new symbol's bars are adjusted for ITS later splits/bonuses; the old symbol's are not. Put the old close on the
+            # same basis (this is exactly the rescale `engine.stitched_ohlcv` applies) before judging the join: a 1:5 split years
+            # after the rename otherwise looks like an -80% cliff at the rename.
+            if events is not None and len(events):
+                later = events[(events["symbol"] == r.new_symbol) & events["applied"]]
+                lc = lc * float(np.prod(later["price_factor"].astype(float))) if len(later) else lc
             if lc > 0 and fo > 0 and abs(fo / lc - 1.0) > MAX_HANDOFF_JUMP:
                 rej.append((r.old_symbol, r.new_symbol, E,
                             f"price discontinuity at hand-off ({fo / lc - 1.0:+.1%}): a corporate event coincides with the rename"))
@@ -106,3 +113,15 @@ def build_security_map(official: pd.DataFrame, bars: pd.DataFrame, calendar: np.
         conflicts.append(f"symbols in more than one security: {sorted(dup['symbol'].unique())[:5]}")
         iv = iv[~iv["symbol"].isin(dup["symbol"])]
     return SecurityMap(iv.reset_index(drop=True), pd.DataFrame(rej, columns=["old_symbol", "new_symbol", "effective_date", "reason"]), conflicts)
+
+
+def load_from_db() -> SecurityMap:
+    """The persisted map (table security_master). 9999-12-31 ("still valid") is clamped: pandas cannot hold it."""
+    from datetime import date
+
+    from qsde.db.connection import read_sql
+
+    iv = read_sql("SELECT security_id, symbol, valid_from, valid_to FROM security_master")
+    iv["valid_from"] = pd.to_datetime(iv["valid_from"])
+    iv["valid_to"] = pd.to_datetime(iv["valid_to"].map(lambda d: d if d.year < 2200 else date(2200, 1, 1)))
+    return SecurityMap(iv)

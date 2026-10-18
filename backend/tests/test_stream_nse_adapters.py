@@ -54,7 +54,7 @@ CA = (FIX / "corporate_actions_sample.json").read_bytes()
 class TestBhavcopy:
     def adapter(self, routes=None):
         f = FakeFetcher(routes if routes is not None else {"16102026": BHAV})
-        return NseBhavcopyAdapter(f, now=lambda: NOW, start_date=date(2026, 10, 16)), f
+        return NseBhavcopyAdapter(f, now=lambda: NOW, start_date=date(2026, 10, 16), min_rows=0), f
 
     def test_parses_the_real_layout_into_eod_raw_columns(self):
         a, _ = self.adapter()
@@ -73,7 +73,7 @@ class TestBhavcopy:
 
     def test_does_not_ask_for_today_before_the_file_is_published(self):
         early = datetime(2026, 10, 19, 6, 0, tzinfo=UTC)                           # 11:30 IST Monday
-        a = NseBhavcopyAdapter(FakeFetcher({}), now=lambda: early, start_date=date(2026, 10, 19))
+        a = NseBhavcopyAdapter(FakeFetcher({}), now=lambda: early, start_date=date(2026, 10, 19), min_rows=0)
         assert a.fetch(None) == [] and a.fetcher.calls == []
 
     def test_server_error_is_a_failure_that_reaches_health(self, env):
@@ -88,7 +88,7 @@ class TestBhavcopy:
         again = go(a, env, NOW + timedelta(minutes=30))                            # checkpoint moved past it: nothing new
         assert again.rows == 0
         fresh = InMemorySink()
-        rr = replay(NseBhavcopyAdapter(FakeFetcher({})), env["landing"], fresh)
+        rr = replay(NseBhavcopyAdapter(FakeFetcher({}), min_rows=0), env["landing"], fresh)
         assert rr.rows == r.rows and len(fresh.frame("nse_bhavcopy")) == r.rows
 
     def test_corrupt_file_is_landed_and_flagged_not_loaded(self, env):
@@ -249,3 +249,73 @@ class TestDatabaseSinks:
             assert row["isin"] == "INE987B01018" and row["category"] == "RIGHTS" and pd.Timestamp(row["known_at"]) == pd.Timestamp(NOW)
         finally:
             execute_sql("DELETE FROM nse_corporate_actions WHERE symbol = 'PYTESTCA'")
+
+
+class TestBhavcopyBackfillSafety:
+    def test_backfill_is_resumable_by_landed_session_and_does_not_redownload(self):
+        f = FakeFetcher({"15102026": BHAV, "16102026": BHAV})
+        a = NseBhavcopyAdapter(f, now=lambda: NOW, start_date=date(2026, 10, 14), min_rows=0, landed_sessions=[date(2026, 10, 15)])
+        got = [i.meta["session_date"] for i in a.fetch(None)]
+        assert got == ["2026-10-16"] and not any("15102026" in u for u in f.calls)         # 15th already landed; 14th and 19th 404
+        again = a.fetch(None)                                                              # same process: 404s remembered, 16th landed
+        assert again == []
+
+    def test_backfill_runs_progress_across_calls_with_the_cap(self):
+        f = FakeFetcher({f"{d:02d}102026": BHAV for d in (5, 6, 7, 8, 9, 12, 13, 14, 15, 16)})
+        a = NseBhavcopyAdapter(f, now=lambda: NOW, start_date=date(2026, 10, 5), max_days_per_run=4, min_rows=0)
+        seen = []
+        for _ in range(5):
+            batch = a.fetch(None)
+            if not batch:
+                break
+            seen += [i.meta["session_date"] for i in batch]
+        assert len(seen) == 10 and seen == sorted(seen) and len(set(seen)) == 10
+
+    def test_short_file_is_rejected_as_truncated(self, env):
+        a = NseBhavcopyAdapter(FakeFetcher({"16102026": BHAV}), now=lambda: NOW, start_date=date(2026, 10, 16))     # default min_rows
+        r = go(a, env)
+        assert not r.ok and r.stage == "parse" and "equity rows" in r.errors[0]
+
+    def test_holiday_file_holding_the_previous_days_data_is_not_a_session(self, env):
+        copy = BHAV.replace(b"16-Oct-2026", b"15-Oct-2026")                 # NSE serves the last trading day's file on a holiday
+        a = NseBhavcopyAdapter(FakeFetcher({"16102026": copy}), now=lambda: NOW, start_date=date(2026, 10, 16), min_rows=0)
+        r = go(a, env)
+        assert r.ok and r.rows == 0 and len(env["sink"].frame("nse_bhavcopy")) == 0
+        assert len(list(env["landing"].records("nse_bhavcopy"))) == 1       # raw kept for the record
+        assert replay(NseBhavcopyAdapter(FakeFetcher({}), min_rows=0), env["landing"], InMemorySink()).ok
+
+    def test_file_with_mixed_dates_is_still_rejected(self, env):
+        lines = BHAV.decode().splitlines()
+        body = [l.replace("16-Oct-2026", "15-Oct-2026") if i % 2 else l for i, l in enumerate(lines[1:])]
+        mixed = chr(10).join([lines[0]] + body).encode()
+        a = NseBhavcopyAdapter(FakeFetcher({"16102026": mixed}), now=lambda: NOW, start_date=date(2026, 10, 16), min_rows=0)
+        r = go(a, env)
+        assert not r.ok and "other than the requested session" in r.errors[0]
+
+
+class TestCorporateActionsHistory:
+    def test_quarter_windows_cover_the_range_without_gaps_or_overlap(self):
+        w = NseCorporateActionsAdapter.quarter_windows(date(2016, 1, 1), date(2026, 10, 18))
+        assert w[0][0] == date(2016, 1, 1) and w[-1][1] == date(2026, 10, 18)
+        assert all(b == a2 - timedelta(days=1) for (_, b), (a2, _) in zip(w[:-1], w[1:]))
+        assert 40 <= len(w) <= 50
+
+    def test_history_backfill_lands_each_window_raw_and_resumes(self, env):
+        f = FakeFetcher({"corporates-corporateActions": CA})
+        wins = NseCorporateActionsAdapter.quarter_windows(date(2025, 1, 1), date(2026, 10, 18))
+        a = NseCorporateActionsAdapter(f, now=lambda: NOW, windows=wins)
+        first = a.fetch(None)
+        assert len(first) == 8 and all(i.meta["backfill"] for i in first)
+        done = {(date.fromisoformat(i.meta["from"]), date.fromisoformat(i.meta["to"])) for i in first}
+        b = NseCorporateActionsAdapter(f, now=lambda: NOW, windows=wins, landed_windows=done)
+        second = b.fetch(None)
+        assert len(second) == len(wins) - 8 if len(wins) <= 16 else len(second) == 8
+        assert not (done & {(date.fromisoformat(i.meta["from"]), date.fromisoformat(i.meta["to"])) for i in second})
+
+
+class TestCorporateActionsDuplicates:
+    def test_exact_duplicate_rows_collapse_to_one_fact(self):
+        rows = json.loads(CA)
+        a = NseCorporateActionsAdapter(FakeFetcher({}), now=lambda: NOW)
+        df = a.parse(RawItem(json.dumps(rows + rows[:3]).encode(), NOW, None, {}, "json"))
+        assert len(df) == 27 and a.validate(df) == []

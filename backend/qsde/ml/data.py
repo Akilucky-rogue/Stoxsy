@@ -69,7 +69,8 @@ def label_exclusion_events(symbols: Sequence[str], policy: str = OFFICIAL) -> pd
     """Events whose ex-date must not fall inside a label window / shortly before a feature date.
 
     official: UNEXPLAINED + SOURCE_UNCONFIRMED + every price-inferred event (applied or not: under the
-              official series they are raw cliffs)
+              official series they are raw cliffs) + NSE-published split/bonus/consolidation/demerger candidates that
+              the official series has not applied
     research: UNEXPLAINED + SOURCE_UNCONFIRMED only (inferred events are adjusted in the research prices)
     """
     from qsde.db.connection import read_sql
@@ -77,5 +78,19 @@ def label_exclusion_events(symbols: Sequence[str], policy: str = OFFICIAL) -> pd
     clause = "kind IN ('UNEXPLAINED','SOURCE_UNCONFIRMED')"
     if policy == OFFICIAL:
         clause += " OR (source = 'price_inferred' AND applied_research)"
-    return read_sql(f"SELECT symbol, ex_date FROM corp_action_events WHERE ({clause}) AND symbol = ANY(:s)",
-                    params={"s": list(symbols)})
+    ev = read_sql(f"SELECT symbol, ex_date FROM corp_action_events WHERE ({clause}) AND symbol = ANY(:s)",
+                  params={"s": list(symbols)})
+    # NSE-published splits / bonuses / consolidations / demergers are CANDIDATES: they are not applied to prices, so wherever the
+    # official series carries no applied event for them the raw price cliff is still in the data. Exclude those windows from
+    # labels (an exclusion never alters a price; the research policy has its own price-inferred adjustments instead).
+    try:
+        nse = read_sql("""SELECT c.symbol, c.ex_date FROM nse_corporate_actions c
+                           WHERE c.category IN ('SPLIT_BONUS', 'CONSOLIDATION', 'DEMERGER') AND c.symbol = ANY(:s)
+                             AND NOT EXISTS (SELECT 1 FROM corp_action_events e
+                                              WHERE e.applied AND e.symbol = c.symbol AND e.ex_date BETWEEN c.ex_date - 5 AND c.ex_date + 5)""",
+                       params={"s": list(symbols)})
+        if len(nse):
+            ev = pd.concat([ev, nse], ignore_index=True).drop_duplicates()
+    except Exception:  # noqa: BLE001 - table absent in an older database: fall back to the event table alone
+        pass
+    return ev

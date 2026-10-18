@@ -29,6 +29,7 @@ CLIFF = 0.18
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--snapshot", default=None)
+    ap.add_argument("--factor-version", default=None, help="ffd_v2 (default) or ffd_v2s")
     ap.add_argument("--out", default=str(OUT))
     args = ap.parse_args()
 
@@ -37,13 +38,14 @@ def main() -> int:
     from qsde.features.store import current_snapshots, read_features
     from qsde.ml.data import OFFICIAL, label_exclusion_events, load_prices
 
-    snaps = current_snapshots(FFD_VERSION)
+    fv = args.factor_version or FFD_VERSION
+    snaps = [x for x in current_snapshots(fv) if "full" in x.universe_version]
     snap = next((s for s in snaps if s.snapshot_id == args.snapshot), None) if args.snapshot else (snaps[-1] if snaps else None)
     if snap is None:
         print("no snapshot found")
         return 1
     m = snap.manifest
-    f = read_features(FFD_VERSION, snapshot_ids=[snap.snapshot_id])
+    f = read_features(fv, snapshot_ids=[snap.snapshot_id])
     f["as_of_date"] = pd.to_datetime(f["as_of_date"])
     cols = [c for c in f.columns if c not in ("symbol", "as_of_date", "known_at")]
     rep: dict = {"snapshot_id": snap.snapshot_id, "dataset_hash": snap.dataset_hash,
@@ -132,7 +134,7 @@ def main() -> int:
     # ── write
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    stem = f"snapshot_dq_{snap.snapshot_id}"
+    stem = f"snapshot_dq_{fv}_{snap.snapshot_id}"
     (out / f"{stem}.json").write_text(json.dumps(rep, indent=2, default=str))
     if len(cliffs):
         cliffs.sort_values(["status", "symbol", "date"]).to_csv(out / f"{stem}_price_cliffs.csv", index=False)

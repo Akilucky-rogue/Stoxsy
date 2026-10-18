@@ -231,3 +231,13 @@ class TestPgHealthStore:
             assert g.last_error == "boom" and g.last_data_time is None
         finally:
             execute_sql("DELETE FROM source_health WHERE source = 'pytest_probe'")
+
+
+class TestJsonPayloads:
+    def test_json_payload_and_its_sidecar_do_not_collide_and_the_index_skips_payloads(self, env):
+        item = RawItem(b'[{"symbol": "AAA"}]', T0, None, {"url": "u"}, "json")
+        rec = env["landing"].write("fixture", item)
+        assert rec.path.suffix == ".json" and rec.path.read_bytes() == item.payload       # payload intact, not overwritten by metadata
+        listed = list(env["landing"].records("fixture"))
+        assert len(listed) == 1 and listed[0].sha256 == rec.sha256 and listed[0].meta == {"url": "u"}
+        assert env["landing"].read(listed[0]).payload == item.payload

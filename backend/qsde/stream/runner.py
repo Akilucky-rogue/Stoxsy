@@ -130,6 +130,9 @@ def run_once(adapter: SourceAdapter, landing: LandingZone, sink: Sink, health: H
             h.status, h.last_error = "parse_failed", res.errors[-1]
             alerts.emit(Alert("critical", f"{name}: parse/validation failed", res.errors[-1], f"parse-fail:{name}", now))
             continue                                                 # raw is safe; replay after the parser is fixed
+        if df.empty:                                                 # e.g. a holiday file: valid, nothing to load
+            checkpoints.advance(name, item.fetched_at)
+            continue
         df = stamp_known_at(df, item, mode, getattr(adapter, "backfill_lag", timedelta(hours=1)))
         res.rows += sink.upsert(name, df, adapter.key_cols)
         checkpoints.advance(name, item.fetched_at)                   # only after the commit
@@ -162,6 +165,8 @@ def replay(adapter: SourceAdapter, landing: LandingZone, sink: Sink, mode: str =
         except Exception as e:  # noqa: BLE001
             res.ok, res.stage = False, "parse"
             res.errors.append(f"{rec.path.name}: {e}"[:300])
+            continue
+        if df.empty:
             continue
         res.rows += sink.upsert(adapter.name, stamp_known_at(df, item, mode, getattr(adapter, "backfill_lag", timedelta(hours=1))),
                                 adapter.key_cols)

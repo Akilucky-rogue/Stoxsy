@@ -24,12 +24,36 @@ log = logging.getLogger("stream_run")
 STREAM_DIR = Path(r"D:\Stoxsy\data\stream")
 
 
-def build(source: str, backfill_from, fetcher):
+def landed_sessions(landing) -> set:
+    """Bhavcopy sessions already in the landing zone (their sidecars carry the session date): makes a backfill resumable."""
+    out = set()
+    for rec in landing.records("nse_bhavcopy"):
+        if "session_date" in rec.meta:
+            out.add(date.fromisoformat(rec.meta["session_date"]))
+    return out
+
+
+def _ca_adapter(fetcher, backfill_from, landing):
+    from qsde.stream.adapters.nse import NseCorporateActionsAdapter
+
+    if backfill_from is None:
+        return NseCorporateActionsAdapter(fetcher)
+    done = set()
+    if landing is not None:
+        for rec in landing.records("nse_corporate_actions"):
+            if rec.meta.get("backfill") and "from" in rec.meta:
+                done.add((date.fromisoformat(rec.meta["from"]), date.fromisoformat(rec.meta["to"])))
+    return NseCorporateActionsAdapter(fetcher, windows=NseCorporateActionsAdapter.quarter_windows(backfill_from, date.today()),
+                                      landed_windows=done)
+
+
+def build(source: str, backfill_from, fetcher, landing=None):
     from qsde.stream.adapters.nse import NseBhavcopyAdapter, NseCorporateActionsAdapter, NseSymbolChangeAdapter
 
     adapters = {
-        "bhavcopy": NseBhavcopyAdapter(fetcher, start_date=backfill_from),
-        "corporate_actions": NseCorporateActionsAdapter(fetcher),
+        "bhavcopy": NseBhavcopyAdapter(fetcher, start_date=backfill_from,
+                                       landed_sessions=landed_sessions(landing) if landing is not None else ()),
+        "corporate_actions": _ca_adapter(fetcher, backfill_from, landing),
         "symbol_changes": NseSymbolChangeAdapter(fetcher),
     }
     return list(adapters.values()) if source == "all" else [adapters[source]]
@@ -87,7 +111,7 @@ def main() -> int:
     cps = CheckpointStore(STREAM_DIR / "checkpoints.json")
     alerts = LogAlertSink(STREAM_DIR / "alerts.jsonl")
     bf = date.fromisoformat(args.backfill_from) if args.backfill_from else None
-    adapters = build(args.source, bf, HttpFetcher() if args.enable_network else None)
+    adapters = build(args.source, bf, HttpFetcher() if args.enable_network else None, landing)
     sink = Router(sinks_for(args.sink))
     mode = "backfill" if args.backfill_mode else "live"
 
@@ -98,9 +122,15 @@ def main() -> int:
         return 0
     if args.mode == "once":
         for a in adapters:
-            r = run_once(a, landing, sink, health, cps, alerts, mode=mode)
+            total_items = total_rows = 0
+            for _ in range(60 if (bf and a.name in ("nse_bhavcopy", "nse_corporate_actions")) else 1):       # backfill: keep going until nothing new
+                r = run_once(a, landing, sink, health, cps, alerts, mode=mode)
+                total_items += r.items
+                total_rows += r.rows
+                if not r.ok or r.items == 0:
+                    break
             h = health.get(a.name)
-            print(f"{a.name}: ok={r.ok} stage={r.stage} items={r.items} rows_new={r.rows} status={h.status} "
+            print(f"{a.name}: ok={r.ok} stage={r.stage} sessions_or_files={total_items} rows_new={total_rows} status={h.status} "
                   f"last_data={h.last_data_time} errors={r.errors[:1]}")
         return 0
     while True:                                             # mode == loop (owner switch)

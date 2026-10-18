@@ -1,6 +1,6 @@
 """Raw-first landing zone: every fetch is stored byte-for-byte BEFORE it is parsed.
 
-    <root>/<source>/<yyyy>/<mm>/<dd>/<HHMMSS>-<sha8>.<ext>  +  <same>.json (sidecar with fetch metadata)
+    <root>/<source>/<yyyy>/<mm>/<dd>/<HHMMSS>-<sha8>.<ext>  +  <same>.meta.json (sidecar with fetch metadata)
 
 Files are content-addressed by time and hash and never overwritten or edited. Replaying a parser fix reads from here.
 """
@@ -44,7 +44,7 @@ class LandingZone:
         d.mkdir(parents=True, exist_ok=True)
         stem = f"{item.fetched_at.astimezone(timezone.utc):%H%M%S}-{sha[:8]}"
         path = d / f"{stem}.{item.ext}"
-        side = d / f"{stem}.json"
+        side = d / f"{stem}.meta.json"           # never collides with a JSON payload
         if path.exists():                                   # same second, same bytes: already landed, never rewrite
             if hashlib.sha256(path.read_bytes()).hexdigest() != sha:
                 raise FileExistsError(f"landing collision with different content: {path}")
@@ -66,11 +66,17 @@ class LandingZone:
         if not base.exists():
             return
         for side in sorted(base.rglob("*.json")):
-            m = json.loads(side.read_text(encoding="utf-8"))
+            try:
+                m = json.loads(side.read_text(encoding="utf-8"))
+            except ValueError:
+                continue
+            if not (isinstance(m, dict) and "sha256" in m and "fetched_at" in m):
+                continue                                   # a JSON PAYLOAD, not a sidecar
             fetched = datetime.fromisoformat(m["fetched_at"])
             if since is not None and fetched <= since:
                 continue
-            data = side.with_suffix("." + m["ext"])
+            stem = side.name[: -len(".meta.json")] if side.name.endswith(".meta.json") else side.name[: -len(".json")]
+            data = side.with_name(stem + "." + m["ext"])
             if not data.exists():
                 continue
             pub = datetime.fromisoformat(m["published_at"]) if m["published_at"] else None

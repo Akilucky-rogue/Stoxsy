@@ -92,17 +92,24 @@ class NseBhavcopyAdapter(SourceAdapter):
     interval_seconds = 1800
     backfill_lag = timedelta(hours=2, minutes=30)   # event_time is 15:30 IST; the file is knowable from ~18:00 IST
 
+    min_rows = 1000                              # a real session file has ~3,500 rows; a short file is a broken fetch
+
     def __init__(self, fetcher=None, now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
-                 start_date: Optional[date] = None, max_days_per_run: int = 10):
+                 start_date: Optional[date] = None, max_days_per_run: int = 10, landed_sessions=(), min_rows: Optional[int] = None):
         self.fetcher, self.now, self.start_date, self.max_days = fetcher or HttpFetcher(), now, start_date, max_days_per_run
+        self.landed = set(landed_sessions)       # sessions already in the landing zone: resumable backfill, no repeat downloads
+        self.no_file: set = set()                # sessions that returned 404 in this process (holidays)
+        if min_rows is not None:
+            self.min_rows = min_rows
 
     def _candidate_dates(self, since: Optional[datetime]) -> list:
         now = self.now()
         last = _ist_today(now) if now.astimezone(IST).time() >= PUBLISH_AFTER_IST else _ist_today(now) - timedelta(days=1)
-        first = (since.astimezone(IST).date() if since else (self.start_date or last))
+        # an explicit start date (backfill) wins over the fetch-time checkpoint, which is not a session cursor
+        first = self.start_date or (since.astimezone(IST).date() if since else last)
         d, out = first, []
         while d <= last:
-            if d.weekday() < 5:
+            if d.weekday() < 5 and d not in self.landed and d not in self.no_file:
                 out.append(d)
             d += timedelta(days=1)
         return out[: self.max_days]
@@ -116,8 +123,10 @@ class NseBhavcopyAdapter(SourceAdapter):
             except HttpError as e:
                 if e.status == 404:                       # holiday, or not published yet: not an error
                     log.info("bhavcopy %s: 404 (non-trading day or not yet published)", d)
+                    self.no_file.add(d)
                     continue
                 raise
+            self.landed.add(d)
             items.append(RawItem(payload, self.now(), None, {"url": url, "session_date": str(d)}, "csv"))
         return items
 
@@ -131,15 +140,30 @@ class NseBhavcopyAdapter(SourceAdapter):
         sess = date.fromisoformat(item.meta["session_date"]) if "session_date" in item.meta else None
         df = normalize_legacy_frame(raw, sess or pd.to_datetime(raw["DATE1"].iloc[0]).date(),
                                     f"stream:{item.meta.get('url', 'bhavcopy')}")
+        if len(df) and df["date_mismatch"].all() and df["date"].nunique() == 1:
+            # NSE answers a holiday URL with the PREVIOUS trading day's file (2026-05-01 returned 30-Apr data). Not a session:
+            # the raw file stays landed for the record, nothing is loaded, and it is not an error.
+            out = df.iloc[0:0].copy()
+            out.attrs["holiday_copy"] = f"file for {sess} holds {df['date'].iloc[0]}"
+            out["event_time"] = pd.Series(dtype="datetime64[ns, UTC]")
+            return out
         df["event_time"] = [_session_close_utc(d) for d in df["date"]]
         return df
 
     def validate(self, df: pd.DataFrame) -> list:
         from qsde.ingestion.nse_eod import validate_eod
 
+        if df.empty and df.attrs.get("holiday_copy"):
+            return []
         errs = super().validate(df)
         if df.empty:
             return errs + ["empty bhavcopy"]
+        if len(df) < self.min_rows:
+            errs.append(f"only {len(df)} equity rows (< {self.min_rows}): truncated or wrong file")
+        if "date_mismatch" in df.columns and df["date_mismatch"].any():
+            # the date printed INSIDE the file must be the session we asked for (the old archive had holiday files holding the
+            # previous day's data under the holiday's name)
+            errs.append(f"{int(df['date_mismatch'].sum())} rows carry a date other than the requested session")
         res = validate_eod(df)
         rejected = len(df) - len(res.valid)
         if rejected > max(25, 0.01 * len(df)):           # a handful of bad rows is data; many is a format change
@@ -158,16 +182,40 @@ def _parse_date(s) -> Optional[date]:
 
 class NseCorporateActionsAdapter(SourceAdapter):
     name, table = "nse_corporate_actions", "nse_corporate_actions"
-    key_cols = ("symbol", "ex_date", "subject")
+    key_cols = ("symbol", "ex_date", "subject", "record_date", "series")
     slo_seconds = 36 * 3600
     interval_seconds = 3600
     backfill_lag = timedelta(hours=0)
 
     def __init__(self, fetcher=None, now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
-                 lookback_days: int = 45, lookahead_days: int = 60):
+                 lookback_days: int = 45, lookahead_days: int = 60, windows: Optional[list] = None, landed_windows=()):
         self.fetcher, self.now, self.lookback, self.lookahead = fetcher or HttpFetcher(), now, lookback_days, lookahead_days
+        self.windows = windows                       # [(from_date, to_date)] for a history backfill; None = rolling live window
+        self.landed_windows = set(landed_windows)    # windows already in the landing zone (resumable)
+
+    @staticmethod
+    def quarter_windows(start: date, end: date, days: int = 92) -> list:
+        out, d = [], start
+        while d <= end:
+            e = min(d + timedelta(days=days - 1), end)
+            out.append((d, e))
+            d = e + timedelta(days=1)
+        return out
 
     def fetch(self, since: Optional[datetime]) -> list:
+        if self.windows is not None:
+            items = []
+            for a, b in self.windows:
+                if (a, b) in self.landed_windows:
+                    continue
+                url = CA_URL.format(a=f"{a:%d-%m-%Y}", b=f"{b:%d-%m-%Y}")
+                payload = self.fetcher.get(url, {"Accept": "application/json", "Referer":
+                                                 "https://www.nseindia.com/companies-listing/corporate-filings-actions"})
+                self.landed_windows.add((a, b))
+                items.append(RawItem(payload, self.now(), None, {"url": url, "from": str(a), "to": str(b), "backfill": True}, "json"))
+                if len(items) >= 8:                  # a few windows per run; the script loops until none are left
+                    break
+            return items
         today = _ist_today(self.now())
         a = (today - timedelta(days=self.lookback))
         b = today + timedelta(days=self.lookahead)
@@ -204,7 +252,11 @@ class NseCorporateActionsAdapter(SourceAdapter):
                 "record_date": _parse_date(r.get("recDate")),
                 "event_time": datetime.combine(ex, dtime(0, 0), tzinfo=IST).astimezone(timezone.utc),
                 "source_sha256": hashlib.sha256(item.payload).hexdigest()})
-        return pd.DataFrame(recs)
+        out = pd.DataFrame(recs)
+        if len(out):
+            # NSE history lists some actions twice as exact duplicate rows: one fact, one row
+            out = out.drop_duplicates(subset=[c for c in out.columns if c != "source_sha256"]).reset_index(drop=True)
+        return out
 
     def validate(self, df: pd.DataFrame) -> list:
         errs = super().validate(df) if len(df) else []

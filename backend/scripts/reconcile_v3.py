@@ -36,7 +36,8 @@ def main() -> int:
                   params={"s": syms})
     bars = bars.merge(fo, on="symbol", how="left").merge(lc, on="symbol", how="left")
     cal = pd.to_datetime(read_sql("SELECT DISTINCT date FROM eod_raw ORDER BY date")["date"]).to_numpy()
-    smap = build_security_map(off, bars, cal)
+    applied = read_sql("SELECT symbol, ex_date, price_factor, applied FROM corp_action_events WHERE applied")
+    smap = build_security_map(off, bars, cal, applied)
     execute_sql("DELETE FROM security_master")
     for r in smap.intervals.itertuples():
         execute_sql("INSERT INTO security_master (security_id, symbol, valid_from, valid_to, source) VALUES (%(i)s,%(s)s,%(f)s,%(t)s,'nse_symbolchange_csv')",

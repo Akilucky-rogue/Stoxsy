@@ -33,3 +33,23 @@ def test_unknown_policy_rejected():
 
 def test_promotion_policy_is_official():
     assert mld.PROMOTION_POLICY == mld.OFFICIAL
+
+
+def test_nse_candidates_not_applied_to_prices_become_label_exclusions(monkeypatch):
+    """Without this a -50% / -90% split cliff in the raw series would be trained on as a real return."""
+    import pandas as pd
+
+    from qsde.ml import data as mld
+    calls = []
+
+    def fake_read_sql(sql, params=None, **k):
+        calls.append(sql)
+        if "nse_corporate_actions" in sql:
+            return pd.DataFrame({"symbol": ["SPLITCO"], "ex_date": [pd.Timestamp("2026-06-03").date()]})
+        return pd.DataFrame({"symbol": ["UNEXP"], "ex_date": [pd.Timestamp("2025-01-02").date()]})
+
+    import qsde.db.connection as c
+    monkeypatch.setattr(c, "read_sql", fake_read_sql)
+    off = mld.label_exclusion_events(["SPLITCO", "UNEXP"], mld.OFFICIAL)
+    assert set(off["symbol"]) == {"SPLITCO", "UNEXP"}
+    assert "NOT EXISTS" in [q for q in calls if "nse_corporate_actions" in q][0]      # only those NOT already applied to prices

@@ -115,3 +115,25 @@ class TestHandoffPriceGate:
         fl["first_open"] = [100.0, 101.0]
         fl["last_close"] = [100.0, 101.0]
         assert build_security_map(off, fl, D.to_numpy()).security_of("NEWCO") == "S:OLDCO"
+
+
+class TestHandoffGateUsesTheRescaledSeries:
+    def _fl(self, old_close, new_open):
+        old = bars("OLDCO", D[0], D[39], lambda n: [100] * n)
+        new = bars("NEWCO", D[40], D[-1], lambda n: [new_open] * n)
+        fl = first_last(pd.concat([old, new]))
+        fl["first_open"] = fl["symbol"].map({"OLDCO": 100.0, "NEWCO": float(new_open)})
+        fl["last_close"] = fl["symbol"].map({"OLDCO": float(old_close), "NEWCO": float(new_open)})
+        off = pd.DataFrame([{"old_symbol": "OLDCO", "new_symbol": "NEWCO", "effective_date": D[40]}])
+        return off, fl
+
+    def test_a_later_split_of_the_new_symbol_is_not_mistaken_for_a_cliff_at_the_rename(self):
+        off, fl = self._fl(old_close=100, new_open=20)                         # new symbol's bars are on the post-1:5-split basis
+        ev = pd.DataFrame([{"symbol": "NEWCO", "ex_date": D[70], "price_factor": 0.2, "applied": True}])
+        assert build_security_map(off, fl, D.to_numpy(), ev).security_of("NEWCO") == "S:OLDCO"
+        assert build_security_map(off, fl, D.to_numpy()).security_of("NEWCO") is None      # without the event it still looks like a cliff
+
+    def test_a_split_that_really_coincides_with_the_rename_is_still_refused(self):
+        off, fl = self._fl(old_close=100, new_open=20)
+        unrelated = pd.DataFrame([{"symbol": "OTHER", "ex_date": D[70], "price_factor": 0.2, "applied": True}])
+        assert build_security_map(off, fl, D.to_numpy(), unrelated).security_of("NEWCO") is None
