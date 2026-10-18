@@ -136,3 +136,14 @@ def test_a_biased_null_downgrades_the_run_to_plumbing(world, tmp_path, monkeypat
 def test_unknown_target_is_rejected(world, tmp_path):
     with pytest.raises(ValueError):
         run_experiment(_ds(world), ridge_fit_predict(), "ridge", {}, ledger_dir=tmp_path, target="nope")
+
+
+def test_atr_neutral_target_has_no_linear_exposure_to_the_control(world):
+    from qsde.ml.experiment import atr_neutral_target
+    lab = _ds(world).frame.copy()
+    lab["ctrl"] = lab.groupby("as_of_date")["ret_net"].rank(pct=True) * 0.7 + np.random.default_rng(1).normal(0, 0.3, len(lab))
+    y = atr_neutral_target(lab, ctrl="ctrl")
+    f = lab[["as_of_date"]].assign(y=y, r=lab.groupby("as_of_date")["ctrl"].rank(pct=True))
+    cors = f.groupby("as_of_date").apply(lambda g: g["y"].corr(g["r"]), include_groups=False)
+    assert cors.abs().max() < 1e-8                                           # orthogonal to the control on every date
+    assert np.isfinite(y).all()

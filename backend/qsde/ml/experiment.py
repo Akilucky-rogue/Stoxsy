@@ -32,7 +32,7 @@ log = logging.getLogger(__name__)
 
 TOP_Q = 0.2
 MIN_NAMES = 10
-TARGETS = ("cs_rank_gauss", "raw")
+TARGETS = ("cs_rank_gauss", "cs_rank_gauss_atr_neutral", "raw")
 NULL_IC_LIMIT = 0.015          # a shuffled-label run must score |IC| below this, or the harness/target is biased
 
 
@@ -69,6 +69,21 @@ def cross_sectional_target(lab: pd.DataFrame, col: str = "ret_net", date: str = 
     z = ndtri(p)
     z[n < 3] = 0.0
     return np.nan_to_num(z, nan=0.0)
+
+
+def atr_neutral_target(lab: pd.DataFrame, ctrl: str = "tech_atr_pct", col: str = "ret_net", date: str = "as_of_date") -> np.ndarray:
+    """Rank-gauss target with the per-date linear low-volatility component removed (OLS on the percent-rank of `ctrl`).
+
+    Used to ask whether anything is left once the dominant low-vol exposure cannot be learned: the model is trained to rank
+    the part of the return that is NOT explained by ATR%."""
+    y = pd.Series(cross_sectional_target(lab, col, date), index=lab.index)
+    x = lab.groupby(date)[ctrl].rank(pct=True)
+    d = lab[date]
+    ym, xm = y.groupby(d).transform("mean"), x.groupby(d).transform("mean")
+    a, b = y - ym, (x - xm).fillna(0.0)
+    cov = (a * b).groupby(d).transform("sum")
+    var = (b * b).groupby(d).transform("sum").replace(0, np.nan)
+    return (a - (cov / var).fillna(0.0) * b).to_numpy(float)
 
 
 def null_control(lab: pd.DataFrame, X: np.ndarray, y: np.ndarray, t0, t1, w, fit_predict: Callable, groups: int, k: int,
@@ -131,7 +146,12 @@ def run_experiment(ds: LabelledDataset, fit_predict: Callable, model_name: str, 
         w = cvmod.average_uniqueness(lab["symbol"].to_numpy(), t0, t1)
         t_fit = time.time()
         X = lab[ds.feature_cols].to_numpy(float)
-        y = cross_sectional_target(lab) if target == "cs_rank_gauss" else lab["ret_net"].to_numpy(float)
+        if target == "cs_rank_gauss":
+            y = cross_sectional_target(lab)
+        elif target == "cs_rank_gauss_atr_neutral":
+            y = atr_neutral_target(lab)
+        else:
+            y = lab["ret_net"].to_numpy(float)
         out = cvmod.run_cpcv(X, y, t0, t1, fit_predict, weights=w, n_groups=groups, k_test=k, embargo=spec.embargo_days)
         null = (null_control(lab, X, y, t0, t1, w, fit_predict, groups, k, spec.embargo_days) if run_null_control else None)
         log.info("CPCV %dx%d: %d splits, %d paths, %.0fs", groups, k, len(out["splits"]), out["n_paths"],
