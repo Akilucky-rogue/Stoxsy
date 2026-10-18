@@ -1,0 +1,28 @@
+{
+  "version": "non_equity_v1",
+  "status": "heuristic_pending_owner_review",
+  "note": "Exchange-traded funds and liquid-fund units that trade in the NSE EQ series and therefore entered the liquidity-ranked 'equity' universe (adv60_top500_v1). They are excluded from equity research, the defensive signal and training. Identified from symbol names AND price behaviour (liquid funds: daily vol < 0.03%; gold/silver/index ETFs: tracked-asset behaviour). Operating companies whose names merely contain GOLD/SILVER/GILT (SKYGOLD, SHANTIGOLD, GOLDIAM, PNBGILTS) are equities and are NOT listed. To be verified against NSE's official ETF list when the owner approves fetching it.",
+  "instruments": [
+    {"symbol": "LIQUID", "kind": "liquid_fund", "evidence": "name; daily vol 0.00%"},
+    {"symbol": "LIQUIDPLUS", "kind": "liquid_fund", "evidence": "name; daily vol 0.01%"},
+    {"symbol": "LIQUIDADD", "kind": "liquid_fund", "evidence": "name; daily vol 0.01%"},
+    {"symbol": "LIQUID1", "kind": "liquid_fund", "evidence": "name; daily vol 0.02%"},
+    {"symbol": "LIQUIDCASE", "kind": "liquid_fund", "evidence": "name; daily vol 0.02%"},
+    {"symbol": "KOTAKNIFTY", "kind": "index_etf", "evidence": "name"},
+    {"symbol": "ICICINIFTY", "kind": "index_etf", "evidence": "name"},
+    {"symbol": "MON100", "kind": "international_index_etf", "evidence": "name (Nasdaq-100 tracker)"},
+    {"symbol": "KOTAKGOLD", "kind": "gold_etf", "evidence": "name; vol profile of gold"},
+    {"symbol": "HDFCGOLD", "kind": "gold_etf", "evidence": "name"},
+    {"symbol": "GOLDCASE", "kind": "gold_etf", "evidence": "name"},
+    {"symbol": "GOLD1", "kind": "gold_etf", "evidence": "name"},
+    {"symbol": "TATAGOLD", "kind": "gold_etf", "evidence": "name"},
+    {"symbol": "AXISGOLD", "kind": "gold_etf", "evidence": "name"},
+    {"symbol": "SILVER", "kind": "silver_etf", "evidence": "name; vol profile of silver"},
+    {"symbol": "AXISILVER", "kind": "silver_etf", "evidence": "name"},
+    {"symbol": "HDFCSILVER", "kind": "silver_etf", "evidence": "name"},
+    {"symbol": "SBISILVER", "kind": "silver_etf", "evidence": "name"},
+    {"symbol": "SILVERCASE", "kind": "silver_etf", "evidence": "name"},
+    {"symbol": "SILVERADD", "kind": "silver_etf", "evidence": "name"},
+    {"symbol": "SILVER1", "kind": "silver_etf", "evidence": "name"}
+  ]
+}

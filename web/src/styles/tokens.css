@@ -1,0 +1,63 @@
+/* Design tokens. Fintech palette: porcelain / deep navy surfaces, emerald brand, indigo + cyan accents.
+   Every colour is a token; dark mode redefines them (selected by data-theme before first paint). */
+:root {
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+  --radius-sm: 8px;
+  --radius: 14px;
+  --radius-lg: 20px;
+  --gutter: 16px;
+  --sidebar-w: 264px;
+  --sidebar-w-collapsed: 72px;
+  --topbar-h: 60px;
+
+  /* light */
+  --bg: #f4f7fa;
+  --surface: #ffffff;
+  --surface-2: #eef3f8;
+  --ink: #0e1b2a;
+  --ink-2: #3b4d61;
+  --muted: #66788c;
+  --line: #dbe4ee;
+  --brand: #0a9b72;
+  --brand-ink: #ffffff;
+  --brand-soft: #dff5ed;
+  --accent: #4b5bd6;
+  --accent-soft: #e6e9fb;
+  --cyan: #0b8fb3;
+  --up: #0a9b72;
+  --down: #d1435b;
+  --warn: #b8780a;
+  --warn-soft: #fbf0d9;
+  --info-soft: #e3f1f7;
+  --danger-soft: #fbe6ea;
+  --shadow: 0 1px 2px rgba(14, 27, 42, 0.05), 0 6px 20px rgba(14, 27, 42, 0.06);
+  --focus: 0 0 0 3px rgba(75, 91, 214, 0.35);
+  --bucket-1: #d1435b; --bucket-2: #e08a3c; --bucket-3: #c9b037; --bucket-4: #4fae83; --bucket-5: #0a9b72;
+}
+
+:root[data-theme="dark"] {
+  --bg: #08121d;
+  --surface: #0f1d2c;
+  --surface-2: #14263a;
+  --ink: #e8f0f8;
+  --ink-2: #b4c4d6;
+  --muted: #8399ae;
+  --line: #1f3550;
+  --brand: #2fd4a0;
+  --brand-ink: #04281d;
+  --brand-soft: #0e3a30;
+  --accent: #8b97ff;
+  --accent-soft: #1d2552;
+  --cyan: #4cc4e6;
+  --up: #2fd4a0;
+  --down: #ff7089;
+  --warn: #f0b24a;
+  --warn-soft: #3a2c0c;
+  --info-soft: #0f2f3d;
+  --danger-soft: #3a1520;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 10px 30px rgba(0, 0, 0, 0.35);
+  --focus: 0 0 0 3px rgba(139, 151, 255, 0.5);
+  --bucket-1: #ff7089; --bucket-2: #f0985a; --bucket-3: #d9c24b; --bucket-4: #5fc596; --bucket-5: #2fd4a0;
+}

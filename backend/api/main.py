@@ -53,6 +53,7 @@ from api.routes.paper import router as paper_router
 from api.routes.risk import router as risk_router
 from api.routes.scorecard import router as scorecard_router
 from api.routes.auth import router as auth_router
+from api.routes.cockpit import router as cockpit_router
 
 app = FastAPI(
     title="Stoxsy -- Quantitative Stock Decision Engine",
@@ -92,6 +93,7 @@ app.include_router(paper_router,     prefix="/api", tags=["paper"])
 app.include_router(risk_router,      prefix="/api", tags=["risk"])
 app.include_router(scorecard_router, prefix="/api", tags=["scorecard"])
 app.include_router(auth_router,      prefix="/api", tags=["auth"])
+app.include_router(cockpit_router,   prefix="/api", tags=["cockpit"])
 
 
 @app.get("/")

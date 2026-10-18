@@ -147,3 +147,17 @@ def test_atr_neutral_target_has_no_linear_exposure_to_the_control(world):
     cors = f.groupby("as_of_date").apply(lambda g: g["y"].corr(g["r"]), include_groups=False)
     assert cors.abs().max() < 1e-8                                           # orthogonal to the control on every date
     assert np.isfinite(y).all()
+
+
+def test_non_equity_instruments_are_dropped_and_recorded_in_the_universe_version(world):
+    prices, feats, _ = world
+    extra = feats[feats["symbol"] == feats["symbol"].iloc[0]].copy()
+    extra["symbol"] = "LIQUIDCASE"                                                    # a liquid-fund unit that traded in the EQ series
+    p2 = pd.concat([prices, prices[prices["symbol"] == prices["symbol"].iloc[0]].assign(symbol="LIQUIDCASE")])
+    snap = type("S", (), {"snapshot_id": "snap-test", "universe_version": "uni-x", "dataset_hash": "ab" * 32})()
+    kw = dict(feats=pd.concat([feats, extra]), prices=p2, exclusions=pd.DataFrame(columns=["symbol", "ex_date"]), snapshot=snap)
+    ds = build_labelled_dataset("swing_5d", **kw)
+    assert "LIQUIDCASE" not in set(ds.frame["symbol"]) and "|ex_non_equity_v1:" in ds.universe_version
+    assert any("non-equity instruments excluded" in n for n in ds.notes)
+    ds2 = build_labelled_dataset("swing_5d", exclude_non_equity=False, **kw)
+    assert "LIQUIDCASE" in set(ds2.frame["symbol"]) and "ex_non_equity" not in ds2.universe_version

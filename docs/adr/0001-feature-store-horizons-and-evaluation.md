@@ -380,6 +380,35 @@ files; corporate-actions source evaluation (`docs/CORPORATE_ACTIONS_EVALUATION.m
   all corporate-action events with confidence/tier, adjustment runs). Scratch database dropped. `factor_pit` may be dropped once the owner decides to; it has not been.
 * **Still open:** secret scan with gitleaks (only a regex scan has been run), key rotation (owner), candidate registry + promotion gate.
 
+### Ninth review (2026-10-19): non-equity instruments in the universe, defensive signal, accounts, first UI
+
+* **Defect found: the "equity" universe contained ETFs and liquid-fund units.** `adv60_top500_v1` is ranked on traded value alone, so 21 instruments
+  (LIQUID, LIQUID1, LIQUIDADD, LIQUIDCASE, LIQUIDPLUS; gold ETFs; silver ETFs; KOTAKNIFTY, ICICINIFTY, MON100) entered it. Liquid funds (daily vol 0.00-0.02%)
+  ranked as the MOST defensive names in the defensive signal and sat at the low-volatility end of every cross-sectional ranking, which is exactly the effect the
+  eighth review found to be driving the model. The list is `infra/data/non_equity_instruments.json` (`non_equity_v1`, name + behaviour heuristic, status
+  *pending owner review*; operating companies such as SKYGOLD, SHANTIGOLD, GOLDIAM, PNBGILTS are deliberately NOT on it; to be verified against NSE's official ETF
+  list if the owner approves fetching it). The dataset builder now drops them (`exclude_non_equity=True`), the universe version carries `|ex_non_equity_v1:<hash>`
+  (so trial keys and model cards differ from earlier runs), and the defensive evaluation excludes them. **The eighth review's full-universe results ran on the
+  contaminated universe: they are marked SUPERSEDED and are being re-run; do not rely on them.** The defensive equal-weight / tilt results barely moved (Sharpe 0.76 / 0.81;
+  top defensive quintile 0.94, max drawdown -35.7% vs -60.8%).
+* **Defensive allocation signal** (`qsde/defensive`, `scripts/defensive_eval.py`): five equally-weighted percent-ranked risk components (ATR%, 60d vol, 60d downside
+  deviation, drawdown from the 120d high, traded value), point-in-time (a test proves future bars cannot change a past score), long-only weight schemes (ew, tilt 0.5x-1.5x,
+  tilt gated in a risk-off regime, top quintile), weights from the close of t executed at the next close, 12.5 bps one way. Portfolio construction, not prediction: the tilt cuts
+  volatility ~5% with a Sharpe edge of +0.06 (95% paired-bootstrap interval +0.02 to +0.10); the top quintile cuts volatility ~27% and max drawdown by ~25 points but its Sharpe
+  edge (+0.18, -0.10 to +0.53) is not established, turnover is 5.7x/yr, and 2026 YTD it lagged (-6.3% vs +3.9%).
+* **Bucket A** (status `official_match_price_mismatch`): worksheet for all 69 and a top-10 decision packet (`packet_bucket_a_top10.md`) with a deterministic recommendation per event
+  (confirm / reject / needs_more_evidence) and the price table around each gap bar. Recommendations only; the owner decides; no tolerance widened.
+* **Bounded ATR-neutral experiment** (`scripts/research_resid.py`): criteria pre-registered in the script before any run (residual IC >= 0.02 with NW t >= 3; net Sharpe @25 bps above the
+  best of 12-1 / MOP / low-vol; DSR >= 0.95 on the real trial count; null control OK), three trials, position_20d only, otherwise REJECT. First launch was discarded (contaminated universe); re-running.
+* **Accounts** (migration 038, `qsde/auth`, `api/auth_deps.py`): argon2id, 15-minute JWT + rotating 14-day refresh cookie (httpOnly, SameSite=Strict, CSRF header; reuse revokes the family),
+  throttling (5 failures / 15 min per email), generic failure message, forced password change for temporary passwords, roles admin | trader | viewer, audit log, self-demotion blocked.
+  `require_auth` is app-wide; a test sends an anonymous request to every route in the OpenAPI document and requires 401 when `AUTH_ENFORCED=true`. Default `AUTH_ENFORCED=false` keeps the
+  existing local UI working; `scripts/create_owner.py` creates the first admin (password from env or hidden prompt). Not yet: MFA, per-user portfolios/alerts, Redis rate limiting.
+* **First UI** (`web/`, Vite + React 18 + TypeScript, react-router, TanStack Query, self-hosted Inter / JetBrains Mono, light/dark/system theme, fintech tokens): sign-in, forced password
+  change, dashboard, defensive signal, reports & models (markdown, sanitised), data & system, admin. Read-only API for it: `/api/defensive/latest`, `/api/system/status`,
+  `/api/research/reports`. Verified in real browsers: sign-in -> forced change -> dashboard with live data, light and dark at desktop width, 390 px width with the drawer and no horizontal
+  page overflow; 13 unit tests, 739 backend tests. The old Next.js app is untouched (retire after route parity). Not yet built: ideas/paper/F&O/pairs views, live compare, alerts, PWA, Tauri.
+
 ## Out of scope here
 
 Kite backfill/live (needs a session and the owner's go-ahead for any network call), a verified corporate-actions

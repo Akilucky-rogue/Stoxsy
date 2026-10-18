@@ -66,7 +66,7 @@ def build_labelled_dataset(horizon: str | HorizonSpec, snapshot_ids: Optional[li
                            cost_bps: Optional[float] = None, factor_version: Optional[str] = None,
                            feats: Optional[pd.DataFrame] = None, prices: Optional[pd.DataFrame] = None,
                            exclusions: Optional[pd.DataFrame] = None, snapshot=None,
-                           symbols: Optional[list] = None) -> LabelledDataset:
+                           symbols: Optional[list] = None, exclude_non_equity: bool = True) -> LabelledDataset:
     """Features from the Parquet store, labels from `qsde.ml.labels.make_labels`.
 
     `feats`/`prices`/`exclusions`/`snapshot` can be injected for tests; in normal use they are read from the
@@ -75,6 +75,7 @@ def build_labelled_dataset(horizon: str | HorizonSpec, snapshot_ids: Optional[li
     from qsde.factors.versions import FFD_VERSION
     from qsde.features.store import current_snapshots, read_features
     from qsde.ml.labels import make_labels
+    from qsde.universe import instruments
 
     spec = get_horizon(horizon) if isinstance(horizon, str) else horizon
     factor_version = factor_version or FFD_VERSION
@@ -91,6 +92,11 @@ def build_labelled_dataset(horizon: str | HorizonSpec, snapshot_ids: Optional[li
         snapshot = snapshot or snaps[-1]
     feats = feats.copy()
     feats["as_of_date"] = pd.to_datetime(feats["as_of_date"])
+    if exclude_non_equity:                        # ETFs / liquid-fund units are not stocks (qsde.universe.instruments)
+        from qsde.universe import instruments
+        drop = instruments.non_equity_symbols()
+        n_drop = int(feats["symbol"].isin(drop).sum())
+        feats = feats[~feats["symbol"].isin(drop)]
     if symbols is not None:                       # explicit subset (smoke runs): the list is part of the provenance
         feats = feats[feats["symbol"].isin(set(symbols))]
     syms = sorted(feats["symbol"].unique())
@@ -106,6 +112,8 @@ def build_labelled_dataset(horizon: str | HorizonSpec, snapshot_ids: Optional[li
     frame = lab.merge(feats, on=["symbol", "as_of_date"], how="inner").reset_index(drop=True)
     fcols = [c for c in feats.columns if c not in NON_FEATURE]
     notes = []
+    if exclude_non_equity:
+        notes.append(f"non-equity instruments excluded ({instruments.tag()}; {n_drop:,} symbol-days dropped)")
     if symbols is not None:
         notes.append(f"restricted to {len(symbols)} explicitly listed symbols")
     const = [c for c in fcols if frame[c].nunique(dropna=True) <= 1]
@@ -120,6 +128,6 @@ def build_labelled_dataset(horizon: str | HorizonSpec, snapshot_ids: Optional[li
     return LabelledDataset(
         spec=spec, frame=frame, feature_cols=fcols, calendar=cal, prices=prices,
         snapshot_ids=[snapshot.snapshot_id] if snapshot is not None else [],
-        universe_version=getattr(snapshot, "universe_version", "injected"),
+        universe_version=getattr(snapshot, "universe_version", "injected") + (f"|{instruments.tag()}" if exclude_non_equity else ""),
         factor_version=factor_version, dataset_hash=getattr(snapshot, "dataset_hash", "injected"),
         price_policy=policy, exclusion_events=int(len(exclusions)), n_symbols=len(syms), notes=notes)

@@ -11,6 +11,7 @@ volatility is the expected, mechanical result of a low-risk tilt; the question t
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import warnings
 from pathlib import Path
@@ -55,8 +56,12 @@ def main() -> int:
     from qsde.db.connection import read_sql
     from qsde.ml import data as mldata
 
+    from qsde.universe import instruments
+    drop = instruments.non_equity_symbols()
     px = mldata.load_prices(policy="official")
+    px = px[~px["symbol"].isin(drop)]                                  # ETFs / liquid-fund units are not stocks
     uni = read_sql("SELECT date, symbol, rank FROM universe_pit WHERE method = 'adv60_top500_v1'")
+    uni = uni[~uni["symbol"].isin(drop)]
     uni["date"] = pd.to_datetime(uni["date"])
     feat = dfs.risk_features(px)
     sc = dfs.defensive_scores(feat, eligible=uni, with_warnings=False)
@@ -69,7 +74,7 @@ def main() -> int:
     L = ["# Defensive allocation signal - portfolio-construction evaluation (RESEARCH_ONLY)", "",
          "This is risk-aware portfolio construction, not a return forecast. Universe: PIT top-500 by traded value; monthly rebalance; weights from the close of t executed at the "
          "next close; 12.5 bps one way on traded notional; daily returns winsorised at +/-40%. Compared with equal-weight on the same universe and rebalance.", "",
-         f"- period {ew.index.min().date()} .. {ew.index.max().date()} ({len(ew)} sessions); scored symbol-days {len(sc):,}; median names per date {int(sc.groupby('date').size().median())}", "",
+         f"- instruments excluded as non-equity: {len(drop)} ({instruments.tag()}); period {ew.index.min().date()} .. {ew.index.max().date()} ({len(ew)} sessions); scored symbol-days {len(sc):,}; median names per date {int(sc.groupby('date').size().median())}", "",
          "| scheme | ann return | ann vol | Sharpe | max DD | Calmar | downside dev | worst month | turnover/yr (one-way x2) |", "|---|---|---|---|---|---|---|---|---|"]
     for k, (r, t) in runs.items():
         s = dfs.stats(r)
@@ -77,10 +82,14 @@ def main() -> int:
                  f"{s['worst_month']:.1%} | {t.sum() / (len(t) / 252):.1f} |")
     L += ["", "## Differences vs equal-weight (paired block bootstrap, 95% interval, 21-session blocks)", "",
           "| scheme | Sharpe diff | max DD diff (less negative = better) | vol ratio |", "|---|---|---|---|"]
+    summary = {"non_equity_excluded": instruments.tag(), "period": [str(ew.index.min().date()), str(ew.index.max().date())], "sessions": int(len(ew)),
+               "rebalance_sessions": 21, "one_way_cost_bps": 12.5, "schemes": {k: dfs.stats(runs[k][0]) for k in SCHEMES}, "vs_equal_weight": {}}
     for k in SCHEMES[1:]:
         b = _paired_bootstrap(runs[k][0], ew)
         pt = (dfs.stats(runs[k][0])["sharpe"] - dfs.stats(ew)["sharpe"], dfs.stats(runs[k][0])["max_dd"] - dfs.stats(ew)["max_dd"],
               dfs.stats(runs[k][0])["ann_vol"] / dfs.stats(ew)["ann_vol"])
+        summary["vs_equal_weight"][k] = {"sharpe_diff": pt[0], "sharpe_diff_ci": b["sharpe_diff"], "maxdd_diff": pt[1], "maxdd_diff_ci": b["maxdd_diff"],
+                                         "vol_ratio": pt[2], "vol_ratio_ci": b["vol_ratio"]}
         L.append(f"| {k} | {pt[0]:+.2f} [{b['sharpe_diff'][0]:+.2f}, {b['sharpe_diff'][1]:+.2f}] | {pt[1]:+.1%} [{b['maxdd_diff'][0]:+.1%}, {b['maxdd_diff'][1]:+.1%}] | "
                  f"{pt[2]:.2f} [{b['vol_ratio'][0]:.2f}, {b['vol_ratio'][1]:.2f}] |")
     # downside capture and regimes
@@ -105,6 +114,7 @@ def main() -> int:
         b = dfs.stats(dfs.backtest(px, sc, reg, "tilt", one_way_cost_bps=c)[0])["sharpe"]
         L.append(f"| {c:g} | {a:.2f} | {b:.2f} |")
     (OUT / "defensive_eval.md").write_text("\n".join(L), encoding="utf-8")
+    (OUT / "defensive_eval.json").write_text(json.dumps(summary, indent=2, default=float), encoding="utf-8")
     print("\n".join(L))
     if args.latest:
         last = sc[sc["date"] == sc["date"].max()].copy()
