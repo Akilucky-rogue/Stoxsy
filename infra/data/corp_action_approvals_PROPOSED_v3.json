@@ -3,15 +3,6 @@
  "note": "PROPOSED by reconcile_v3 - NOT LOADED. To approve, move the entries you accept (after reading their evidence packs) into corp_action_approvals.json and change decision to approve. Hard bounds are re-checked at apply time.",
  "decisions": [
   {
-   "symbol": "ACUTAAS",
-   "apply_to_symbol": "AMIORG",
-   "listed_ex_date": "2025-04-25",
-   "gap_date": "2025-04-25",
-   "factor": 0.5,
-   "decision": "proposed",
-   "notes": "gap 0.5076 vs 0.5000 on 2025-04-25 under AMIORG (NSE rename of ACUTAAS); 0 untraded sessions; persists"
-  },
-  {
    "symbol": "AURIGROW",
    "apply_to_symbol": "GODHA",
    "listed_ex_date": "2022-03-24",
@@ -23,29 +14,11 @@
   {
    "symbol": "CCAVENUE",
    "apply_to_symbol": "INFIBEAM",
-   "listed_ex_date": "2017-08-31",
-   "gap_date": "2017-08-31",
-   "factor": 0.1,
-   "decision": "proposed",
-   "notes": "gap 0.1006 vs 0.1000 on 2017-08-31 under INFIBEAM (NSE rename of CCAVENUE); 0 untraded sessions; persists"
-  },
-  {
-   "symbol": "CCAVENUE",
-   "apply_to_symbol": "INFIBEAM",
    "listed_ex_date": "2022-03-14",
    "gap_date": "2022-03-14",
    "factor": 0.5,
    "decision": "proposed",
    "notes": "gap 0.4804 vs 0.5000 on 2022-03-14 under INFIBEAM (NSE rename of CCAVENUE); 0 untraded sessions; persists"
-  },
-  {
-   "symbol": "COHANCE",
-   "apply_to_symbol": "SUVENPHAR",
-   "listed_ex_date": "2020-09-25",
-   "gap_date": "2020-09-25",
-   "factor": 0.5,
-   "decision": "proposed",
-   "notes": "gap 0.5144 vs 0.5000 on 2020-09-25 under SUVENPHAR (NSE rename of COHANCE); 0 untraded sessions; persists"
   },
   {
    "symbol": "COSMOFIRST",
@@ -66,15 +39,6 @@
    "notes": "gap 0.5243 vs 0.5000 on 2025-04-04 under KBCGLOBAL (NSE rename of DHARAN); 0 untraded sessions; persists"
   },
   {
-   "symbol": "EPL",
-   "apply_to_symbol": "ESSELPACK",
-   "listed_ex_date": "2018-06-20",
-   "gap_date": "2018-06-20",
-   "factor": 0.5,
-   "decision": "proposed",
-   "notes": "gap 0.5024 vs 0.5000 on 2018-06-20 under ESSELPACK (NSE rename of EPL); 0 untraded sessions; persists"
-  },
-  {
    "symbol": "GANESHHOU",
    "apply_to_symbol": "GANESHHOUC",
    "listed_ex_date": "2016-07-14",
@@ -82,15 +46,6 @@
    "factor": 0.6666666667,
    "decision": "proposed",
    "notes": "gap 0.6976 vs 0.6667 on 2016-07-14 under GANESHHOUC (NSE rename of GANESHHOU); 0 untraded sessions; persists"
-  },
-  {
-   "symbol": "GVPTECH",
-   "apply_to_symbol": "4THDIM",
-   "listed_ex_date": "2023-01-23",
-   "gap_date": "2023-01-23",
-   "factor": 0.2,
-   "decision": "proposed",
-   "notes": "gap 0.2036 vs 0.2000 on 2023-01-23 under 4THDIM (NSE rename of GVPTECH); 0 untraded sessions; persists"
   },
   {
    "symbol": "LANDSMILL",
@@ -102,33 +57,6 @@
    "notes": "gap 0.3436 vs 0.3333 on 2018-01-23 under EXCEL (NSE rename of LANDSMILL); 0 untraded sessions; persists"
   },
   {
-   "symbol": "MOTHERSON",
-   "apply_to_symbol": "MOTHERSUMI",
-   "listed_ex_date": "2017-07-05",
-   "gap_date": "2017-07-05",
-   "factor": 0.6666666667,
-   "decision": "proposed",
-   "notes": "gap 0.6643 vs 0.6667 on 2017-07-05 under MOTHERSUMI (NSE rename of MOTHERSON); 0 untraded sessions; persists"
-  },
-  {
-   "symbol": "MOTHERSON",
-   "apply_to_symbol": "MOTHERSUMI",
-   "listed_ex_date": "2018-10-30",
-   "gap_date": "2018-10-30",
-   "factor": 0.6666666667,
-   "decision": "proposed",
-   "notes": "gap 0.6910 vs 0.6667 on 2018-10-30 under MOTHERSUMI (NSE rename of MOTHERSON); 0 untraded sessions; persists"
-  },
-  {
-   "symbol": "NAVA",
-   "apply_to_symbol": "NBVENTURES",
-   "listed_ex_date": "2016-09-01",
-   "gap_date": "2016-09-01",
-   "factor": 0.5,
-   "decision": "proposed",
-   "notes": "gap 0.5027 vs 0.5000 on 2016-09-01 under NBVENTURES (NSE rename of NAVA); 0 untraded sessions; persists"
-  },
-  {
    "symbol": "SECURKLOUD",
    "apply_to_symbol": "8KMILES",
    "listed_ex_date": "2016-10-10",
@@ -138,67 +66,13 @@
    "notes": "gap 0.3865 vs 0.3750 on 2016-10-10 under 8KMILES (NSE rename of SECURKLOUD); 0 untraded sessions; persists"
   },
   {
-   "symbol": "TARIL",
-   "apply_to_symbol": "TRIL",
-   "listed_ex_date": "2017-09-28",
-   "gap_date": "2017-09-28",
-   "factor": 0.1,
-   "decision": "proposed",
-   "notes": "gap 0.1002 vs 0.1000 on 2017-09-28 under TRIL (NSE rename of TARIL); 0 untraded sessions; persists"
-  },
-  {
-   "symbol": "TIPSMUSIC",
-   "apply_to_symbol": "TIPSINDLTD",
-   "listed_ex_date": "2023-04-21",
-   "gap_date": "2023-04-21",
-   "factor": 0.1,
-   "decision": "proposed",
-   "notes": "gap 0.1014 vs 0.1000 on 2023-04-21 under TIPSINDLTD (NSE rename of TIPSMUSIC); 0 untraded sessions; persists"
-  },
-  {
-   "symbol": "UNITDSPR",
-   "apply_to_symbol": "MCDOWELL-N",
-   "listed_ex_date": "2018-06-15",
-   "gap_date": "2018-06-15",
-   "factor": 0.2,
-   "decision": "proposed",
-   "notes": "gap 0.2011 vs 0.2000 on 2018-06-15 under MCDOWELL-N (NSE rename of UNITDSPR); 0 untraded sessions; persists"
-  },
-  {
-   "symbol": "UNOMINDA",
-   "apply_to_symbol": "MINDAIND",
-   "listed_ex_date": "2016-09-12",
-   "gap_date": "2016-09-12",
-   "factor": 0.2,
-   "decision": "proposed",
-   "notes": "gap 0.1949 vs 0.2000 on 2016-09-12 under MINDAIND (NSE rename of UNOMINDA); 0 untraded sessions; persists"
-  },
-  {
-   "symbol": "UNOMINDA",
-   "apply_to_symbol": "MINDAIND",
-   "listed_ex_date": "2018-07-11",
-   "gap_date": "2018-07-11",
+   "symbol": "UEL",
+   "apply_to_symbol": "UEL",
+   "listed_ex_date": "2025-10-10",
+   "gap_date": "2025-10-13",
    "factor": 0.3333333333,
    "decision": "proposed",
-   "notes": "gap 0.3432 vs 0.3333 on 2018-07-11 under MINDAIND (NSE rename of UNOMINDA); 0 untraded sessions; persists"
-  },
-  {
-   "symbol": "VEEDOL",
-   "apply_to_symbol": "TIDEWATER",
-   "listed_ex_date": "2016-03-16",
-   "gap_date": "2016-03-16",
-   "factor": 0.25,
-   "decision": "proposed",
-   "notes": "gap 0.2488 vs 0.2500 on 2016-03-16 under TIDEWATER (NSE rename of VEEDOL); 0 untraded sessions; persists"
-  },
-  {
-   "symbol": "WELSPUNLIV",
-   "apply_to_symbol": "WELSPUNIND",
-   "listed_ex_date": "2016-03-21",
-   "gap_date": "2016-03-21",
-   "factor": 0.1,
-   "decision": "proposed",
-   "notes": "gap 0.1000 vs 0.1000 on 2016-03-21 under WELSPUNIND (NSE rename of WELSPUNLIV); 0 untraded sessions; persists"
+   "notes": "gap 0.3168 vs 0.3333 on 2025-10-13 under UEL; 1 untraded sessions; persists"
   }
  ]
 }

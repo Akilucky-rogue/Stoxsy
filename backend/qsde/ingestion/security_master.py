@@ -18,6 +18,8 @@ import numpy as np
 import pandas as pd
 
 HANDOFF_SESSIONS = 15
+MAX_HANDOFF_JUMP = 0.20           # a rename is not a price event: a bigger overnight jump at the join means a split/merger/swap
+                                  # coincides with it, and stitching across it would put a fake cliff inside every feature
 FOREVER = pd.Timestamp("9999-12-31")
 
 
@@ -43,7 +45,8 @@ class SecurityMap:
 
 
 def build_security_map(official: pd.DataFrame, bars: pd.DataFrame, calendar: np.ndarray) -> SecurityMap:
-    """official: old_symbol, new_symbol, effective_date. bars: symbol, first_bar, last_bar (archive). calendar: sorted market dates."""
+    """official: old_symbol, new_symbol, effective_date. bars: symbol, first_bar, last_bar (archive) and, optionally, first_open /
+    last_close (adjusted prices) for the price-continuity gate. calendar: sorted market dates."""
     cal = np.sort(pd.to_datetime(pd.Series(calendar)).to_numpy())
     b = bars.set_index("symbol")
     rej, ok = [], []
@@ -60,6 +63,12 @@ def build_security_map(official: pd.DataFrame, bars: pd.DataFrame, calendar: np.
         if gap > HANDOFF_SESSIONS or abs((o_last - E).days) > 40 or abs((n_first - E).days) > 40:
             rej.append((r.old_symbol, r.new_symbol, E, f"hand-off not consistent with the archive ({gap} sessions between series)"))
             continue
+        if "first_open" in b.columns and "last_close" in b.columns:
+            lc, fo = float(b.loc[r.old_symbol, "last_close"]), float(b.loc[r.new_symbol, "first_open"])
+            if lc > 0 and fo > 0 and abs(fo / lc - 1.0) > MAX_HANDOFF_JUMP:
+                rej.append((r.old_symbol, r.new_symbol, E,
+                            f"price discontinuity at hand-off ({fo / lc - 1.0:+.1%}): a corporate event coincides with the rename"))
+                continue
         ok.append((r.old_symbol, r.new_symbol, E))
 
     # chains via union-find on symbols

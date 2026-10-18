@@ -200,8 +200,7 @@ files; corporate-actions source evaluation (`docs/CORPORATE_ACTIONS_EVALUATION.m
   They are written to `corp_action_candidates` and to `infra/data/corp_action_approvals_PROPOSED_v3.json` (NOT loaded); evidence
   packs are in `data/reports/corp_actions/evidence/`. `apply_approvals` accepts `apply_to_symbol`, which attaches the event to the
   old symbol and supersedes any price-inferred research event for the same gap.
-* **Not yet done for renames:** features are still computed per symbol, so a renamed stock's history is two series. Computing
-  features on the stitched `security_id` series (and a snapshot keyed by security) is the next step after the candidates are decided.
+* **Not yet done for renames:** see "Fourth review" below - stitched features now exist as a separate factor version.
 * **Streaming foundation (S0) built, nothing enabled** (`qsde/stream/`, migration 031 `source_health`): adapter contract
   (fetch/parse/validate), raw-first landing zone (immutable, atomic, hash-verified), `known_at` stamping (live and backfill modes;
   never earlier than the fetch; corrections are new rows), runner with checkpoints advanced only after commit, health stores
@@ -209,6 +208,41 @@ files; corporate-actions source evaluation (`docs/CORPORATE_ACTIONS_EVALUATION.m
   landed bytes. 20 tests cover raw-first on parse failure, idempotence, corrections, replay equals live, checkpoint safety,
   failure escalation, staleness only while the market is open, and one failing source not stopping the others. No external
   polling and no Kite streaming is enabled.
+
+### Fourth review (2026-10-18): tiered rename approvals, UEL, stitched features, NSE EOD sources
+* **Tiered approval of the 22 renamed-stock proposals** (`scripts/promote_v3_proposals.py`): official NSE rename + gap on the listed
+  ex-date + 0 untraded sessions + factor error <= 3% -> **approve (14)**; 3-5% -> **manual_review (8, not applied)**: AURIGROW/GODHA,
+  CCAVENUE/INFIBEAM 2022, COSMOFIRST/COSMOFILMS, DHARAN/KBCGLOBAL, GANESHHOU/GANESHHOUC, LANDSMILL/EXCEL, MOTHERSON/MOTHERSUMI 2018,
+  SECURKLOUD/8KMILES. **UEL moved to manual_review** (gap 0.3168 is 4.96% off 1/3: inside the 5% hard bound, too close for an
+  automatic approval; no independent confirmation; the 3-session level is 0.332, i.e. 0.3% off, which favours it). Applied official
+  events now 656 (16 owner-approved). The 14 approved events adjust the OLD symbol's series; they change 6,745 feature rows across 10
+  universe symbols (MCDOWELL-N, INFIBEAM, MOTHERSUMI, SUVENPHAR, WELSPUNIND, MINDAIND, AMIORG, TRIL, NBVENTURES, TIPSINDLTD).
+  Note: DRCSYSTEMS (3.5% off) sits in the 3-5% band by the new tiering; it stays applied at `confidence = medium` per the earlier decision.
+* **Stitched features are a separate factor version, `ffd_v2s`**; `ffd_v2` is untouched. Per-symbol snapshot with the approvals:
+  `20261018T153203Z-8615b43353` (ffd_v2); stitched: `20261018T155033Z-ea05b50c97` (ffd_v2s). Rules: only OFFICIAL NSE renames that pass
+  the archive hand-off check AND a **price-continuity gate** (overnight jump at the join <= 20%) are stitched: 194 securities / 403
+  intervals. The gate was added after the first stitched build showed 25 of 234 hand-offs with a -46% to -95% jump (a split / merger /
+  swap coinciding with the rename: KSBPUMPS->KSB -79.9%, NIITTECH->COFORGE -80.2%, SRTRANSFIN->SHRIRAMFIN -80.0%, ...); stitching
+  them would have put a fake cliff in every feature. Those 25 stay separate series and are listed in
+  `data/reports/corp_actions/handoff_with_price_event.csv`; the old feed lists no action near any of them, so they need the NSE
+  corporate-actions history (below) before they can be adjusted and stitched. Older segments are rescaled by the official events of the
+  LATER symbols so the join is continuous; `symbol` in each row is the symbol that traded that day, fracdiff runs across the rename.
+* **Diff, ffd_v2 vs ffd_v2s** (`scripts/stitched_feature_diff.py`, report `data/reports/stitching/stitched_feature_diff.md`): identical
+  row keys; 29,463 rows (3.54%) in 63 symbols changed, **0 rows outside stitched securities**; 156,415 warm-up NaN cells removed,
+  **0 NaN introduced**; 0 of 209 hand-offs with a >20% jump. Biggest effect is on long-lookback families (distance/EMA, 12-month
+  momentum, 52-week range, volatility), as expected. The two feature versions never mix; training can opt in with `--factor-version ffd_v2s`.
+  Smoke retrain on both versions: PLUMBING_ONLY, NOT_ASSESSED, contract check 0 disagreements out of 300.
+* **NSE EOD sources on the stream foundation** (`qsde/stream/adapters/nse.py`, `sinks.py`, `scripts/stream_run.py`, migration 033):
+  security-wise bhavcopy (`sec_bhavdata_full_DDMMYYYY.csv`, 404 = non-trading day), the corporate-actions API
+  (`api/corporates-corporateActions`; returns **record date, face value, ISIN** and dividends / rights / demergers / buy-backs, the data
+  the old feed lacked) and the symbol-change CSV. All network access is one injectable `HttpFetcher` (spacing, retries, 404 handled);
+  tests run on real response samples, including failure injection and replay. **Nothing is scheduled**: `stream_run.py` fetches only
+  with `--enable-network` and loops only with `--enable-scheduled-downloads`. One manual run each of corporate actions and symbol changes
+  proved land -> parse -> DB: 492 corporate-action rows (467 dividends, 11 split/bonus, 5 rights, 5 demergers; ex-dates 2026-09-03 to
+  2026-10-23, all with ISIN and record date); symbol changes added 0 rows (idempotent). The new table is NOT yet a source for price
+  adjustment.
+* **Data gap:** `eod_raw` ends 2026-04-30; the live bhavcopy is available to 2026-10-16 (about 115 trading sessions missing). Backfilling it
+  changes universe_pit, ohlcv and every snapshot's end date, so it is a separate decision.
 
 ## Out of scope here
 

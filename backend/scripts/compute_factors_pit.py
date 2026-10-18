@@ -33,6 +33,8 @@ def main() -> int:
                     help="abort promotion if fewer than this share of universe symbol-days have a feature row")
     ap.add_argument("--min-free-gb", type=float, default=5.0, help="abort if D: has less free space than this")
     ap.add_argument("--tag", default=None, help="universe_version label (default derived)")
+    ap.add_argument("--stitched", action="store_true",
+                    help="compute features on series stitched across official NSE symbol changes (factor_version ffd_v2s)")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -40,7 +42,7 @@ def main() -> int:
 
     from qsde.db.connection import read_sql
     from qsde.factors.engine import compute_ffd_panel
-    from qsde.factors.versions import FFD_VERSION
+    from qsde.factors.versions import FFD_STITCHED_VERSION, FFD_VERSION
     from qsde.features.store import SnapshotWriter
 
     uni = read_sql("SELECT date, symbol, rank, adv_cr FROM universe_pit "
@@ -88,18 +90,41 @@ def main() -> int:
         "label_exclusion_note": "events are excluded at LABEL time (qsde.ml.data.label_exclusion_events); "
                                 "feature rows are written for every universe symbol-day",
     }
-    writer = SnapshotWriter(FFD_VERSION, universe_version, kind="full",
+    writer = SnapshotWriter(FFD_STITCHED_VERSION if args.stitched else FFD_VERSION, universe_version, kind="full",
                             params={"start": args.start, "universe_method": args.method,
                                     "min_adv_cr": args.min_adv, "selection": label,
-                                    "n_symbols": len(symbols)},
+                                    "n_symbols": len(symbols), "stitched": bool(args.stitched)},
                             extra_manifest=extra, expected_keys=uni[["symbol", "date"]],
                             min_coverage=0.0 if args.pilot or args.symbols else args.min_coverage,
                             min_free_gb=args.min_free_gb)
+    smap = events = None
+    if args.stitched:
+        from qsde.ingestion.security_master import SecurityMap
+        iv = read_sql("SELECT security_id, symbol, valid_from, valid_to FROM security_master")
+        iv["valid_from"] = pd.to_datetime(iv["valid_from"])
+        # 9999-12-31 ("still valid") is outside pandas' timestamp range: clamp to a far-future date
+        iv["valid_to"] = pd.to_datetime(iv["valid_to"].map(lambda d: d if d.year < 2200 else pd.Timestamp("2200-01-01").date()))
+        smap = SecurityMap(iv)
+        events = read_sql("SELECT symbol, ex_date, price_factor, applied FROM corp_action_events WHERE applied")
+        # one representative symbol per security, so old and new symbol are never computed in different chunks
+        rep = {}
+        for s in symbols:
+            sid = smap.security_of(s)
+            rep.setdefault(sid or s, s)
+        symbols = sorted(rep.values())
+        log.info("stitched: %d securities from the requested symbols (%d symbol intervals in security_master)",
+                 len(symbols), len(iv))
     t0, done = time.time(), 0
     for i in range(0, len(symbols), args.chunk):
         chunk = symbols[i:i + args.chunk]
-        _, to_write, _ = compute_ffd_panel(chunk, start=args.start,
-                                           universe=uni[uni["symbol"].isin(chunk)])
+        chunk_all = set(chunk)
+        if smap is not None:
+            for s in chunk:
+                sid = smap.security_of(s)
+                if sid:
+                    chunk_all |= set(smap.intervals.loc[smap.intervals["security_id"] == sid, "symbol"])
+        _, to_write, _ = compute_ffd_panel(chunk, start=args.start, universe=uni[uni["symbol"].isin(chunk_all)],
+                                           security_map=smap, events=events)
         if len(to_write):
             writer.add(to_write)
         done += len(chunk)

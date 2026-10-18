@@ -64,14 +64,22 @@ def test_approval_without_a_matching_unconfirmed_row_is_refused():
 
 
 def test_repository_file_reflects_the_owner_decisions():
+    from collections import Counter
+
     from qsde.ingestion.corp_actions_approvals import load_approvals
-    dec = {x["symbol"]: x["decision"] for x in load_approvals()}
-    assert dec == {"DOLPHIN": "approve", "DRCSYSTEMS": "approve", "NDRAUTO": "rejected_pending_evidence",
-                   "UEL": "approve", "VERTOZ": "reject"}
-    conf = {x["symbol"]: x.get("confidence", "high") for x in load_approvals()}
-    assert conf["DRCSYSTEMS"] == "medium" and conf["DOLPHIN"] == "high"
+    dec = load_approvals()
+    by = {(x["symbol"], x.get("apply_to_symbol")): x["decision"] for x in dec}
+    assert by[("DOLPHIN", None)] == "approve" and by[("DRCSYSTEMS", None)] == "approve"
+    assert by[("NDRAUTO", None)] == "rejected_pending_evidence" and by[("VERTOZ", None)] == "reject"
+    assert by[("UEL", None)] == "manual_review"                      # 4.96% off: never automatic
+    assert {x["symbol"]: x.get("confidence", "high") for x in dec}["DRCSYSTEMS"] == "medium"
+    # tiered policy for renamed stocks: approve only when the factor error is within 3%
+    for x in dec:
+        if x.get("apply_to_symbol"):
+            assert x["decision"] in ("approve", "manual_review")
+    assert Counter(x["decision"] for x in dec)["approve"] == 16
     fp = approvals_fingerprint()
-    assert fp["approved"] == 3 and fp["rejected"] == 2 and fp["sha256"]
+    assert fp["approved"] == 16 and fp["sha256"]
 
 
 def test_confidence_from_the_approval_is_stored_on_the_event():

@@ -17,6 +17,9 @@ import FFD_VERSION from here so they can never read different versions.
 
 RAW_VERSION = "raw_v0"
 FFD_VERSION = "ffd_v2"
+# Same kernel and features as ffd_v2, but computed on series STITCHED across official NSE symbol changes (security_id), then
+# relabelled to the symbol of the day. A separate version so it never overwrites or mixes with ffd_v2 rows.
+FFD_STITCHED_VERSION = "ffd_v2s"
 
 # Kernel parameters for ingest-time fractional differencing. Changing either
 # changes every stored value: bump FFD_VERSION when you do.

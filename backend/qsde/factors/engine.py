@@ -11,6 +11,7 @@ import logging
 from datetime import date
 from typing import Optional
 
+import numpy as np
 import pandas as pd
 
 from qsde.db import read_sql, get_sync_engine
@@ -41,7 +42,7 @@ def load_ohlcv(symbol: str, start: str = "2006-01-01", end: Optional[str] = None
     return df
 
 
-def compute_factors_for_symbol(symbol: str, start: str = "2006-01-01") -> pd.DataFrame:
+def compute_factors_for_symbol(symbol: str, start: str = "2006-01-01", ohlcv: "pd.DataFrame | None" = None) -> pd.DataFrame:
     """
     Compute all factors for a single symbol -- technical + fundamental + flow.
 
@@ -49,7 +50,7 @@ def compute_factors_for_symbol(symbol: str, start: str = "2006-01-01") -> pd.Dat
         DataFrame indexed by date with one column per factor and a `symbol`
         column. Empty if the symbol has < 252 days of OHLCV.
     """
-    df = load_ohlcv(symbol, start=start)
+    df = ohlcv if ohlcv is not None else load_ohlcv(symbol, start=start)      # `ohlcv`: a pre-built (stitched) series
     if df.empty or len(df) < 252:
         log.warning("Insufficient data for %s (%d rows)", symbol, len(df))
         return pd.DataFrame()
@@ -124,6 +125,8 @@ def compute_ffd_panel(
     write_tail_days: "int | None" = None,
     today: "pd.Timestamp | None" = None,
     universe: "pd.DataFrame | None" = None,
+    security_map=None,
+    events: "pd.DataFrame | None" = None,
 ) -> "tuple[pd.DataFrame, pd.DataFrame, str]":
     """
     Compute factors for all symbols and return (combined, rows_to_persist, version).
@@ -156,10 +159,21 @@ def compute_ffd_panel(
         filters), and the factor_version tag they must be stored under.
     """
     all_frames = []
+    stitched_ids: set = set()
+    seen_sec: set = set()
     for i, sym in enumerate(symbols):
         if (i + 1) % 20 == 0:
             log.info("Computing factors: %d/%d symbols", i + 1, len(symbols))
-        factors = compute_factors_for_symbol(sym, start=start)
+        sid = security_map.security_of(sym) if security_map is not None else None
+        if sid is not None:
+            if sid in seen_sec:                      # old and new symbol of one security: compute the stitched series once
+                continue
+            seen_sec.add(sid)
+            series = stitched_ohlcv(sid, security_map, events, start=start)
+            factors = compute_factors_for_symbol(sid, start=start, ohlcv=series)       # symbol column == security id for now
+            stitched_ids.add(sid)
+        else:
+            factors = compute_factors_for_symbol(sym, start=start)
         if not factors.empty:
             all_frames.append(factors)
 
@@ -174,10 +188,13 @@ def compute_ffd_panel(
     # Differencing only the tail slice (the previous behaviour) used a different,
     # auto-widened kernel than the backfill, so rows written by the daily job
     # disagreed with the rows the model was trained on (train/serve skew).
-    from qsde.factors.versions import FFD_VERSION, RAW_VERSION
+    from qsde.factors.versions import FFD_STITCHED_VERSION, FFD_VERSION, RAW_VERSION
     try:
-        ffd_full = to_ffd_frame(combined)
-        version = FFD_VERSION
+        ffd_full = to_ffd_frame(combined)          # differenced per security id, i.e. ACROSS the rename
+        version = FFD_STITCHED_VERSION if security_map is not None else FFD_VERSION
+        if stitched_ids:                           # only now relabel to the symbol of the day (fracdiff needs one series)
+            ffd_full = relabel_to_symbol_of_day(ffd_full, security_map, stitched_ids)
+            combined = relabel_to_symbol_of_day(combined, security_map, stitched_ids)
     except Exception as e:  # noqa: BLE001
         log.error("fracdiff at ingest failed (%s) - writing raw (version=%s), "
                   "which training and serving will NOT read.", e, RAW_VERSION)
@@ -261,3 +278,58 @@ def to_ffd_frame(combined: pd.DataFrame) -> pd.DataFrame:
     )
     return out
 
+
+
+# ── stitching across official symbol changes ─────────────────────────────
+
+def stitched_ohlcv(security_id: str, smap, events: "pd.DataFrame | None" = None, start: str = "2006-01-01",
+                   loader=None) -> pd.DataFrame:
+    """One continuous OHLCV series for a security: each member symbol's bars inside its validity interval, oldest first.
+
+    Earlier segments are rescaled by the OFFICIAL (applied) corporate-action factors of the LATER symbols with ex-date after the
+    segment, because those events adjusted only the later symbol's own bars; without this the join would show a fake cliff.
+    """
+    loader = loader or load_ohlcv
+    iv = smap.intervals[smap.intervals["security_id"] == security_id].sort_values("valid_from")
+    parts = []
+    for r in iv.itertuples():
+        d = loader(r.symbol, start=start)
+        if d is None or d.empty:
+            continue
+        d = d[(d.index >= r.valid_from) & (d.index <= r.valid_to)].copy()
+        if d.empty:
+            continue
+        d["_sym"] = r.symbol
+        parts.append((r.symbol, r.valid_to, d))
+    if not parts:
+        return pd.DataFrame()
+    if events is not None and len(events):
+        ev = events[events["applied"]].copy()
+        ev["ex_date"] = pd.to_datetime(ev["ex_date"])
+        later_syms = [p[0] for p in parts]
+        for k, (sym, vto, d) in enumerate(parts):
+            later = ev[ev["symbol"].isin(later_syms[k + 1:])]
+            for e in later.itertuples():
+                m = d.index < e.ex_date
+                if m.any():
+                    d.loc[m, ["open", "high", "low", "close"]] = d.loc[m, ["open", "high", "low", "close"]] * float(e.price_factor)
+                    d.loc[m, "volume"] = d.loc[m, "volume"].astype(float) / float(e.price_factor)
+    out = pd.concat([p[2] for p in parts]).sort_index()
+    return out[~out.index.duplicated(keep="last")].drop(columns="_sym")
+
+
+def relabel_to_symbol_of_day(frame: pd.DataFrame, smap, security_ids: set) -> pd.DataFrame:
+    """Replace the security id in the `symbol` column by the symbol that traded on each row's date."""
+    out = frame.copy()
+    idx = out.index if isinstance(out.index, pd.DatetimeIndex) else pd.DatetimeIndex(pd.to_datetime(out["date"]))
+    sym = out["symbol"].astype(object).to_numpy().copy()
+    for sid in security_ids:
+        m = (out["symbol"] == sid).to_numpy()
+        if not m.any():
+            continue
+        iv = smap.intervals[smap.intervals["security_id"] == sid].sort_values("valid_from")
+        starts = iv["valid_from"].to_numpy("datetime64[ns]")
+        pos = np.clip(np.searchsorted(starts, idx[m].to_numpy("datetime64[ns]"), side="right") - 1, 0, len(iv) - 1)
+        sym[m] = iv["symbol"].to_numpy()[pos]
+    out["symbol"] = sym
+    return out

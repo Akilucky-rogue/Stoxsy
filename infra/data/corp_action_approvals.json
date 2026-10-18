@@ -1,21 +1,299 @@
 {
-  "version": "owner_approved_v1",
-  "note": "Owner decisions on SOURCE_UNCONFIRMED NSE listings. Evidence packs: data/reports/corp_actions/evidence/. To undo: remove an entry or set decision to reject, then rebuild; prior snapshots remain on disk.",
-  "decisions": [
-    {"symbol": "DOLPHIN", "listed_ex_date": "2024-01-30", "gap_date": "2024-01-29", "factor": 0.1, "decision": "approve",
-     "decided_by": "owner", "decided_at": "2026-10-18",
-     "notes": "Face value 10 -> 1. Gap 0.102, persists. 1 untraded market session before the gap bar (BE series)."},
-    {"symbol": "DRCSYSTEMS", "listed_ex_date": "2022-03-16", "gap_date": "2022-03-21", "factor": 0.1, "decision": "approve",
-     "confidence": "medium", "decided_by": "owner", "decided_at": "2026-10-18",
-     "notes": "Face value 10 -> 1. Gap 0.0965, persists. 3 untraded market sessions before the gap bar; gap bar is 3 sessions after the listed date."},
-    {"symbol": "NDRAUTO", "listed_ex_date": "2023-07-24", "gap_date": "2023-08-21", "factor": 0.5, "decision": "rejected_pending_evidence",
-     "decided_by": "owner", "decided_at": "2026-10-18",
-     "notes": "REVERSED 2026-10-18. Bonus 1:1. The gap bar is 19 market sessions after the listed ex-date (25 untraded sessions, previous bar 2023-07-13) and the observed gap 0.461 is 7.8% off 0.5: timing and magnitude do not agree closely and promptly (hard bounds: <= 5 sessions, <= 5% factor error). Stays SOURCE_UNCONFIRMED until an NSE record date / ex-date evidence resolves it."},
-    {"symbol": "UEL", "listed_ex_date": "2025-10-08", "gap_date": "2025-10-13", "factor": 0.3333333333333333, "decision": "approve",
-     "decided_by": "owner", "decided_at": "2026-10-18",
-     "notes": "Bonus 2:1. Gap 0.3168, persists (0.332). 1 untraded session before the gap bar (BE series). NSE feed lists ex-date 2025-10-10."},
-    {"symbol": "VERTOZ", "listed_ex_date": "2025-06-24", "gap_date": "2025-07-11", "factor": 10.0, "decision": "reject",
-     "decided_by": "owner", "decided_at": "2026-10-18",
-     "notes": "Consolidation 1 -> 10. Stays SOURCE_UNCONFIRMED / needs_manual_review: 12 untraded sessions (halt) before the gap bar and price fell 12.8% off the factor over the first 3 post-gap sessions, so the gap is not reliable evidence of the listed action."}
-  ]
+ "version": "owner_approved_v1",
+ "note": "Owner decisions on SOURCE_UNCONFIRMED NSE listings. Evidence packs: data/reports/corp_actions/evidence/. To undo: remove an entry or set decision to reject, then rebuild; prior snapshots remain on disk.",
+ "decisions": [
+  {
+   "symbol": "DOLPHIN",
+   "listed_ex_date": "2024-01-30",
+   "gap_date": "2024-01-29",
+   "factor": 0.1,
+   "decision": "approve",
+   "decided_by": "owner",
+   "decided_at": "2026-10-18",
+   "notes": "Face value 10 -> 1. Gap 0.102, persists. 1 untraded market session before the gap bar (BE series)."
+  },
+  {
+   "symbol": "DRCSYSTEMS",
+   "listed_ex_date": "2022-03-16",
+   "gap_date": "2022-03-21",
+   "factor": 0.1,
+   "decision": "approve",
+   "confidence": "medium",
+   "decided_by": "owner",
+   "decided_at": "2026-10-18",
+   "notes": "Face value 10 -> 1. Gap 0.0965, persists. 3 untraded market sessions before the gap bar; gap bar is 3 sessions after the listed date."
+  },
+  {
+   "symbol": "NDRAUTO",
+   "listed_ex_date": "2023-07-24",
+   "gap_date": "2023-08-21",
+   "factor": 0.5,
+   "decision": "rejected_pending_evidence",
+   "decided_by": "owner",
+   "decided_at": "2026-10-18",
+   "notes": "REVERSED 2026-10-18. Bonus 1:1. The gap bar is 19 market sessions after the listed ex-date (25 untraded sessions, previous bar 2023-07-13) and the observed gap 0.461 is 7.8% off 0.5: timing and magnitude do not agree closely and promptly (hard bounds: <= 5 sessions, <= 5% factor error). Stays SOURCE_UNCONFIRMED until an NSE record date / ex-date evidence resolves it."
+  },
+  {
+   "symbol": "UEL",
+   "listed_ex_date": "2025-10-08",
+   "gap_date": "2025-10-13",
+   "factor": 0.3333333333333333,
+   "decision": "manual_review",
+   "decided_by": "owner",
+   "decided_at": "2026-10-18",
+   "notes": "MOVED TO MANUAL REVIEW 2026-10-18 (owner). First-bar gap 0.3168 is 4.96% off 1/3: inside the 5% hard bound but too close to it for an automatic approval, and no independent confirmation (NSE feed lists ex-date 2025-10-10, gap bar 2025-10-13). In its favour: the 3-session post-gap level is 0.332 of the pre-gap close (0.3% off 1/3), 1 untraded session. Applied again only on an explicit decision after individual evidence review."
+  },
+  {
+   "symbol": "VERTOZ",
+   "listed_ex_date": "2025-06-24",
+   "gap_date": "2025-07-11",
+   "factor": 10.0,
+   "decision": "reject",
+   "decided_by": "owner",
+   "decided_at": "2026-10-18",
+   "notes": "Consolidation 1 -> 10. Stays SOURCE_UNCONFIRMED / needs_manual_review: 12 untraded sessions (halt) before the gap bar and price fell 12.8% off the factor over the first 3 post-gap sessions, so the gap is not reliable evidence of the listed action."
+  },
+  {
+   "symbol": "ACUTAAS",
+   "apply_to_symbol": "AMIORG",
+   "listed_ex_date": "2025-04-25",
+   "gap_date": "2025-04-25",
+   "factor": 0.5,
+   "decision": "approve",
+   "decided_by": "owner (tiered policy)",
+   "decided_at": "2026-10-18",
+   "notes": "Official NSE rename; gap on the listed date, 0 untraded sessions, factor error 1.5% (observed 0.5076 vs 0.5000); tier approve (approve <= 3%, manual_review 3-5%)."
+  },
+  {
+   "symbol": "AURIGROW",
+   "apply_to_symbol": "GODHA",
+   "listed_ex_date": "2022-03-24",
+   "gap_date": "2022-03-24",
+   "factor": 0.1,
+   "decision": "manual_review",
+   "decided_by": "owner (tiered policy)",
+   "decided_at": "2026-10-18",
+   "notes": "Official NSE rename; gap on the listed date, 0 untraded sessions, factor error 4.6% (observed 0.1046 vs 0.1000); tier manual_review (approve <= 3%, manual_review 3-5%). NOT applied: individual evidence review required."
+  },
+  {
+   "symbol": "CCAVENUE",
+   "apply_to_symbol": "INFIBEAM",
+   "listed_ex_date": "2017-08-31",
+   "gap_date": "2017-08-31",
+   "factor": 0.1,
+   "decision": "approve",
+   "decided_by": "owner (tiered policy)",
+   "decided_at": "2026-10-18",
+   "notes": "Official NSE rename; gap on the listed date, 0 untraded sessions, factor error 0.6% (observed 0.1006 vs 0.1000); tier approve (approve <= 3%, manual_review 3-5%)."
+  },
+  {
+   "symbol": "CCAVENUE",
+   "apply_to_symbol": "INFIBEAM",
+   "listed_ex_date": "2022-03-14",
+   "gap_date": "2022-03-14",
+   "factor": 0.5,
+   "decision": "manual_review",
+   "decided_by": "owner (tiered policy)",
+   "decided_at": "2026-10-18",
+   "notes": "Official NSE rename; gap on the listed date, 0 untraded sessions, factor error 3.9% (observed 0.4804 vs 0.5000); tier manual_review (approve <= 3%, manual_review 3-5%). NOT applied: individual evidence review required."
+  },
+  {
+   "symbol": "COHANCE",
+   "apply_to_symbol": "SUVENPHAR",
+   "listed_ex_date": "2020-09-25",
+   "gap_date": "2020-09-25",
+   "factor": 0.5,
+   "decision": "approve",
+   "decided_by": "owner (tiered policy)",
+   "decided_at": "2026-10-18",
+   "notes": "Official NSE rename; gap on the listed date, 0 untraded sessions, factor error 2.9% (observed 0.5144 vs 0.5000); tier approve (approve <= 3%, manual_review 3-5%)."
+  },
+  {
+   "symbol": "COSMOFIRST",
+   "apply_to_symbol": "COSMOFILMS",
+   "listed_ex_date": "2022-06-16",
+   "gap_date": "2022-06-16",
+   "factor": 0.6666666667,
+   "decision": "manual_review",
+   "decided_by": "owner (tiered policy)",
+   "decided_at": "2026-10-18",
+   "notes": "Official NSE rename; gap on the listed date, 0 untraded sessions, factor error 4.7% (observed 0.6981 vs 0.6667); tier manual_review (approve <= 3%, manual_review 3-5%). NOT applied: individual evidence review required."
+  },
+  {
+   "symbol": "DHARAN",
+   "apply_to_symbol": "KBCGLOBAL",
+   "listed_ex_date": "2025-04-04",
+   "gap_date": "2025-04-04",
+   "factor": 0.5,
+   "decision": "manual_review",
+   "decided_by": "owner (tiered policy)",
+   "decided_at": "2026-10-18",
+   "notes": "Official NSE rename; gap on the listed date, 0 untraded sessions, factor error 4.9% (observed 0.5243 vs 0.5000); tier manual_review (approve <= 3%, manual_review 3-5%). NOT applied: individual evidence review required."
+  },
+  {
+   "symbol": "EPL",
+   "apply_to_symbol": "ESSELPACK",
+   "listed_ex_date": "2018-06-20",
+   "gap_date": "2018-06-20",
+   "factor": 0.5,
+   "decision": "approve",
+   "decided_by": "owner (tiered policy)",
+   "decided_at": "2026-10-18",
+   "notes": "Official NSE rename; gap on the listed date, 0 untraded sessions, factor error 0.5% (observed 0.5024 vs 0.5000); tier approve (approve <= 3%, manual_review 3-5%)."
+  },
+  {
+   "symbol": "GANESHHOU",
+   "apply_to_symbol": "GANESHHOUC",
+   "listed_ex_date": "2016-07-14",
+   "gap_date": "2016-07-14",
+   "factor": 0.6666666667,
+   "decision": "manual_review",
+   "decided_by": "owner (tiered policy)",
+   "decided_at": "2026-10-18",
+   "notes": "Official NSE rename; gap on the listed date, 0 untraded sessions, factor error 4.6% (observed 0.6976 vs 0.6667); tier manual_review (approve <= 3%, manual_review 3-5%). NOT applied: individual evidence review required."
+  },
+  {
+   "symbol": "GVPTECH",
+   "apply_to_symbol": "4THDIM",
+   "listed_ex_date": "2023-01-23",
+   "gap_date": "2023-01-23",
+   "factor": 0.2,
+   "decision": "approve",
+   "decided_by": "owner (tiered policy)",
+   "decided_at": "2026-10-18",
+   "notes": "Official NSE rename; gap on the listed date, 0 untraded sessions, factor error 1.8% (observed 0.2036 vs 0.2000); tier approve (approve <= 3%, manual_review 3-5%)."
+  },
+  {
+   "symbol": "LANDSMILL",
+   "apply_to_symbol": "EXCEL",
+   "listed_ex_date": "2018-01-23",
+   "gap_date": "2018-01-23",
+   "factor": 0.3333333333,
+   "decision": "manual_review",
+   "decided_by": "owner (tiered policy)",
+   "decided_at": "2026-10-18",
+   "notes": "Official NSE rename; gap on the listed date, 0 untraded sessions, factor error 3.1% (observed 0.3436 vs 0.3333); tier manual_review (approve <= 3%, manual_review 3-5%). NOT applied: individual evidence review required."
+  },
+  {
+   "symbol": "MOTHERSON",
+   "apply_to_symbol": "MOTHERSUMI",
+   "listed_ex_date": "2017-07-05",
+   "gap_date": "2017-07-05",
+   "factor": 0.6666666667,
+   "decision": "approve",
+   "decided_by": "owner (tiered policy)",
+   "decided_at": "2026-10-18",
+   "notes": "Official NSE rename; gap on the listed date, 0 untraded sessions, factor error 0.4% (observed 0.6643 vs 0.6667); tier approve (approve <= 3%, manual_review 3-5%)."
+  },
+  {
+   "symbol": "MOTHERSON",
+   "apply_to_symbol": "MOTHERSUMI",
+   "listed_ex_date": "2018-10-30",
+   "gap_date": "2018-10-30",
+   "factor": 0.6666666667,
+   "decision": "manual_review",
+   "decided_by": "owner (tiered policy)",
+   "decided_at": "2026-10-18",
+   "notes": "Official NSE rename; gap on the listed date, 0 untraded sessions, factor error 3.7% (observed 0.6910 vs 0.6667); tier manual_review (approve <= 3%, manual_review 3-5%). NOT applied: individual evidence review required."
+  },
+  {
+   "symbol": "NAVA",
+   "apply_to_symbol": "NBVENTURES",
+   "listed_ex_date": "2016-09-01",
+   "gap_date": "2016-09-01",
+   "factor": 0.5,
+   "decision": "approve",
+   "decided_by": "owner (tiered policy)",
+   "decided_at": "2026-10-18",
+   "notes": "Official NSE rename; gap on the listed date, 0 untraded sessions, factor error 0.5% (observed 0.5027 vs 0.5000); tier approve (approve <= 3%, manual_review 3-5%)."
+  },
+  {
+   "symbol": "SECURKLOUD",
+   "apply_to_symbol": "8KMILES",
+   "listed_ex_date": "2016-10-10",
+   "gap_date": "2016-10-10",
+   "factor": 0.375,
+   "decision": "manual_review",
+   "decided_by": "owner (tiered policy)",
+   "decided_at": "2026-10-18",
+   "notes": "Official NSE rename; gap on the listed date, 0 untraded sessions, factor error 3.1% (observed 0.3865 vs 0.3750); tier manual_review (approve <= 3%, manual_review 3-5%). NOT applied: individual evidence review required."
+  },
+  {
+   "symbol": "TARIL",
+   "apply_to_symbol": "TRIL",
+   "listed_ex_date": "2017-09-28",
+   "gap_date": "2017-09-28",
+   "factor": 0.1,
+   "decision": "approve",
+   "decided_by": "owner (tiered policy)",
+   "decided_at": "2026-10-18",
+   "notes": "Official NSE rename; gap on the listed date, 0 untraded sessions, factor error 0.2% (observed 0.1002 vs 0.1000); tier approve (approve <= 3%, manual_review 3-5%)."
+  },
+  {
+   "symbol": "TIPSMUSIC",
+   "apply_to_symbol": "TIPSINDLTD",
+   "listed_ex_date": "2023-04-21",
+   "gap_date": "2023-04-21",
+   "factor": 0.1,
+   "decision": "approve",
+   "decided_by": "owner (tiered policy)",
+   "decided_at": "2026-10-18",
+   "notes": "Official NSE rename; gap on the listed date, 0 untraded sessions, factor error 1.4% (observed 0.1014 vs 0.1000); tier approve (approve <= 3%, manual_review 3-5%)."
+  },
+  {
+   "symbol": "UNITDSPR",
+   "apply_to_symbol": "MCDOWELL-N",
+   "listed_ex_date": "2018-06-15",
+   "gap_date": "2018-06-15",
+   "factor": 0.2,
+   "decision": "approve",
+   "decided_by": "owner (tiered policy)",
+   "decided_at": "2026-10-18",
+   "notes": "Official NSE rename; gap on the listed date, 0 untraded sessions, factor error 0.5% (observed 0.2011 vs 0.2000); tier approve (approve <= 3%, manual_review 3-5%)."
+  },
+  {
+   "symbol": "UNOMINDA",
+   "apply_to_symbol": "MINDAIND",
+   "listed_ex_date": "2016-09-12",
+   "gap_date": "2016-09-12",
+   "factor": 0.2,
+   "decision": "approve",
+   "decided_by": "owner (tiered policy)",
+   "decided_at": "2026-10-18",
+   "notes": "Official NSE rename; gap on the listed date, 0 untraded sessions, factor error 2.6% (observed 0.1949 vs 0.2000); tier approve (approve <= 3%, manual_review 3-5%)."
+  },
+  {
+   "symbol": "UNOMINDA",
+   "apply_to_symbol": "MINDAIND",
+   "listed_ex_date": "2018-07-11",
+   "gap_date": "2018-07-11",
+   "factor": 0.3333333333,
+   "decision": "approve",
+   "decided_by": "owner (tiered policy)",
+   "decided_at": "2026-10-18",
+   "notes": "Official NSE rename; gap on the listed date, 0 untraded sessions, factor error 2.9% (observed 0.3432 vs 0.3333); tier approve (approve <= 3%, manual_review 3-5%)."
+  },
+  {
+   "symbol": "VEEDOL",
+   "apply_to_symbol": "TIDEWATER",
+   "listed_ex_date": "2016-03-16",
+   "gap_date": "2016-03-16",
+   "factor": 0.25,
+   "decision": "approve",
+   "decided_by": "owner (tiered policy)",
+   "decided_at": "2026-10-18",
+   "notes": "Official NSE rename; gap on the listed date, 0 untraded sessions, factor error 0.5% (observed 0.2488 vs 0.2500); tier approve (approve <= 3%, manual_review 3-5%)."
+  },
+  {
+   "symbol": "WELSPUNLIV",
+   "apply_to_symbol": "WELSPUNIND",
+   "listed_ex_date": "2016-03-21",
+   "gap_date": "2016-03-21",
+   "factor": 0.1,
+   "decision": "approve",
+   "decided_by": "owner (tiered policy)",
+   "decided_at": "2026-10-18",
+   "notes": "Official NSE rename; gap on the listed date, 0 untraded sessions, factor error 0.0% (observed 0.1000 vs 0.1000); tier approve (approve <= 3%, manual_review 3-5%)."
+  }
+ ]
 }

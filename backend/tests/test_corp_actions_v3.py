@@ -94,3 +94,24 @@ class TestEvaluate:
     def test_unparseable_purpose_is_unresolved(self):
         px = bars("U", D[0], D[-1], lambda n: [100] * n)
         assert evaluate(listing("U", D[40], "Demerger"), px).iloc[0].classification == "unresolved"
+
+
+class TestHandoffPriceGate:
+    def test_a_rename_that_coincides_with_a_split_is_not_stitched(self):
+        old = bars("OLDCO", D[0], D[39], lambda n: [100] * n)
+        new = bars("NEWCO", D[40], D[-1], lambda n: [20] * n)               # 1:5 split on the rename date
+        off = pd.DataFrame([{"old_symbol": "OLDCO", "new_symbol": "NEWCO", "effective_date": D[40]}])
+        fl = first_last(pd.concat([old, new]))
+        fl["first_open"] = [100.0, 20.0]
+        fl["last_close"] = [100.0, 20.0]
+        m = build_security_map(off, fl, D.to_numpy())
+        assert m.security_of("OLDCO") is None and "price discontinuity" in m.rejected.iloc[0]["reason"]
+
+    def test_a_clean_rename_still_stitches_with_prices_supplied(self):
+        old = bars("OLDCO", D[0], D[39], lambda n: [100] * n)
+        new = bars("NEWCO", D[40], D[-1], lambda n: [101] * n)
+        off = pd.DataFrame([{"old_symbol": "OLDCO", "new_symbol": "NEWCO", "effective_date": D[40]}])
+        fl = first_last(pd.concat([old, new]))
+        fl["first_open"] = [100.0, 101.0]
+        fl["last_close"] = [100.0, 101.0]
+        assert build_security_map(off, fl, D.to_numpy()).security_of("NEWCO") == "S:OLDCO"

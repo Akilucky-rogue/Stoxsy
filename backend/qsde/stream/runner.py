@@ -30,8 +30,16 @@ class Sink(Protocol):
     def upsert(self, source: str, df: pd.DataFrame, key_cols: tuple) -> int: ...
 
 
+def row_hash(rec: dict, exclude=("known_at", "source_sha256")) -> str:
+    """Stable hash of a row's CONTENT (known_at excluded): identical content fetched again is not a new fact."""
+    import hashlib
+    items = sorted((k, repr(v)) for k, v in rec.items() if k not in exclude)
+    return hashlib.sha256(repr(items).encode()).hexdigest()
+
+
 class InMemorySink:
-    """Rows keyed by (natural key, known_at): re-processing identical input adds nothing; corrections add rows."""
+    """Rows keyed by (natural key, content hash). The FIRST time a piece of content is seen fixes its known_at; fetching the same
+    content again adds nothing; a correction (different content under the same natural key) is a NEW row with a later known_at."""
 
     def __init__(self):
         self.rows: dict = {}
@@ -40,7 +48,7 @@ class InMemorySink:
         n = 0
         store = self.rows.setdefault(source, {})
         for rec in df.to_dict("records"):
-            k = tuple(rec[c] for c in (*key_cols, "known_at"))
+            k = (*(rec[c] for c in key_cols), row_hash(rec))
             if k not in store:
                 store[k] = rec
                 n += 1
@@ -69,10 +77,11 @@ def compute_known_at(event_time, published_at: Optional[datetime], fetched_at: d
     raise ValueError("mode must be 'live' or 'backfill'")
 
 
-def stamp_known_at(df: pd.DataFrame, item: RawItem, mode: str = "live") -> pd.DataFrame:
+def stamp_known_at(df: pd.DataFrame, item: RawItem, mode: str = "live",
+                   backfill_lag: timedelta = timedelta(hours=1)) -> pd.DataFrame:
     out = df.copy()
     out["event_time"] = pd.to_datetime(out["event_time"], utc=True)
-    out["known_at"] = [compute_known_at(e, item.published_at, item.fetched_at, mode) for e in out["event_time"]]
+    out["known_at"] = [compute_known_at(e, item.published_at, item.fetched_at, mode, backfill_lag) for e in out["event_time"]]
     if mode == "live" and (out["known_at"] < out["event_time"]).any():
         # the record claims to describe the future relative to when we got it: knowledge cannot precede the event
         out["known_at"] = out[["known_at", "event_time"]].max(axis=1)
@@ -121,7 +130,7 @@ def run_once(adapter: SourceAdapter, landing: LandingZone, sink: Sink, health: H
             h.status, h.last_error = "parse_failed", res.errors[-1]
             alerts.emit(Alert("critical", f"{name}: parse/validation failed", res.errors[-1], f"parse-fail:{name}", now))
             continue                                                 # raw is safe; replay after the parser is fixed
-        df = stamp_known_at(df, item, mode)
+        df = stamp_known_at(df, item, mode, getattr(adapter, "backfill_lag", timedelta(hours=1)))
         res.rows += sink.upsert(name, df, adapter.key_cols)
         checkpoints.advance(name, item.fetched_at)                   # only after the commit
         if len(df):
@@ -154,5 +163,6 @@ def replay(adapter: SourceAdapter, landing: LandingZone, sink: Sink, mode: str =
             res.ok, res.stage = False, "parse"
             res.errors.append(f"{rec.path.name}: {e}"[:300])
             continue
-        res.rows += sink.upsert(adapter.name, stamp_known_at(df, item, mode), adapter.key_cols)
+        res.rows += sink.upsert(adapter.name, stamp_known_at(df, item, mode, getattr(adapter, "backfill_lag", timedelta(hours=1))),
+                                adapter.key_cols)
     return res

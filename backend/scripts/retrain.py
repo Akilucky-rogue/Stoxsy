@@ -119,6 +119,8 @@ def main() -> int:
     ap.add_argument("--horizons", nargs="+", default=["swing_5d"],
                     help="registry ids (intraday_1d swing_5d swing_10d position_20d) or legacy names")
     ap.add_argument("--policy", default="official", choices=["official", "research"])
+    ap.add_argument("--factor-version", default=None,
+                    help="feature version to read (default ffd_v2; ffd_v2s = features computed on series stitched across renames)")
     ap.add_argument("--groups", type=int, default=10)
     ap.add_argument("--k", type=int, default=2)
     ap.add_argument("--reviewed-snapshot", default=None,
@@ -143,11 +145,12 @@ def main() -> int:
     from qsde.ml.ledger import LEDGER_DIR
     from qsde.ml.registry import get_horizon
 
-    snaps = current_snapshots(FFD_VERSION)
+    factor_version = args.factor_version or FFD_VERSION
+    snaps = current_snapshots(factor_version)
     if not snaps:
-        log.error("no current feature snapshot for %s", FFD_VERSION)
+        log.error("no current feature snapshot for %s", factor_version)
         return 1
-    snap = snaps[-1]
+    snap = [x for x in snaps if "full" in x.universe_version][-1] if any("full" in x.universe_version for x in snaps) else snaps[-1]
     if args.smoke and args.save_candidate:
         log.error("--smoke never saves candidates")
         return 3
@@ -167,9 +170,10 @@ def main() -> int:
         spec = get_horizon(h)
         _banner(f"{spec.id}: dataset (policy={args.policy}, snapshot {snap.snapshot_id})")
         try:
-            ds = build_labelled_dataset(spec, policy=args.policy, symbols=smoke_symbols)
+            ds = build_labelled_dataset(spec, policy=args.policy, symbols=smoke_symbols, factor_version=factor_version,
+                                        snapshot_ids=[snap.snapshot_id])
             params = {"n_estimators": 150, "num_leaves": 15}
-            card = CARDS / (f"{'smoke_' if args.smoke else ''}{spec.id}_{snap.snapshot_id}"
+            card = CARDS / (f"{'smoke_' if args.smoke else ''}{spec.id}_{factor_version}_{snap.snapshot_id}"
                             f"{'_research' if args.policy == 'research' else ''}.md")
             _banner(f"{spec.id}: CPCV {args.groups}x{args.k} -> harness -> ledger")
             exp = run_experiment(ds, lightgbm_fit_predict(**params), "lightgbm", params, ledger_dir=ledger,

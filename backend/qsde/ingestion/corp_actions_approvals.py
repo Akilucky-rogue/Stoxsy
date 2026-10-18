@@ -41,7 +41,7 @@ MAX_SHIFT_SESSIONS = 5           # market sessions between the listed ex-date an
 MAX_UNTRADED_SESSIONS = 5        # market sessions the symbol did not trade before the gap bar
 FACTOR_TOL_STRONG = 0.05         # |observed gap / listed factor - 1| for factors <= 0.8 or >= 1.25
 FACTOR_TOL_MILD = 0.03           # milder factors barely clear noise, so the match must be tighter
-NOT_APPLIED_DECISIONS = ("reject", "rejected_pending_evidence")
+NOT_APPLIED_DECISIONS = ("reject", "rejected_pending_evidence", "manual_review", "proposed")
 
 
 def check_bounds(factor: float, observed_ratio: float, shift_sessions: int, untraded_sessions: int) -> list:

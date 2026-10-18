@@ -29,6 +29,12 @@ def main() -> int:
     syms = sorted(set(off["old_symbol"]) | set(off["new_symbol"]))
     bars = read_sql("SELECT symbol, min(date) AS first_bar, max(date) AS last_bar FROM eod_raw WHERE symbol = ANY(:s) GROUP BY symbol",
                     params={"s": syms})
+    # adjusted prices at the two ends of every series, for the hand-off price-continuity gate
+    fo = read_sql("SELECT DISTINCT ON (symbol) symbol, open AS first_open FROM ohlcv WHERE symbol = ANY(:s) ORDER BY symbol, date ASC",
+                  params={"s": syms})
+    lc = read_sql("SELECT DISTINCT ON (symbol) symbol, close AS last_close FROM ohlcv WHERE symbol = ANY(:s) ORDER BY symbol, date DESC",
+                  params={"s": syms})
+    bars = bars.merge(fo, on="symbol", how="left").merge(lc, on="symbol", how="left")
     cal = pd.to_datetime(read_sql("SELECT DISTINCT date FROM eod_raw ORDER BY date")["date"]).to_numpy()
     smap = build_security_map(off, bars, cal)
     execute_sql("DELETE FROM security_master")
@@ -37,6 +43,21 @@ def main() -> int:
                     {"i": r.security_id, "s": r.symbol, "f": r.valid_from.date(), "t": r.valid_to.date()})
     print(f"security map: {smap.intervals['security_id'].nunique()} stitched securities / {len(smap.intervals)} symbol intervals; "
           f"{len(smap.rejected)} official rows failed the hand-off check; {len(smap.conflicts)} conflicts")
+
+    # renames that coincide with a price event: kept separate, listed with the NSE actions near the date for individual review
+    from qsde.ingestion.corp_actions_source import load_source
+    hj = smap.rejected[smap.rejected["reason"].str.contains("price discontinuity")].copy()
+    src = load_source()
+    rows = []
+    for r in hj.itertuples():
+        near = src[src["symbol"].isin([r.old_symbol, r.new_symbol]) &
+                   ((src["ex_date"] - pd.Timestamp(r.effective_date)).abs() <= pd.Timedelta(days=10))]
+        rows.append({"old_symbol": r.old_symbol, "new_symbol": r.new_symbol, "effective_date": r.effective_date.date(),
+                     "reason": r.reason, "nse_actions_within_10d": " | ".join(
+                         f"{x.symbol} {x.ex_date.date()} {x.purpose}"[:90] for x in near.itertuples()) or "none in the feed"})
+    OUT.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_csv(OUT / "handoff_with_price_event.csv", index=False)
+    print(f"{len(rows)} renames coincide with a price event -> not stitched; listed in handoff_with_price_event.csv")
 
     # 2. the listings v2 left unconfirmed (listed date recovered from the stored shift)
     ev = read_sql("SELECT symbol, ex_date, source_purpose, ex_date_shift FROM corp_action_events WHERE kind = 'SOURCE_UNCONFIRMED' "
