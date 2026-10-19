@@ -15,7 +15,7 @@ import argparse
 import logging
 import sys
 import time
-from datetime import date, datetime, timezone
+from datetime import date, timedelta, datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -47,7 +47,19 @@ def _ca_adapter(fetcher, backfill_from, landing):
                                       landed_windows=done)
 
 
-def build(source: str, backfill_from, fetcher, landing=None, backfill_to=None, extra_dates=()):
+def amfi_windows(backfill_from, monthly_from=None):
+    """Quarter windows, switching to monthly windows from `monthly_from` (the portal hangs or answers with an error page on large windows)."""
+    from qsde.stream.adapters.amfi import AmfiNavAdapter
+
+    if not backfill_from:
+        return None
+    if monthly_from is None or monthly_from <= backfill_from:
+        return AmfiNavAdapter.quarter_windows(backfill_from, date.today(), months=1 if monthly_from else 3)
+    q = AmfiNavAdapter.quarter_windows(backfill_from, monthly_from - timedelta(days=1))
+    return q + AmfiNavAdapter.quarter_windows(monthly_from, date.today(), months=1)
+
+
+def build(source: str, backfill_from, fetcher, landing=None, backfill_to=None, extra_dates=(), monthly_from=None):
     from qsde.stream.adapters.nse import NseBhavcopyAdapter, NseCorporateActionsAdapter, NseSymbolChangeAdapter
 
     from qsde.stream.adapters.amfi import AmfiNavAdapter
@@ -59,7 +71,7 @@ def build(source: str, backfill_from, fetcher, landing=None, backfill_to=None, e
             if rec.meta.get("kind") == "history" and "from" in rec.meta and rec.path.stat().st_size > 100_000:      # a small file is a portal error page, not data
                 amfi_done.add((date.fromisoformat(rec.meta["from"]), date.fromisoformat(rec.meta["to"])))
     adapters = {
-        "amfi_nav": AmfiNavAdapter(fetcher, windows=AmfiNavAdapter.quarter_windows(backfill_from, date.today()) if backfill_from else None, landed_windows=amfi_done),
+        "amfi_nav": AmfiNavAdapter(fetcher, windows=amfi_windows(backfill_from, monthly_from), landed_windows=amfi_done),
         "amfi_navall": AmfiNavAdapter(fetcher, navall=True),
         "bse_bhavcopy": BseBhavcopyAdapter(fetcher, start_date=backfill_from, end_date=backfill_to, extra_dates=extra_dates,
                                            landed_sessions=landed_sessions(landing, "bse_bhavcopy") if landing is not None else ()),
@@ -101,6 +113,7 @@ def main() -> int:
     ap.add_argument("--enable-network", action="store_true", help="required for any mode that fetches")
     ap.add_argument("--enable-scheduled-downloads", action="store_true", help="required for --mode loop")
     ap.add_argument("--backfill-from", default=None, help="YYYY-MM-DD: first bhavcopy session to fetch (10 sessions per run)")
+    ap.add_argument("--monthly-from", default=None, help="YYYY-MM-DD: AMFI backfill uses monthly windows from this date")
     ap.add_argument("--backfill-to", default=None, help="YYYY-MM-DD: last session of a BSE backfill segment (parallel workers)")
     ap.add_argument("--extra-dates", default=None, help="comma-separated YYYY-MM-DD sessions to fetch regardless of weekday (BSE)")
     ap.add_argument("--checkpoint-file", default="checkpoints.json", help="parallel workers each need their own checkpoint file")
@@ -128,7 +141,8 @@ def main() -> int:
     alerts = LogAlertSink(STREAM_DIR / "alerts.jsonl")
     bf = date.fromisoformat(args.backfill_from) if args.backfill_from else None
     bt = date.fromisoformat(args.backfill_to) if args.backfill_to else None
-    adapters = build(args.source, bf, HttpFetcher() if args.enable_network else None, landing, bt, tuple(date.fromisoformat(x) for x in args.extra_dates.split(',')) if args.extra_dates else ())
+    adapters = build(args.source, bf, HttpFetcher() if args.enable_network else None, landing, bt, tuple(date.fromisoformat(x) for x in args.extra_dates.split(',')) if args.extra_dates else (),
+                     date.fromisoformat(args.monthly_from) if args.monthly_from else None)
     sink = Router(sinks_for(args.sink))
     mode = "backfill" if args.backfill_mode else "live"
 

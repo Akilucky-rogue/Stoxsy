@@ -2,7 +2,7 @@
 
 For each horizon the return is NAV(asof) / NAV(on or before asof - horizon) - 1 (cumulative). For horizons of a year or more an annualised figure
 (CAGR) is added; it is NEVER mixed into the cumulative column. A horizon is reported only if the scheme has a NAV on or before the start date
-(no extrapolation) and the start NAV is not stale (> 7 days older than the target date).
+(no extrapolation), the start NAV is not stale (> 7 days older than the target date), and no single-day NAV move above 50% falls inside the window.
 
 Basis: for a GROWTH option NAV change is a total return after expenses. For a payout / IDCW option the NAV falls when income is paid, so
 the figure is a PRICE return only and is labelled so.
@@ -17,6 +17,7 @@ import pandas as pd
 HORIZONS = {"1D": ("days", 1), "1W": ("days", 7), "1M": ("months", 1), "3M": ("months", 3), "6M": ("months", 6),
             "1Y": ("months", 12), "3Y": ("months", 36), "5Y": ("months", 60)}
 STALE_DAYS = 7
+MAX_DAILY_MOVE = 0.5          # a single-day NAV move above 50% inside a window disqualifies that horizon (unit consolidation, face-value change, bad print)
 
 
 def _start(asof: pd.Timestamp, kind: str, n: int) -> pd.Timestamp:
@@ -41,6 +42,9 @@ def scheme_returns(nav: pd.Series, asof: Optional[pd.Timestamp] = None) -> dict:
             continue
         v0, d0 = float(prior.iloc[-1]), prior.index[-1]
         if v0 <= 0:
+            continue
+        seg = nav[(nav.index >= d0)].pct_change().dropna()
+        if len(seg) and seg.abs().max() > MAX_DAILY_MOVE:             # a unit consolidation / face-value change / bad print inside the window: the NAV ratio is not a return
             continue
         cum = end_v / v0 - 1.0
         years = (end_d - d0).days / 365.25

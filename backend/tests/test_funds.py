@@ -154,3 +154,23 @@ def test_amfi_window_that_returns_a_page_is_split_and_pages_are_not_landed():
     import pytest
     with pytest.raises(ValueError, match="smallest window"):
         AmfiNavAdapter(Always(), windows=[(date(2023, 4, 1), date(2023, 4, 20))]).fetch(None)
+
+
+def test_horizon_containing_a_nav_discontinuity_is_dropped_not_reported_as_a_return():
+    idx = pd.bdate_range("2023-01-02", periods=900)
+    nav = pd.Series(10.0 * (1.0004 ** np.arange(900)), index=idx)
+    nav.iloc[600:] = nav.iloc[600:] * 100.0                      # a 100x unit change mid-way
+    r = scheme_returns(nav)
+    assert "3M" in r and "1M" in r                               # windows after the jump are fine
+    assert "3Y" not in r and "5Y" not in r                       # windows spanning the jump are not returns
+    clean = pd.Series(10.0 * (1.0004 ** np.arange(900)), index=idx)
+    assert "3Y" in scheme_returns(clean)
+
+
+def test_income_distribution_reinvestment_lines_are_idcw_and_etfs_stay_undetermined():
+    from qsde.funds.classify import classify
+    a = classify("Open Ended Schemes ( Money Market )", "Kotak Liquid Fund - Regular - Daily Reinvestment of Income Distribution cum capital withdrawal option", "Regular Plan")
+    assert a["is_growth"] is False
+    b = classify("Other Scheme - Exchange Traded Funds (ETFs)", "Motilal Oswal Nifty 50 ETF", None)
+    assert b["is_growth"] is None and b["is_etf"] is True
+    assert classify("Open Ended Schemes(Equity Scheme - Large Cap Fund)", "Axis Bluechip Fund - Direct Plan - Growth", "Direct Plan", "Growth")["is_growth"] is True

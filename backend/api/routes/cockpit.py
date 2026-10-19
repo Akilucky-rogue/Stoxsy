@@ -236,7 +236,7 @@ class FundList(BaseModel):
 
 
 METHOD = ("Cumulative return = NAV(latest) / NAV(on or before latest - horizon) - 1. An annualised figure (CAGR) is shown only from 1Y and is never mixed into the cumulative one. "
-          "A horizon is omitted when the scheme has no NAV that far back. Growth options: a total return after expenses. IDCW / payout options: a price return only (payouts are not in AMFI's NAV file). "
+          "A horizon is omitted when the scheme has no NAV that far back, or when a single-day NAV move above 50% falls inside it (unit consolidation or bad print: not a return). Growth options: a total return after expenses. IDCW / payout options: a price return only (payouts are not in AMFI's NAV file). "
           "Past NAV performance is not a forecast. Expense ratio, holdings/overlap and AUM are not loaded yet.")
 
 
@@ -256,7 +256,7 @@ def fund_schemes(q: Optional[str] = Query(None, max_length=60), asset_class: Opt
     if plan:
         where.append("is_direct IS " + ("TRUE" if plan == "direct" else "FALSE"))
     if growth_only:
-        where.append("is_growth IS TRUE")
+        where.append("(is_growth IS TRUE OR is_etf)")            # an ETF has no growth/IDCW option: it must not vanish from the default view
     if etf is not None:
         where.append("is_etf IS " + ("TRUE" if etf else "FALSE"))
     if index_only:
@@ -281,5 +281,6 @@ def fund_schemes(q: Optional[str] = Query(None, max_length=60), asset_class: Opt
                                 option_type=r.option_type, is_etf=bool(r.is_etf), is_index=bool(r.is_index), is_liquid=bool(r.is_liquid),
                                 is_direct=None if pd.isna(r.is_direct) else bool(r.is_direct), is_growth=None if pd.isna(r.is_growth) else bool(r.is_growth),
                                 last_nav=None if s is None or not len(s) else float(s.iloc[-1]), last_nav_date=None if s is None or not len(s) else str(s.index[-1].date()),
-                                returns=ret, return_basis="total return after expenses (growth option)" if r.is_growth else "price return only (payouts not included)"))
+                                returns=ret, return_basis=("total return after expenses (growth option)" if r.is_growth else "price return only (payouts not included)" if r.is_growth is False
+                                              else "ETF: price return (no growth option; any distributions are not included)" if r.is_etf else "option not identified: treat as a price return only")))
     return FundList(n_matching=n, rows=rows, methodology=METHOD)

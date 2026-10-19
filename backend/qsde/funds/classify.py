@@ -112,7 +112,7 @@ def classify(heading: Optional[str], name: Optional[str], plan: Optional[str] = 
         ev.append("asset class undetermined; vehicle known")
     pl, op = (plan or "").lower(), (option or "").lower()
     is_direct = True if "direct" in pl or "direct" in n else (False if ("regular" in pl or "regular" in n) else None)
-    is_growth = True if ("growth" in op or "growth" in n or "accumulation" in op) else (False if re.search(r"idcw|dividend|payout|bonus", op + " " + n) else None)
+    is_growth = True if ("growth" in op or "growth" in n or "accumulation" in op) else (False if re.search(r"idcw|dividend|payout|bonus|income distribution|distribution cum|reinvest", op + " " + n) else None)
     return {"scheme_type": typ, "broad_category": broad, "sub_category": sub, "asset_class": asset, "fund_group": group, "unclassified_reason": reason,
             "is_etf": is_etf, "is_index": is_index, "is_liquid": is_liquid, "is_fof": is_fof, "is_direct": is_direct, "is_growth": is_growth,
             "classification_evidence": "; ".join(ev) or "no rule matched"}

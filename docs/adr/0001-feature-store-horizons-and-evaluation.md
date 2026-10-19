@@ -488,6 +488,21 @@ files; corporate-actions source evaluation (`docs/CORPORATE_ACTIONS_EVALUATION.m
   `qsde_full_2026-10-19.dump` (sha256 and per-table counts alongside) passed a restore drill into a scratch database, so a later drop is recoverable; but a drop needs a validated full snapshot replacement
   first, which does not exist. Revisit only after the next validated snapshot and a second restore drill.
 
+* **AMFI fund layer (separate asset class; nothing in the equity universe, defensive signal or decision cards).** Scheme master and NAV history from AMFI's own files, raw landed first:
+  **24.2M NAV rows, 23,858 schemes, 64 fund houses, 2016-01-01 .. 2026-10-18** (plus 148 single pre-2016 points from the current-NAV file). Load faults found and fixed: the portal answers HTTP 200 with an HTML page
+  (or hangs) for some quarter-sized windows, which the loader had stored as "landed" and then skipped on every retry - the adapter now rejects non-data pages, splits a failing window, and the backfill uses monthly
+  windows from 2023-04; one landed quarter (2020 Q1) had never been loaded, which showed up as 56 weekdays with no NAV and 9,974 schemes with false gaps (now 0 missing weekdays; 207 schemes with a gap > 30 days,
+  198 of them dormant IDCW lines).
+* **Validation gate (`data/reports/funds/amfi_validation.md`): PASS WITH FINDINGS.** No duplicate (scheme, date) rows (unique key); 0 non-positive NAVs; classification rule-consistency checks all 0; 1,895 growth/IDCW
+  families paired - the IDCW line's 3-year NAV return is no higher than the growth line's in 99.8% (median 12.2% shortfall), so the labels behave as stated; independent re-computation of 1,248 return values: 0 mismatches;
+  no annualised value below 1Y. The former 4,157-scheme `other` bucket is now 188 `other` (vehicle known, underlying not determinable) and 9 `unclassified`, each with a stored reason; the rest sit in explicit groups
+  (fixed-term 8.4k, standard 7.5k, index 1.4k, closed-end 1.3k, liquid/overnight 1.1k, ETF 632, fund-of-funds 506, arbitrage 386, solution-oriented 169, interval 90). Open findings: 2,305 schemes (9.7%) have no
+  growth/IDCW flag (mostly ETFs, which have no option, and inactive fixed-term plans; ETFs get an explicit "price return" basis and are not ranked with growth lines); 3 active growth schemes (IL&FS infrastructure
+  debt series) have a 92-day NAV gap.
+* **Return rules added from the validation:** 409 single-day NAV moves above 50% exist (unit consolidations, face-value changes, bad prints; e.g. an overnight fund's NAV rose ~9x in a day in 2022). A return horizon
+  whose window contains such a move is dropped rather than reported (`MAX_DAILY_MOVE`); annualised figures only from 1Y; IDCW and ETF lines are labelled price return.
+* **BSE replay idempotency confirmed:** a second replay of 2,672 landed files left `bse_eod_raw` unchanged (9,720,416 rows; identical sums of close and volume).
+
 ## Out of scope here
 
 Kite backfill/live (needs a session and the owner's go-ahead for any network call), a verified corporate-actions

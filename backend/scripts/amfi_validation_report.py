@@ -59,7 +59,7 @@ def main() -> int:
     sm["first_nav_date"] = pd.to_datetime(sm["first_nav_date"]) if "first_nav_date" in sm else pd.NaT
     active = sm[sm["last_nav_date"] >= last_nav - pd.Timedelta(days=7)]
     by_amc = read_sql("""SELECT m.amc, extract(year from n.date)::int AS year, count(DISTINCT n.scheme_code) AS schemes, count(*) AS rows
-                         FROM mf_nav n JOIN mf_scheme_master m USING (scheme_code) GROUP BY 1, 2""")
+                         FROM mf_nav n JOIN mf_scheme_master m USING (scheme_code) WHERE n.date >= '2016-01-01' GROUP BY 1, 2""")
     by_amc.to_csv(OUT / "coverage_by_year_amc.csv", index=False)
     piv = by_amc.pivot_table(index="amc", columns="year", values="schemes", aggfunc="sum", fill_value=0)
     silent = []                       # fund houses with a hole inside their own life
@@ -103,43 +103,69 @@ def main() -> int:
     sm[sm["_k"].isin(dup_name.index)][["scheme_code", "name", "amc", "isin_growth_or_payout", "last_nav_date"]].sort_values("name").to_csv(OUT / "duplicate_names.csv", index=False)
 
     # 3 ── missing days and stale gaps ───────────────────────────────────────────────────────────────────────────────
-    days = read_sql("SELECT date, count(*) AS n FROM mf_nav GROUP BY 1 ORDER BY 1")
+    days = read_sql("SELECT date, count(*) AS n FROM mf_nav WHERE date >= '2016-01-01' GROUP BY 1 ORDER BY 1")
     days["date"] = pd.to_datetime(days["date"])
-    med = days["n"].rolling(30, min_periods=5, center=True).median()
+    pre = int(read_sql("SELECT count(*) n FROM mf_nav WHERE date < '2016-01-01'").iloc[0]["n"])
+    wd = days[days["date"].dt.dayofweek < 5].copy()
+    wd["med"] = wd["n"].rolling(61, min_periods=10, center=True).median()
+    thin_wd = wd[wd["n"] < 0.5 * wd["med"]]                                   # weekdays on which most funds publish nothing = exchange holidays
     bdays = pd.bdate_range(days["date"].min(), days["date"].max())
     absent = bdays.difference(pd.DatetimeIndex(days["date"]))
-    thin = days[days["n"] < 0.5 * med]
     # per-scheme gaps inside the life of each scheme (calendar days between consecutive NAVs)
     gaps = read_sql("""WITH x AS (SELECT scheme_code, date, lead(date) OVER (PARTITION BY scheme_code ORDER BY date) AS nxt FROM mf_nav)
                        SELECT scheme_code, date AS gap_start, nxt AS gap_end, (nxt - date) AS gap_days FROM x WHERE nxt IS NOT NULL AND (nxt - date) > 7""")
-    gaps_scheme = gaps.groupby("scheme_code").agg(n_gaps=("gap_days", "size"), longest=("gap_days", "max")).reset_index().merge(sm[["scheme_code", "name", "amc", "asset_class", "fund_group", "lifecycle"]], on="scheme_code", how="left")
+    gaps_scheme = gaps.groupby("scheme_code").agg(n_gaps=("gap_days", "size"), longest=("gap_days", "max")).reset_index().merge(
+        sm[["scheme_code", "name", "amc", "asset_class", "fund_group", "lifecycle", "is_growth"]], on="scheme_code", how="left")
     gaps_scheme.sort_values("longest", ascending=False).head(3000).to_csv(OUT / "nav_gaps.csv", index=False)
+    g30 = gaps_scheme[gaps_scheme["longest"] > 30]
+    g30_growth_active = g30[(g30["is_growth"] == True) & (g30["lifecycle"] == "active")]       # noqa: E712
     stale = sm[(sm["last_nav_date"] < last_nav - pd.Timedelta(days=7))]
     life_counts = sm["lifecycle"].value_counts(dropna=False)
-    sched_bad = absent[~absent.isin(pd.to_datetime([]))]
-    if len(thin) > 50:
-        findings.append(("warn", f"{len(thin)} publication dates have under half the usual number of NAVs (partial files)"))
+    if len(absent):
+        findings.append(("fail", f"{len(absent)} weekdays since 2016 have no NAV for any scheme (landing gap): {', '.join(str(d.date()) for d in absent[:5])}"))
+    if len(g30_growth_active):
+        findings.append(("warn", f"{len(g30_growth_active)} active growth schemes have a NAV gap above 30 days (listed in nav_gaps.csv)"))
     L += ["## 3. Missing NAV days and stale gaps", "",
-          f"- weekdays between first and last date with NO NAV for any scheme: **{len(absent)}** (public holidays and landing gaps are not separated here; years: " + ", ".join(f"{y}:{n}" for y, n in pd.Series(absent.year).value_counts().sort_index().items()) + ")",
-          f"- dates with fewer than half the usual NAV count (partial publication / partial landing): **{len(thin)}**" + ("; first few: " + ", ".join(str(d.date()) for d in thin['date'].head(8)) if len(thin) else ""),
-          f"- schemes with at least one gap above 7 calendar days inside their own life: **{len(gaps_scheme):,}** of {int(ext['s']):,} (longest gaps in `nav_gaps.csv`); schemes with a gap above 30 days: **{int((gaps_scheme['longest'] > 30).sum()):,}**",
+          f"- weekdays between {days['date'].min().date()} and {days['date'].max().date()} with NO NAV for any scheme: **{len(absent)}**" + ("; " + ", ".join(str(d.date()) for d in absent[:10]) if len(absent) else " (every weekday is present)"),
+          f"- weekdays on which fewer than half the usual schemes have a NAV (exchange holidays, when equity and most debt funds are not priced): **{len(thin_wd)}** over {days['date'].dt.year.nunique()} years; weekend dates present (liquid / overnight funds publish on them): {int((days['date'].dt.dayofweek >= 5).sum())}",
+          f"- NAV rows dated before 2016 (single points left over from the current-NAV file, not history): {pre:,}",
+          f"- schemes with at least one gap above 7 calendar days inside their own life: **{len(gaps_scheme):,}** of {int(ext['s']):,}; above 30 days: **{len(g30):,}** ({int((g30['lifecycle'] == 'active').sum())} active; {int((g30['is_growth'] != True).sum())} are payout / IDCW / undetermined lines, which carry no NAV while dormant between payouts or with no units outstanding); active growth schemes with such a gap: **{len(g30_growth_active)}**",
           f"- schemes whose last NAV is more than 7 days before {last_nav.date()} (matured, merged, wound up or discontinued): **{len(stale):,}**; lifecycle: " + ", ".join(f"{k}: {v:,}" for k, v in life_counts.items()),
           "- Stale-start rule in returns: a horizon is dropped if the NAV used as its start is more than 7 days before the start date, so gaps never silently stretch a return window.", ""]
 
     # 4 ── growth vs IDCW ────────────────────────────────────────────────────────────────────────────────────────────
+    import re as _re
     g = sm["is_growth"]
-    jumps = read_sql("""WITH x AS (SELECT scheme_code, nav / lag(nav) OVER (PARTITION BY scheme_code ORDER BY date) - 1 AS r FROM mf_nav)
-                        SELECT scheme_code, count(*) FILTER (WHERE r < -0.01) AS drops, count(*) AS n FROM x WHERE r IS NOT NULL GROUP BY 1""")
-    jumps = jumps.merge(sm[["scheme_code", "is_growth", "asset_class"]], on="scheme_code")
-    jumps = jumps[jumps["asset_class"].isin(["equity", "hybrid"])]
-    rate = jumps.groupby("is_growth", dropna=False).apply(lambda d: d["drops"].sum() / max(d["n"].sum(), 1))
+    strip = _re.compile(r"\b(growth|idcw|dividend|payout|reinvestment|re-investment|weekly|monthly|quarterly|daily|fortnightly|annual|half yearly|yearly|option|plan|income distribution cum capital withdrawal|cum|capital|withdrawal|distribution|bonus|accumulation)\b|[^a-z0-9]", _re.I)
+    act = sm[(sm["lifecycle"] == "active") & sm["is_direct"].notna()].copy()
+    act["fam"] = act["name"].fillna("").str.lower().map(lambda t: _re.sub(r"\s+", " ", strip.sub(" ", t)).strip()) + "|" + act["is_direct"].astype(str) + "|" + act["amc"].fillna("")
+    fams = act.groupby("fam").agg(n_g=("is_growth", lambda x: int((x == True).sum())), n_p=("is_growth", lambda x: int((x == False).sum())))        # noqa: E712
+    fams = fams[(fams["n_g"] == 1) & (fams["n_p"] >= 1)].index
+    pair = act[act["fam"].isin(fams)]
+    t0 = last_nav - pd.DateOffset(years=3)
+    codes = [int(c) for c in pair["scheme_code"]]
+    navp = read_sql("""SELECT DISTINCT ON (scheme_code) scheme_code, nav AS nav0 FROM mf_nav WHERE scheme_code = ANY(:c) AND date <= CAST(:t AS DATE) AND date >= CAST(:t AS DATE) - 7
+                       ORDER BY scheme_code, date DESC""", params={"c": codes, "t": str(t0.date())})
+    navl = read_sql("""SELECT DISTINCT ON (scheme_code) scheme_code, nav AS last_nav FROM mf_nav WHERE scheme_code = ANY(:c) AND date >= CAST(:d AS DATE) - 7
+                       ORDER BY scheme_code, date DESC""", params={"c": codes, "d": str(last_nav.date())})
+    pr = pair.merge(navp, on="scheme_code").merge(navl, on="scheme_code")
+    pr["ret3y"] = pr["last_nav"].astype(float) / pr["nav0"].astype(float) - 1.0
+    gr = pr[pr["is_growth"] == True].set_index("fam")["ret3y"]                                                       # noqa: E712
+    po = pr[pr["is_growth"] == False].groupby("fam")["ret3y"].median()                                               # noqa: E712
+    cmp_ = pd.concat([gr.rename("g"), po.rename("p")], axis=1).dropna()
+    share_lower = float((cmp_["p"] <= cmp_["g"] + 0.005).mean()) if len(cmp_) else float("nan")
+    shortfall = float((cmp_["g"] - cmp_["p"]).median()) if len(cmp_) else float("nan")
     L += ["## 4. Growth vs IDCW handling", "",
           f"- growth / accumulation: **{int((g == True).sum()):,}**; payout / IDCW / bonus: **{int((g == False).sum()):,}**; undetermined: **{int(g.isna().sum()):,}**",    # noqa: E712
           "- Rule: growth NAV change is a total return after expenses; IDCW NAV falls when income is paid, so its return is a **price return only** and is labelled as such (never ranked against growth).",
-          "- Behaviour check (equity and hybrid schemes): share of days with a NAV fall above 1%: " + ", ".join(f"{'growth' if k is True else 'IDCW' if k is False else 'undetermined'} {v:.2%}" for k, v in rate.items())
-          + " (IDCW should show more payout-day drops than growth if the labels are right).", ""]
+          f"- Label check by pairing: {len(cmp_):,} active fund families with exactly one growth line and at least one IDCW line. Over the last 3 years the median IDCW line's NAV return was no higher than the growth line's (within 0.5 points) in **{share_lower:.1%}** of families; median shortfall {shortfall:.1%} of starting NAV. "
+          "If the labels were wrong, this share would be near 50%.",
+          "- undetermined by group (active schemes): " + ", ".join(f"{k} {v}" for k, v in sm[(sm["is_growth"].isna()) & (sm["lifecycle"] == "active")]["fund_group"].value_counts().items())
+          + ". ETFs have no growth/IDCW option; they are shown with an explicit 'ETF price return' basis and are not mixed into growth rankings.", ""]
+    if len(cmp_) >= 30 and share_lower < 0.85:
+        findings.append(("warn", f"growth/IDCW labels: only {share_lower:.0%} of paired families show IDCW <= growth over 3 years"))
     if int(g.isna().sum()) > 0.02 * len(sm):
-        findings.append(("warn", f"{int(g.isna().sum()):,} schemes have an undetermined growth/IDCW flag"))
+        findings.append(("warn", f"{int(g.isna().sum()):,} schemes ({g.isna().mean():.1%}) have an undetermined growth/IDCW flag; they are excluded from growth return rankings"))
 
     # 5 ── classification audit ──────────────────────────────────────────────────────────────────────────────────────
     ct = pd.crosstab(sm["asset_class"], sm["fund_group"], margins=True)
@@ -219,7 +245,7 @@ def main() -> int:
           f"- annualised value present on a horizon shorter than 1Y: **{ann_below1y}** (must be 0); 1Y annualised differing from 1Y cumulative by more than 3 points: **{ann_inconsistent}** (a 1Y window that is a few days off 365 is expected; large values would indicate a day-count bug)",
           "- horizons available in the sample: " + ", ".join(f"{h} {n}/{len(codes)}" for h, n in have.items()),
           f"- implausible values (|cumulative| > 300% over 1Y+ or |annualised| > 100%): **{len(ext_df)}** (listed in `return_outliers.csv`; usually unit consolidations, tiny NAV bases or segregated portfolios)",
-          "- rules: cumulative = NAV(asof)/NAV(on or before asof - horizon) - 1; annualised = (1+cum)^(1/years) - 1 using the actual day count between the two NAV dates, only for 1Y, 3Y, 5Y, only when the window exceeds half a year; no extrapolation when history is shorter; start NAV older than 7 days than its target date rejects the horizon; IDCW options are price return only.", ""]
+          "- rules: cumulative = NAV(asof)/NAV(on or before asof - horizon) - 1; annualised = (1+cum)^(1/years) - 1 using the actual day count between the two NAV dates, only for 1Y, 3Y, 5Y, only when the window exceeds half a year; no extrapolation when history is shorter; a start NAV more than 7 days older than its target date rejects the horizon; a single-day NAV move above 50% inside the window also rejects it (unit consolidation, face-value change or bad print: the NAV ratio is then not a return); IDCW options are price return only.", ""]
     if ann_below1y:
         findings.append(("fail", "annualised returns appear on horizons shorter than a year"))
 
