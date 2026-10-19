@@ -124,7 +124,18 @@ export interface DecisionSummary {
   average_pairwise_correlation: number | null; loss_if_all_stopped: number; loss_if_all_stopped_pct: number; candidates_considered: number;
   skipped: [string, string][]; evidence: string; notes: string[];
 }
-export interface DecisionBook { cards: DecisionCard[]; summary: DecisionSummary; disclaimer: string }
+export interface DecisionTransparency {
+  risk_inputs: { portfolio: { capital: number; risk_per_position: number; max_position: number }; regime: string | null; regime_risk_multiplier: number | null; exposure_cap: number | null;
+    stop: { horizon: string; sessions: number; stop_multiple_of_daily_vol: number; daily_vol_span: number }; sizing_rule: string; signal_components: string[]; signal_rule: string };
+  exclusions: { signal_universe: number; dropped_not_defensive_enough: number; dropped_below_liquidity_floor: number; dropped_too_far_below_120d_high: number;
+    eligible_after_filters: number; dropped_during_construction: Record<string, number> };
+  universe: { method: string; description: string; non_equity_exclusion: string; non_equity_symbols_excluded: number; signal_rows: number; exchange: string };
+  not_covered?: { bse_active_equities: number; reason: string; unlinked_nse_bse_pairs: number; other_asset_classes: string };
+  corporate_actions: { policy: string; series?: string | null; validation?: string | null; events_applied?: number | null; built_at?: string | null };
+  data_as_of: { signal_date: string; prices_last_date?: string | null; eod_raw_latest?: string | null; ohlcv_latest?: string | null; generated_at: string };
+  notes: string[];
+}
+export interface DecisionBook { cards: DecisionCard[]; summary: DecisionSummary; transparency?: DecisionTransparency; disclaimer: string }
 
 export interface FundRow {
   scheme_code: number; name: string; amc: string | null; category: string | null; asset_class: string | null; plan: string | null; option_type: string | null;

@@ -178,6 +178,7 @@ def research_report(group: str, name: str):
 class DecisionBook(BaseModel):
     cards: list[dict]
     summary: dict
+    transparency: dict = {}
     disclaimer: str = DISCLAIMER
 
 
@@ -186,6 +187,8 @@ def decision_cards(capital: float = Query(1_500_000, ge=50_000, le=1_000_000_000
                    max_position: float = Query(0.08, ge=0.01, le=0.25), max_positions: int = Query(20, ge=1, le=60),
                    horizon: str = Query("position_20d", pattern="^(swing_5d|position_20d)$"), min_bucket: int = Query(4, ge=3, le=5)):
     from qsde.decision.cards import PortfolioParams, build_cards
+    from qsde.decision.transparency import explain_exclusions, gather, risk_inputs
+    from qsde.ml.registry import get_horizon
     from qsde.ml import data as mldata
 
     if not SIGNAL.exists():
@@ -197,7 +200,11 @@ def decision_cards(capital: float = Query(1_500_000, ge=50_000, le=1_000_000_000
     cand = sc[(sc["risk_bucket"] >= min_bucket) & (sc["liq"] >= p.min_traded_value)]["symbol"].tolist()
     start = str((sc["date"].iloc[0] - pd.Timedelta(days=700)).date())
     px = mldata.load_prices(cand, start=start)[["symbol", "date", "close"]]
-    return DecisionBook(**build_cards(sc, px, p))
+    book = build_cards(sc, px, p)
+    book["transparency"] = {"risk_inputs": risk_inputs(p, book["summary"], get_horizon(horizon)),
+                            "exclusions": explain_exclusions(sc, p, book["summary"].get("skipped_reasons", {})),
+                            **gather(sc, str(px["date"].max().date()) if len(px) else None)}
+    return DecisionBook(**book)
 
 
 # ── mutual funds / ETFs (AMFI): a separate asset-class layer ─────────

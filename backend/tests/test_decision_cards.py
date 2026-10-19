@@ -107,3 +107,20 @@ def test_a_name_that_is_a_near_copy_of_a_chosen_one_is_skipped_as_the_same_risk_
     assert any(sym == "TWN" and "too correlated with AAA" in why for sym, why in b["summary"]["skipped"])
     off = build_cards(sc, allp, PortfolioParams(capital=1_000_000, max_positions=3, max_pair_corr=1.01))
     assert "TWN" in [c["symbol"] for c in off["cards"]]
+
+
+def test_transparency_counts_each_filter_in_order_and_states_risk_inputs():
+    from qsde.decision.cards import PortfolioParams, build_cards, _count_reasons
+    from qsde.decision.transparency import explain_exclusions, risk_inputs
+    from qsde.ml.registry import get_horizon
+
+    sc = pd.DataFrame({"symbol": list("ABCDEF"), "date": pd.Timestamp("2026-10-16"), "defensive_score": [.9, .8, .7, .6, .2, .1],
+                       "risk_bucket": [5, 5, 4, 4, 2, 1], "liq": [1e9, 1e9, 1e6, 1e9, 1e9, 1e9], "dd120": [-.1, -.5, -.1, -.1, -.1, -.1],
+                       "atr_pct": .02, "vol60": .01, "downside60": .01, "warnings": "", "regime": "neutral"})
+    p = PortfolioParams()
+    ex = explain_exclusions(sc, p, {"too correlated with A": 2})
+    assert (ex["signal_universe"], ex["dropped_not_defensive_enough"], ex["dropped_below_liquidity_floor"], ex["dropped_too_far_below_120d_high"]) == (6, 2, 1, 1)
+    assert ex["eligible_after_filters"] == 2 and ex["dropped_during_construction"] == {"too correlated with A": 2}
+    assert _count_reasons([("X", "too correlated with A (0.7)"), ("Y", "too correlated with A (0.6)"), ("Z", "volatility unavailable")]) == {"too correlated with A": 2, "volatility unavailable": 1}
+    ri = risk_inputs(p, {"regime": "neutral", "regime_risk_multiplier": 0.8, "exposure_cap": 0.8}, get_horizon(p.horizon))
+    assert ri["portfolio"]["capital"] == 1_500_000 and "holidays" not in ri["portfolio"] and ri["stop"]["sessions"] == 20 and len(ri["signal_components"]) == 5

@@ -469,6 +469,25 @@ files; corporate-actions source evaluation (`docs/CORPORATE_ACTIONS_EVALUATION.m
 * **Not yet done for BSE:** corporate-action adjustment of BSE prices (BSE-only names have no NSE action source), BSE in the universe / defensive signal / decision cards (cards still say NSE only), the NSE equity
   master, and review of the divergent pairs. Mutual funds / ETFs (AMFI NAV and scheme data) are next in the owner's order and need the owner's approval of each source.
 
+### Thirteenth review (2026-10-19): NSE equity master, cross-listing statuses, evidence packs, `factor_pit` decision
+
+* **NSE equity master** (`EQUITY_L.csv`, official NSE archive; landed raw, then `nse_equity_master`, 2,619 symbols with ISIN and security code). ISIN coverage of NSE symbols ever loaded: 3,231 of 4,005 (master + 2016-2020
+  bhavcopy + corporate-action rows). Only NSE equity-share ISINs (security codes 01-06/10/20-23) and BSE `equity` instruments are candidates for a link: 114 cases where a bond ISIN on an NSE corporate-action row
+  had linked a share to a BSE bond (e.g. IRFC) are recorded in `xref_conflicts`, not overwritten.
+* **Link statuses** (`listing_xref.link_status`, migrations 041/044): `linked_verified` 2,558 (price check passed on up to 250 shared sessions), `linked_unchecked` 173 (< 30 shared sessions),
+  `unlinked_secondary_scrip` 9 (a legacy/secondary BSE scrip of an NSE name that is already `linked_verified` through its primary scrip), `unlinked_pending_review` 332 (median close gap > 1% or any day > 10%).
+  Unlinked means neither side is stitched or combined. Active BSE equities on 2026-10-16: 4,330; linked 91.3% of 60-day traded value; BSE-only 8.6% (1,876 scrips); unlinked pending review 0.06% (159 scrips).
+* **Evidence packs for the five NSE top-500 names that were unlinked** (TRENT 600251, SOUTHBANK 632218, EMAMILTD 543894, IGL 632514, TATACHEM 600770; `data/reports/bse/evidence_packs/`): in every case the NSE
+  symbol is already `linked_verified` through its primary BSE scrip (500251, 532218, 531162, 532514, 500770; median close gap 0.03-0.05% over 250 sessions) and the flagged scrip is a legacy/secondary line that
+  ended between 2017 and 2023 (TRENTSL, South Ind. Bank old line, EMAMILTD7, INDRA GAS under the old ISIN INE203G01019, Tata Chemicals old line) with thin trading and a systematic ~+1% premium. Recommended
+  status for all five flagged scrips: **`unlinked`** (kept unlinked; the names themselves are not at risk). The recommendation is advisory: the owner decides and nothing is applied automatically. The remaining
+  lower-liquidity pairs stay in the review queue (largest-impact first) and do not block product work.
+* **BSE corporate actions** still have no source. Until one is identified, approved and reconciled (action-by-action, same governance tiers as NSE), BSE-only names stay out of the universe, the defensive signal
+  and the decision cards, and BSE prices stay `raw_prices_only`.
+* **`factor_pit` retention decision: RETAINED, not dropped.** The table holds 8.2M rows and is still the only provenance for the model-lab snapshots recorded in the trial ledger and model cards. The full-database dump
+  `qsde_full_2026-10-19.dump` (sha256 and per-table counts alongside) passed a restore drill into a scratch database, so a later drop is recoverable; but a drop needs a validated full snapshot replacement
+  first, which does not exist. Revisit only after the next validated snapshot and a second restore drill.
+
 ## Out of scope here
 
 Kite backfill/live (needs a session and the owner's go-ahead for any network call), a verified corporate-actions

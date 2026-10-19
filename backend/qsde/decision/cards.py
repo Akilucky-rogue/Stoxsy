@@ -58,6 +58,14 @@ def _sigma(close: pd.Series, span: int) -> float:
     return float(r.ewm(span=span, min_periods=min(60, span)).std().iloc[-1]) if len(r) >= 60 else float("nan")
 
 
+def _count_reasons(skipped: list) -> dict:
+    out: dict = {}
+    for _, why in skipped:
+        key = why.split("(")[0].strip()
+        out[key] = out.get(key, 0) + 1
+    return out
+
+
 def build_cards(scores: pd.DataFrame, prices: pd.DataFrame, p: PortfolioParams = PortfolioParams(), venues: Optional[dict] = None) -> dict:
     """scores: latest defensive scores (symbol, date, defensive_score, risk_bucket, atr_pct, vol60, dd120, liq, warnings, regime).
     prices: symbol, date, close (adjusted), covering the candidates. Returns {"cards": [...], "summary": {...}}."""
@@ -105,7 +113,7 @@ def build_cards(scores: pd.DataFrame, prices: pd.DataFrame, p: PortfolioParams =
         value = min(value, room)
         qty = int(np.floor(value / last))
         if qty < 1:
-            skipped.append((r.symbol, "position rounds to zero shares"))
+            skipped.append((r.symbol, "regime exposure room left is below one share" if value >= room - 1e-9 else "position rounds to zero shares"))
             continue
         pos_val = qty * last
         stop = last * (1.0 - stop_dist)
@@ -140,7 +148,7 @@ def build_cards(scores: pd.DataFrame, prices: pd.DataFrame, p: PortfolioParams =
         "dates_are_estimates": True, "capital": p.capital, "positions": len(cards), "invested": used, "invested_pct": used / p.capital,
         "cash": p.capital - used, "largest_weight": max((c["weight"] for c in cards), default=0.0),
         "average_pairwise_correlation": avg_corr, "loss_if_all_stopped": total_loss, "loss_if_all_stopped_pct": total_loss / p.capital,
-        "candidates_considered": int(len(elig)), "skipped": skipped[:20],
+        "candidates_considered": int(len(elig)), "skipped": skipped[:20], "skipped_reasons": _count_reasons(skipped),
         "evidence": EVIDENCE,
         "notes": ["Risk-based allocation, not a forecast: no model has shown a net edge.",
                   "Stops are not guaranteed fills; a gap through the stop fills at the open.",

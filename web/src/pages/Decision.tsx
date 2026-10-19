@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Chip, Empty, ErrorState, Evidence, PageHead, Segmented, Skeleton, Tile } from "../components/ui";
 import { num, pct, REGIME_LABEL, shortDate } from "../lib/format";
 import { useDecision, type DecisionParams } from "../lib/queries";
+import { Transparency } from "../components/Transparency";
 
 const inr = (x: number) => `₹${Math.round(x).toLocaleString("en-IN")}`;
 
@@ -119,6 +120,7 @@ export function Decision() {
               )}
             </div>
           </div>
+          {q.data.transparency && <Transparency t={q.data.transparency} />}
           <p className="muted" style={{ fontSize: "0.82rem" }}>{q.data.disclaimer}</p>
         </>
       )}
