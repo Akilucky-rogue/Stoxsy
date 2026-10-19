@@ -21,6 +21,17 @@ export function System() {
           </section>
 
           <div className="card">
+            <header><h2>Exchanges</h2></header>
+            <div className="table-wrap"><table>
+              <thead><tr><th>Exchange</th><th>Prices</th><th>In universe / signals / cards</th><th>Last session</th><th>Notes</th></tr></thead>
+              <tbody>{Object.entries(s.data.exchanges).map(([k, v]) => (
+                <tr key={k}><td><strong>{k}</strong></td><td><Chip tone={v.prices === "raw_prices_only" ? "warn" : "ok"}>{v.prices}</Chip></td><td>{v.in_universe_signals_cards ? "yes" : "no"}</td><td>{shortDate(v.last_session)}</td>
+                  <td className="wrap">{v.reason ?? ""}{v.cross_listing ? ` Cross-listing: ${Object.entries(v.cross_listing).map(([a, b]) => `${a.replace(/_/g, " ")} ${b}`).join(", ")}.` : ""}</td></tr>
+              ))}</tbody>
+            </table></div>
+          </div>
+
+          <div className="card">
             <header><h2>Current feature snapshots</h2></header>
             <div className="table-wrap"><table>
               <thead><tr><th>Snapshot</th><th>Factor version</th><th>Universe</th><th className="num">Rows</th><th className="num">Symbols</th><th>Through</th></tr></thead>

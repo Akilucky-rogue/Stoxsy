@@ -102,3 +102,53 @@ class PgBseEodSink:
         with get_sync_conn() as conn:
             psycopg2.extras.execute_values(conn.cursor(), sql, rows, page_size=1000)
         return len(rows)
+
+
+class PgMfNavSink:
+    """AMFI NAV rows -> mf_nav (+ the load registry with the source hash) and the scheme master (names, categories, ISINs, classification)."""
+
+    def upsert(self, source: str, df: pd.DataFrame, key_cols: tuple) -> int:
+        import psycopg2.extras
+
+        from qsde.db.connection import get_sync_conn
+        from qsde.funds.classify import classify
+
+        if df.empty:
+            return 0
+        sha, kind = df["source_sha256"].iloc[0], df["kind"].iloc[0]
+        wf, wt = df["window_from"].iloc[0], df["window_to"].iloc[0]
+        known = df["known_at"].max().to_pydatetime() if "known_at" in df else None
+        with get_sync_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("""INSERT INTO mf_nav_loads (sha256, source, window_from, window_to, known_at, n_rows) VALUES (%s,%s,%s,%s,%s,%s)
+                           ON CONFLICT (sha256) DO UPDATE SET n_rows = EXCLUDED.n_rows RETURNING id""",
+                        (sha, "amfi_navall" if kind == "navall" else "amfi_nav_history", None if wf is None else wf, None if wt is None else wt, known, int(len(df))))
+            load_id = cur.fetchone()["id"]
+            nav = [(int(r.scheme_code), r.date.date(), float(r.nav), load_id) for r in df[["scheme_code", "date", "nav"]].itertuples(index=False)]
+            psycopg2.extras.execute_values(cur, """INSERT INTO mf_nav (scheme_code, date, nav, load_id) VALUES %s
+                ON CONFLICT (scheme_code, date) DO UPDATE SET nav = EXCLUDED.nav, load_id = EXCLUDED.load_id WHERE mf_nav.nav IS DISTINCT FROM EXCLUDED.nav""",
+                                           nav, page_size=20000)
+            last = df.sort_values("date").groupby("scheme_code").tail(1)
+            rng = df.groupby("scheme_code")["date"].agg(["min", "max"])
+            sch = []
+            for r in last.itertuples(index=False):
+                c = classify(r.category_raw, r.name, r.plan, r.option_type)
+                sch.append((int(r.scheme_code), r.name, r.amc, r.category_raw, c["scheme_type"], c["broad_category"], c["sub_category"], r.plan, r.option_type, r.isin_a, r.isin_b,
+                            c["asset_class"], c["is_etf"], c["is_index"], c["is_liquid"], c["is_fof"], c["is_direct"], c["is_growth"], c["classification_evidence"],
+                            rng.loc[r.scheme_code, "min"].date(), rng.loc[r.scheme_code, "max"].date()))
+            psycopg2.extras.execute_values(cur, """INSERT INTO mf_scheme_master (scheme_code, name, amc, category_raw, scheme_type, broad_category, sub_category, plan, option_type,
+                isin_growth_or_payout, isin_reinvest, asset_class, is_etf, is_index, is_liquid, is_fof, is_direct, is_growth, classification_evidence, first_nav_date, last_nav_date) VALUES %s
+                ON CONFLICT (scheme_code) DO UPDATE SET
+                  name = CASE WHEN EXCLUDED.last_nav_date >= mf_scheme_master.last_nav_date THEN EXCLUDED.name ELSE mf_scheme_master.name END,
+                  amc = COALESCE(EXCLUDED.amc, mf_scheme_master.amc), category_raw = COALESCE(EXCLUDED.category_raw, mf_scheme_master.category_raw),
+                  scheme_type = COALESCE(EXCLUDED.scheme_type, mf_scheme_master.scheme_type), broad_category = COALESCE(EXCLUDED.broad_category, mf_scheme_master.broad_category),
+                  sub_category = COALESCE(EXCLUDED.sub_category, mf_scheme_master.sub_category), plan = COALESCE(EXCLUDED.plan, mf_scheme_master.plan),
+                  option_type = COALESCE(EXCLUDED.option_type, mf_scheme_master.option_type),
+                  isin_growth_or_payout = COALESCE(EXCLUDED.isin_growth_or_payout, mf_scheme_master.isin_growth_or_payout),
+                  isin_reinvest = COALESCE(EXCLUDED.isin_reinvest, mf_scheme_master.isin_reinvest),
+                  asset_class = EXCLUDED.asset_class, is_etf = EXCLUDED.is_etf, is_index = EXCLUDED.is_index, is_liquid = EXCLUDED.is_liquid, is_fof = EXCLUDED.is_fof,
+                  is_direct = COALESCE(EXCLUDED.is_direct, mf_scheme_master.is_direct), is_growth = COALESCE(EXCLUDED.is_growth, mf_scheme_master.is_growth),
+                  classification_evidence = EXCLUDED.classification_evidence,
+                  first_nav_date = LEAST(mf_scheme_master.first_nav_date, EXCLUDED.first_nav_date), last_nav_date = GREATEST(mf_scheme_master.last_nav_date, EXCLUDED.last_nav_date),
+                  updated_at = NOW()""", sch, page_size=2000)
+        return len(nav)

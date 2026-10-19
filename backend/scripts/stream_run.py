@@ -50,9 +50,17 @@ def _ca_adapter(fetcher, backfill_from, landing):
 def build(source: str, backfill_from, fetcher, landing=None, backfill_to=None, extra_dates=()):
     from qsde.stream.adapters.nse import NseBhavcopyAdapter, NseCorporateActionsAdapter, NseSymbolChangeAdapter
 
+    from qsde.stream.adapters.amfi import AmfiNavAdapter
     from qsde.stream.adapters.bse import BseBhavcopyAdapter
 
+    amfi_done = set()
+    if landing is not None:
+        for rec in landing.records("amfi_nav"):
+            if rec.meta.get("kind") == "history" and "from" in rec.meta:
+                amfi_done.add((date.fromisoformat(rec.meta["from"]), date.fromisoformat(rec.meta["to"])))
     adapters = {
+        "amfi_nav": AmfiNavAdapter(fetcher, windows=AmfiNavAdapter.quarter_windows(backfill_from, date.today()) if backfill_from else None, landed_windows=amfi_done),
+        "amfi_navall": AmfiNavAdapter(fetcher, navall=True),
         "bse_bhavcopy": BseBhavcopyAdapter(fetcher, start_date=backfill_from, end_date=backfill_to, extra_dates=extra_dates,
                                            landed_sessions=landed_sessions(landing, "bse_bhavcopy") if landing is not None else ()),
         "bhavcopy": NseBhavcopyAdapter(fetcher, start_date=backfill_from,
@@ -61,18 +69,18 @@ def build(source: str, backfill_from, fetcher, landing=None, backfill_to=None, e
         "symbol_changes": NseSymbolChangeAdapter(fetcher),
     }
     # "all" is the NSE bundle (the owner approved BSE separately): BSE runs only when asked for by name
-    return [a for k, a in adapters.items() if k != "bse_bhavcopy"] if source == "all" else [adapters[source]]
+    return [a for k, a in adapters.items() if k not in ("bse_bhavcopy", "amfi_nav", "amfi_navall")] if source == "all" else [adapters[source]]
 
 
 def sinks_for(kind: str):
     from qsde.stream.runner import InMemorySink
-    from qsde.stream.sinks import PgBseEodSink, PgCorporateActionsSink, PgEodRawSink, PgSymbolChangeSink
+    from qsde.stream.sinks import PgBseEodSink, PgCorporateActionsSink, PgMfNavSink, PgEodRawSink, PgSymbolChangeSink
 
     if kind == "memory":
         mem = InMemorySink()
-        return {"nse_bhavcopy": mem, "nse_corporate_actions": mem, "nse_symbol_changes": mem, "bse_bhavcopy": mem}
+        return {"nse_bhavcopy": mem, "nse_corporate_actions": mem, "nse_symbol_changes": mem, "bse_bhavcopy": mem, "amfi_nav": mem}
     return {"nse_bhavcopy": PgEodRawSink(), "nse_corporate_actions": PgCorporateActionsSink(),
-            "nse_symbol_changes": PgSymbolChangeSink(), "bse_bhavcopy": PgBseEodSink()}
+            "nse_symbol_changes": PgSymbolChangeSink(), "bse_bhavcopy": PgBseEodSink(), "amfi_nav": PgMfNavSink()}
 
 
 class Router:
@@ -87,7 +95,7 @@ class Router:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--source", choices=["bhavcopy", "corporate_actions", "symbol_changes", "bse_bhavcopy", "all"], default="all")
+    ap.add_argument("--source", choices=["bhavcopy", "corporate_actions", "symbol_changes", "bse_bhavcopy", "amfi_nav", "amfi_navall", "all"], default="all")
     ap.add_argument("--mode", choices=["replay", "once", "loop"], default="replay")
     ap.add_argument("--sink", choices=["memory", "db"], default="memory")
     ap.add_argument("--enable-network", action="store_true", help="required for any mode that fetches")
@@ -132,7 +140,7 @@ def main() -> int:
     if args.mode == "once":
         for a in adapters:
             total_items = total_rows = 0
-            for _ in range(60 if (bf and a.name in ("nse_bhavcopy", "nse_corporate_actions", "bse_bhavcopy")) else 1):       # backfill: keep going until nothing new
+            for _ in range(60 if (bf and a.name in ("nse_bhavcopy", "nse_corporate_actions", "bse_bhavcopy", "amfi_nav")) else 1):       # backfill: keep going until nothing new
                 r = run_once(a, landing, sink, health, cps, alerts, mode=mode)
                 total_items += r.items
                 total_rows += r.rows

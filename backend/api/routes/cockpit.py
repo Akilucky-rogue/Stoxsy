@@ -91,6 +91,7 @@ class SystemStatus(BaseModel):
     auth_enforced: bool
     promotion_enabled: bool
     scheduled_downloads_enabled: bool = False
+    exchanges: dict = {}
     notes: list[str]
 
 
@@ -103,6 +104,12 @@ def system_status():
         snaps = read_sql("SELECT snapshot_id, factor_version, universe_version, n_rows, n_symbols, date_max, built_at FROM feature_snapshots "
                          "WHERE kind = 'full' ORDER BY built_at DESC LIMIT 4")
         adj = read_sql("SELECT version, kind, validation_status, n_events, rows, built_at FROM adjustment_runs ORDER BY built_at DESC LIMIT 6")
+        bse = read_sql("SELECT max(date) AS d, count(DISTINCT date) AS n FROM bse_eod_raw")
+        xr = read_sql("SELECT link_status, count(*) AS n FROM listing_xref GROUP BY 1")
+        exchanges = {"NSE": {"prices": "official, corporate-action adjusted", "in_universe_signals_cards": True},
+                     "BSE": {"prices": "raw_prices_only", "in_universe_signals_cards": False, "last_session": str(pd.Timestamp(bse["d"].iloc[0]).date()) if pd.notna(bse["d"].iloc[0]) else None,
+                             "sessions": int(bse["n"].iloc[0]), "cross_listing": {r.link_status: int(r.n) for r in xr.itertuples()},
+                             "reason": "no corporate-action source for BSE prices yet; BSE-only names are excluded from the universe, the defensive signal and decision cards"}}
         db = "ok"
     except Exception as ex:  # noqa: BLE001
         return SystemStatus(database=f"error: {type(ex).__name__}", ohlcv_latest=None, eod_raw_latest=None, current_snapshots=[],
@@ -115,7 +122,7 @@ def system_status():
     rec = lambda df: json.loads(df.to_json(orient="records", date_format="iso"))      # noqa: E731
     return SystemStatus(database=db, ohlcv_latest=str(pd.Timestamp(o).date()) if pd.notna(o) else None,
                         eod_raw_latest=str(pd.Timestamp(e).date()) if pd.notna(e) else None, current_snapshots=rec(snaps),
-                        adjustment_series=rec(adj), auth_enforced=settings.auth_enforced, promotion_enabled=promo, notes=notes)
+                        adjustment_series=rec(adj), auth_enforced=settings.auth_enforced, promotion_enabled=promo, exchanges=exchanges, notes=notes)
 
 
 # ── research reports ─────────────────────────────────────────────────

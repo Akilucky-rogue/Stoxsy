@@ -106,6 +106,7 @@ export interface SystemStatus {
   current_snapshots: { snapshot_id: string; factor_version: string; universe_version: string; n_rows: number; n_symbols: number; date_max: string; built_at: string }[];
   adjustment_series: { version: string; kind: string; validation_status: string; n_events: number | null; rows: number; built_at: string }[];
   auth_enforced: boolean; promotion_enabled: boolean; scheduled_downloads_enabled: boolean; notes: string[];
+  exchanges: Record<string, { prices: string; in_universe_signals_cards: boolean; last_session?: string | null; sessions?: number; cross_listing?: Record<string, number>; reason?: string }>;
 }
 export interface ReportItem { group: string; name: string; title: string; bytes: number; modified: string; superseded: boolean }
 export interface ReportBody { group: string; name: string; markdown: string }
