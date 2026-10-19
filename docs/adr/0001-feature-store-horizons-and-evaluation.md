@@ -409,6 +409,30 @@ files; corporate-actions source evaluation (`docs/CORPORATE_ACTIONS_EVALUATION.m
   `/api/research/reports`. Verified in real browsers: sign-in -> forced change -> dashboard with live data, light and dark at desktop width, 390 px width with the drawer and no horizontal
   page overflow; 13 unit tests, 739 backend tests. The old Next.js app is untouched (retire after route parity). Not yet built: ideas/paper/F&O/pairs views, live compare, alerts, PWA, Tauri.
 
+### Tenth review (2026-10-19): NSE official ETF list, owner account, corrected research, decision cards
+
+* **Scope clarified by the owner:** NSE, BSE and the whole tradeable universe; the product must say what, where, how much and until when. Today the database holds NSE only
+  (`eod_raw`: 5.10M rows, 4,005 symbols, 2016-2026-10-16); BSE ingestion and non-equity instrument classes each need the owner's go-ahead for the network source.
+* **ETF verification (owner approved the fetch):** `eq_etfseclist.csv` from NSE's archive was landed raw (`data/landing/nse_etf_list/2026/10/19/005642-9d90ef6e.csv`, sha256 `9d90ef6e...`, 355 ETFs, all ISIN INF*).
+  Of the 21 provisional exclusions, 16 are on the official list; 5 (AXISGOLD, AXISILVER, ICICINIFTY, KOTAKGOLD, KOTAKNIFTY) are ETFs by name that are not on today's file (delisted or merged) and stay
+  excluded, labelled `not_on_current_official_list`. **The official list also found 4 ETFs that had entered the universe and that I had missed** (HDFCSML250, ICICIB22, MODEFENCE, TATSILV); TATSILV had
+  appeared in a draft decision card. Exclusion is now the union (360 symbols) and the universe version records both lists: `ex_non_equity_v1:<hash>+non_equity_official_v1:<hash>`.
+  SKYGOLD, SHANTIGOLD, GOLDIAM and PNBGILTS are operating companies and remain in. ISIN/scheme verification beyond the ETF file (e.g. an equity master) would need a further NSE file.
+* **Corrected full-universe research (universe with the provisional exclusions; the 4 extra ETFs are not removed in these two runs, the ATR-neutral experiment runs with the official list):**
+  swing_5d - OOF rank IC +0.172, score 0.913 rank-correlated with low volatility, null +0.0001, long-only net Sharpe at 30 bps -1.73 vs equal-weight -1.59: REJECT. position_20d - IC +0.200,
+  corr with low vol 0.905, null -0.0005; net Sharpe at 10/25/30 bps: model 0.71/0.39/0.28, ATR-residualised 0.63/0.40/0.33, MOP momentum 0.61/0.40/0.33, low-vol 0.61/0.28/0.17, 12-1 momentum 0.38/0.19/0.13,
+  equal-weight 0.24/0.03/-0.04. The model does not beat the simple Tier-1 MOP rule; the harness verdict is KEEP_RESEARCHING at most (DSR 0.81 on N=1). The conclusions of the eighth review stand: removing the
+  ETFs changed no number materially.
+* **Owner account and authentication:** account created for the owner with a generated temporary password written only to `data/secrets/owner_bootstrap.txt` (never printed; must be changed at first sign-in, then the
+  file deleted). `JWT_SECRET` (48 random bytes) and `AUTH_ENFORCED=true` were added to the gitignored `.env`; on the live API every protected route (health excepted) returned 401 anonymously. The test suite
+  now forces `AUTH_ENFORCED=false` unless a test turns it on (`tests/conftest.py`). Not yet: MFA, a documented break-glass procedure, rate limiting beyond the audit-log throttle.
+* **Decision cards** (`qsde/decision/cards.py`, `/api/decision/cards`, web page "Decision cards"): WHAT = the lowest-risk liquid names (defensive bucket >= 4, traded value >= Rs 5 Cr/day, not > 35% below the 120-session high,
+  no name with > 0.55 return correlation to one already chosen); WHERE = venue and segment (NSE cash equity today); HOW MUCH = quantity from a risk budget (stop distance = the registry stop multiplier x EWM volatility;
+  default 0.5% of capital lost if stopped; caps: 8% per name, 1% of daily traded value, regime exposure cap 95/80/50%); TILL WHEN = review date and an exit date after the horizon's sessions, plus stop / regime / bucket
+  triggers. Every card is labelled RESEARCH_ONLY: it is risk allocation, not a forecast; dates are estimates; stops can gap. With the default settings on the 2026-10-16 signal: 13 positions, 80% invested, loss if
+  every stop is hit 2.8% of capital, average pairwise correlation 0.26. 9 unit tests + endpoint test; page verified in a real browser.
+* **Pending:** the bounded ATR-neutral experiment (pre-registered criteria in `scripts/research_resid.py`) is running; BSE; gitleaks and key rotation; Bucket A decisions.
+
 ## Out of scope here
 
 Kite backfill/live (needs a session and the owner's go-ahead for any network call), a verified corporate-actions

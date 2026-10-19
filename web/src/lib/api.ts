@@ -111,3 +111,16 @@ export interface ReportItem { group: string; name: string; title: string; bytes:
 export interface ReportBody { group: string; name: string; markdown: string }
 export interface AdminUser { id: string; email: string; name: string; role: string; status: string; must_change_pw: boolean; last_login_at: string | null; created_at: string }
 export interface AuditRow { id: number; ts: string; user_id: string | null; email: string | null; action: string; ok: boolean; ip: string | null }
+
+export interface DecisionCard {
+  symbol: string; instrument_type: string; venues: string[]; defensive_score: number; risk_bucket: number; last_close: number; daily_vol: number;
+  quantity: number; value: number; weight: number; entry: string; entry_date: string; stop: number; stop_distance: number; loss_if_stopped: number;
+  loss_pct_of_capital: number; sized_by: string; review_by: string; exit_by: string; triggers: string[]; reasons: string[]; warnings: string[]; evidence: string;
+}
+export interface DecisionSummary {
+  as_of: string; regime: string; regime_risk_multiplier: number; exposure_cap: number; horizon: string; horizon_sessions: number; entry_date: string; exit_by: string;
+  dates_are_estimates: boolean; capital: number; positions: number; invested: number; invested_pct: number; cash: number; largest_weight: number;
+  average_pairwise_correlation: number | null; loss_if_all_stopped: number; loss_if_all_stopped_pct: number; candidates_considered: number;
+  skipped: [string, string][]; evidence: string; notes: string[];
+}
+export interface DecisionBook { cards: DecisionCard[]; summary: DecisionSummary; disclaimer: string }

@@ -5,6 +5,7 @@ import { useAuth } from "./lib/auth";
 import { Admin } from "./pages/Admin";
 import { ChangePassword, Login } from "./pages/Auth";
 import { Dashboard } from "./pages/Dashboard";
+import { Decision } from "./pages/Decision";
 import { Defensive } from "./pages/Defensive";
 import { ReportView, Research } from "./pages/Research";
 import { System } from "./pages/System";
@@ -26,6 +27,7 @@ export default function App() {
       <Route path="/change-password" element={<ChangePassword />} />
       <Route element={<Guard><Shell /></Guard>}>
         <Route index element={<Dashboard />} />
+        <Route path="decision" element={<Decision />} />
         <Route path="defensive" element={<Defensive />} />
         <Route path="research" element={<Research />} />
         <Route path="research/:group/:name" element={<ReportView />} />

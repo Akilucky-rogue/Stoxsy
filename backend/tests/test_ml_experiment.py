@@ -157,7 +157,7 @@ def test_non_equity_instruments_are_dropped_and_recorded_in_the_universe_version
     snap = type("S", (), {"snapshot_id": "snap-test", "universe_version": "uni-x", "dataset_hash": "ab" * 32})()
     kw = dict(feats=pd.concat([feats, extra]), prices=p2, exclusions=pd.DataFrame(columns=["symbol", "ex_date"]), snapshot=snap)
     ds = build_labelled_dataset("swing_5d", **kw)
-    assert "LIQUIDCASE" not in set(ds.frame["symbol"]) and "|ex_non_equity_v1:" in ds.universe_version
+    assert "LIQUIDCASE" not in set(ds.frame["symbol"]) and "|ex_non_equity_v1:" in ds.universe_version and "non_equity_official_v1:" in ds.universe_version
     assert any("non-equity instruments excluded" in n for n in ds.notes)
     ds2 = build_labelled_dataset("swing_5d", exclude_non_equity=False, **kw)
     assert "LIQUIDCASE" in set(ds2.frame["symbol"]) and "ex_non_equity" not in ds2.universe_version

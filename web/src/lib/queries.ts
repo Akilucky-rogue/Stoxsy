@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { api, type AdminUser, type AuditRow, type DefensiveLatest, type ReportBody, type ReportItem, type SystemStatus } from "./api";
+import { api, type AdminUser, type DecisionBook, type AuditRow, type DefensiveLatest, type ReportBody, type ReportItem, type SystemStatus } from "./api";
 
 const stale = 60_000;
 
@@ -22,3 +22,11 @@ export const useReport = (group: string, name: string) =>
 
 export const useUsers = () => useQuery({ queryKey: ["admin-users"], queryFn: () => api<AdminUser[]>("/api/admin/users") });
 export const useAudit = () => useQuery({ queryKey: ["admin-audit"], queryFn: () => api<AuditRow[]>("/api/admin/audit?limit=100") });
+
+export interface DecisionParams { capital: number; risk: number; horizon: string; maxPositions: number; minBucket: number }
+export const useDecision = (p: DecisionParams) =>
+  useQuery({
+    queryKey: ["decision", p],
+    queryFn: () => api<DecisionBook>(`/api/decision/cards?capital=${p.capital}&risk_per_position=${p.risk}&horizon=${p.horizon}&max_positions=${p.maxPositions}&min_bucket=${p.minBucket}`),
+    staleTime: 30_000,
+  });

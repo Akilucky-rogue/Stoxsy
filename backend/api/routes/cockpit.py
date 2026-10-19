@@ -164,3 +164,30 @@ def research_report(group: str, name: str):
     if REPORT_DIRS[group].resolve() not in p.parents or not p.is_file():
         raise HTTPException(status_code=404, detail="report not found")
     return ReportBody(group=group, name=name, markdown=p.read_text(encoding="utf-8", errors="replace"))
+
+
+# ── decision cards: what / where / how much / till when ─────────────
+
+class DecisionBook(BaseModel):
+    cards: list[dict]
+    summary: dict
+    disclaimer: str = DISCLAIMER
+
+
+@router.get("/decision/cards", response_model=DecisionBook)
+def decision_cards(capital: float = Query(1_500_000, ge=50_000, le=1_000_000_000), risk_per_position: float = Query(0.005, ge=0.001, le=0.03),
+                   max_position: float = Query(0.08, ge=0.01, le=0.25), max_positions: int = Query(20, ge=1, le=60),
+                   horizon: str = Query("position_20d", pattern="^(swing_5d|position_20d)$"), min_bucket: int = Query(4, ge=3, le=5)):
+    from qsde.decision.cards import PortfolioParams, build_cards
+    from qsde.ml import data as mldata
+
+    if not SIGNAL.exists():
+        raise HTTPException(status_code=404, detail="no defensive signal has been computed yet (scripts/defensive_eval.py --latest)")
+    sc = pd.read_parquet(SIGNAL)
+    sc["date"] = pd.to_datetime(sc["date"])
+    p = PortfolioParams(capital=capital, risk_per_position=risk_per_position, max_position=max_position, max_positions=max_positions,
+                        horizon=horizon, min_bucket=min_bucket)
+    cand = sc[(sc["risk_bucket"] >= min_bucket) & (sc["liq"] >= p.min_traded_value)]["symbol"].tolist()
+    start = str((sc["date"].iloc[0] - pd.Timedelta(days=700)).date())
+    px = mldata.load_prices(cand, start=start)[["symbol", "date", "close"]]
+    return DecisionBook(**build_cards(sc, px, p))

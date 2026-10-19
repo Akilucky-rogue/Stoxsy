@@ -59,3 +59,22 @@ def test_system_status_shape(client):
     j = r.json()
     assert {"database", "ohlcv_latest", "auth_enforced", "promotion_enabled", "current_snapshots", "adjustment_series"} <= set(j)
     assert j["promotion_enabled"] is False and j["scheduled_downloads_enabled"] is False
+
+
+def test_decision_cards_endpoint_validates_parameters_and_returns_a_typed_book(client, monkeypatch):
+    import numpy as np
+    from qsde.ml import data as mldata
+    dates = pd.bdate_range(end=pd.Timestamp("2026-10-16"), periods=300)
+    rng = np.random.default_rng(1)
+    rows = [pd.DataFrame({"symbol": s, "date": dates, "close": 100 * np.exp(np.cumsum(rng.normal(0, 0.01, len(dates))))}) for s in "ABCDEF"]
+    monkeypatch.setattr(mldata, "load_prices", lambda symbols=None, policy="official", start=None: pd.concat(rows, ignore_index=True))
+    sig = pd.read_parquet(cockpit.SIGNAL).assign(risk_bucket=5, liq=5e9)
+    sig.to_parquet(cockpit.SIGNAL)
+    r = client.get("/api/decision/cards?capital=1000000&risk_per_position=0.005&max_positions=3&horizon=swing_5d")
+    assert r.status_code == 200
+    j = r.json()
+    assert j["summary"]["evidence"] == "RESEARCH_ONLY" and j["summary"]["horizon_sessions"] == 5 and 1 <= len(j["cards"]) <= 3
+    assert all(c["quantity"] >= 1 and c["stop"] < c["last_close"] and c["evidence"] == "RESEARCH_ONLY" for c in j["cards"])
+    assert "not investment advice" in j["disclaimer"]
+    for bad in ("capital=10", "risk_per_position=0.5", "horizon=intraday_1d", "min_bucket=1", "max_positions=999"):
+        assert client.get(f"/api/decision/cards?{bad}").status_code == 422
