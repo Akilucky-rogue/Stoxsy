@@ -433,6 +433,24 @@ files; corporate-actions source evaluation (`docs/CORPORATE_ACTIONS_EVALUATION.m
   every stop is hit 2.8% of capital, average pairwise correlation 0.26. 9 unit tests + endpoint test; page verified in a real browser.
 * **Pending:** the bounded ATR-neutral experiment (pre-registered criteria in `scripts/research_resid.py`) is running; BSE; gitleaks and key rotation; Bucket A decisions.
 
+### Eleventh review (2026-10-19): BSE ingestion foundation, gitleaks, asset-class order
+
+* **Owner decisions:** approve BSE Bhavcopy ingestion; approve the gitleaks download; asset-class order BSE equities -> mutual funds / ETFs -> F&O research data -> commodities / MCX last (no MCX execution, no live orders).
+  Decision cards stay labelled `RESEARCH_ONLY`; Bucket A is decided event by event by the owner.
+* **BSE data (official BSE archive, three formats):** `BhavCopy_BSE_CM_0_0_0_<yyyymmdd>_F_0000.CSV` (UDiFF, from 2024-06; ISIN + ticker), `EQ_ISINCODE_<ddmmyy>.zip` (about 2017-2024; ISIN),
+  `EQ<ddmmyy>_CSV.ZIP` (2016; no ISIN). A non-session day returns an HTML page with status 200, not a 404; the adapter treats that as "no session". First window (2026-10-05..16): 10 sessions, ~5,100 scrips/day,
+  ISIN and ticker on 100% of rows. Raw files are landed first (`data/landing/bse_bhavcopy`), then parsed; `known_at` is publication time for backfilled history.
+* **Design:** BSE is stored in its OWN table `bse_eod_raw` (migration 039, key = BSE scrip code + date), NOT in `eod_raw`: six existing NSE readers (corporate-action rebuild, reconcilers, evidence packs, snapshot
+  provenance counters) select from `eod_raw` and assume NSE, so mixing exchanges there would have silently corrupted them. `stream_run --source bse_bhavcopy` runs it; `--source all` remains the NSE bundle.
+  Cross-listing: `listing_xref` (migration 040) links an NSE symbol and a BSE scrip code by ISIN first, with a labelled weaker `ticker_price` tier (same ticker and closes within 2% on >= 90% of >= 30 shared sessions);
+  `bse_listing_master` classifies each scrip (equity / fund_etf / debt) with its evidence. Separate exchange listings and liquidity are preserved. `scripts/bse_validation_report.py` produces the first milestone report
+  (coverage, ISIN match rate, NSE/BSE price divergence, duplicates, BSE-only symbols).
+* **Known limit:** NSE ISINs are known only for 2016-2020 bhavcopy rows and for symbols with NSE corporate-action records (2,728), so some dual-listed names look "BSE-only" until an NSE equity master (EQUITY_L.csv) is
+  available. That file is another NSE fetch and needs the owner's approval; the report states the BSE-only count with this caveat.
+* **gitleaks 8.30.1** (downloaded from the official release, SHA-256 verified against the release's checksum file; installed at `D:\Stoxsy\tools\gitleaks`): git history (45 commits) - **no leaks**; working tree - only the
+  gitignored local `.env` (the generated JWT secret) and Next.js build caches under `frontend/.next` (generated, gitignored, allow-listed in `.gitleaks.toml` with a reason). A pre-commit hook runs `gitleaks git --staged`.
+  Rotation of the keys named in HANDOVER is still the owner's task; they were never committed to this repository's history.
+
 ## Out of scope here
 
 Kite backfill/live (needs a session and the owner's go-ahead for any network call), a verified corporate-actions
