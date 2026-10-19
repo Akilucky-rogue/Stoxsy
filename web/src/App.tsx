@@ -7,6 +7,7 @@ import { ChangePassword, Login } from "./pages/Auth";
 import { Dashboard } from "./pages/Dashboard";
 import { Decision } from "./pages/Decision";
 import { Defensive } from "./pages/Defensive";
+import { Funds } from "./pages/Funds";
 import { ReportView, Research } from "./pages/Research";
 import { System } from "./pages/System";
 
@@ -29,6 +30,7 @@ export default function App() {
         <Route index element={<Dashboard />} />
         <Route path="decision" element={<Decision />} />
         <Route path="defensive" element={<Defensive />} />
+        <Route path="funds" element={<Funds />} />
         <Route path="research" element={<Research />} />
         <Route path="research/:group/:name" element={<ReportView />} />
         <Route path="system" element={<System />} />

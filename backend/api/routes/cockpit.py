@@ -198,3 +198,81 @@ def decision_cards(capital: float = Query(1_500_000, ge=50_000, le=1_000_000_000
     start = str((sc["date"].iloc[0] - pd.Timedelta(days=700)).date())
     px = mldata.load_prices(cand, start=start)[["symbol", "date", "close"]]
     return DecisionBook(**build_cards(sc, px, p))
+
+
+# ── mutual funds / ETFs (AMFI): a separate asset-class layer ─────────
+
+class FundRow(BaseModel):
+    scheme_code: int
+    name: str
+    amc: Optional[str] = None
+    category: Optional[str] = None
+    asset_class: Optional[str] = None
+    plan: Optional[str] = None
+    option_type: Optional[str] = None
+    is_etf: bool = False
+    is_index: bool = False
+    is_liquid: bool = False
+    is_direct: Optional[bool] = None
+    is_growth: Optional[bool] = None
+    last_nav: Optional[float] = None
+    last_nav_date: Optional[str] = None
+    returns: dict = {}
+    return_basis: str = ""
+
+
+class FundList(BaseModel):
+    n_matching: int
+    rows: list[FundRow]
+    methodology: str
+    disclaimer: str = DISCLAIMER
+
+
+METHOD = ("Cumulative return = NAV(latest) / NAV(on or before latest - horizon) - 1. An annualised figure (CAGR) is shown only from 1Y and is never mixed into the cumulative one. "
+          "A horizon is omitted when the scheme has no NAV that far back. Growth options: a total return after expenses. IDCW / payout options: a price return only (payouts are not in AMFI's NAV file). "
+          "Past NAV performance is not a forecast. Expense ratio, holdings/overlap and AUM are not loaded yet.")
+
+
+@router.get("/funds/schemes", response_model=FundList)
+def fund_schemes(q: Optional[str] = Query(None, max_length=60), asset_class: Optional[str] = Query(None, pattern="^(equity|debt|hybrid|commodity|international|solution|other)$"),
+                 plan: Optional[str] = Query(None, pattern="^(direct|regular)$"), growth_only: bool = True, etf: Optional[bool] = None,
+                 index_only: bool = False, liquid_only: bool = False, active_only: bool = True, limit: int = Query(40, ge=1, le=100)):
+    from qsde.funds.returns import scheme_returns
+
+    where, params = ["TRUE"], {}
+    if q:
+        where.append("(lower(name) LIKE :q OR lower(amc) LIKE :q)")
+        params["q"] = f"%{q.strip().lower()}%"
+    if asset_class:
+        where.append("asset_class = :ac")
+        params["ac"] = asset_class
+    if plan:
+        where.append("is_direct IS " + ("TRUE" if plan == "direct" else "FALSE"))
+    if growth_only:
+        where.append("is_growth IS TRUE")
+    if etf is not None:
+        where.append("is_etf IS " + ("TRUE" if etf else "FALSE"))
+    if index_only:
+        where.append("is_index")
+    if liquid_only:
+        where.append("is_liquid")
+    if active_only:
+        where.append("last_nav_date >= (SELECT max(last_nav_date) FROM mf_scheme_master) - 7")
+    w = " AND ".join(where)
+    n = int(read_sql(f"SELECT count(*) AS n FROM mf_scheme_master WHERE {w}", params=params)["n"].iloc[0])
+    sm = read_sql(f"SELECT * FROM mf_scheme_master WHERE {w} ORDER BY name LIMIT :lim", params={**params, "lim": limit})
+    rows = []
+    if len(sm):
+        codes = [int(c) for c in sm["scheme_code"]]
+        nav = read_sql("SELECT scheme_code, date, nav FROM mf_nav WHERE scheme_code = ANY(:c) AND date >= (SELECT max(date) FROM mf_nav) - 2200 ORDER BY scheme_code, date", params={"c": codes})
+        nav["date"] = pd.to_datetime(nav["date"])
+        series = {c: g.set_index("date")["nav"] for c, g in nav.groupby("scheme_code")}
+        for r in sm.itertuples():
+            s = series.get(int(r.scheme_code))
+            ret = scheme_returns(s) if s is not None and len(s) else {}
+            rows.append(FundRow(scheme_code=int(r.scheme_code), name=r.name, amc=r.amc, category=(r.sub_category or r.broad_category), asset_class=r.asset_class, plan=r.plan,
+                                option_type=r.option_type, is_etf=bool(r.is_etf), is_index=bool(r.is_index), is_liquid=bool(r.is_liquid),
+                                is_direct=None if pd.isna(r.is_direct) else bool(r.is_direct), is_growth=None if pd.isna(r.is_growth) else bool(r.is_growth),
+                                last_nav=None if s is None or not len(s) else float(s.iloc[-1]), last_nav_date=None if s is None or not len(s) else str(s.index[-1].date()),
+                                returns=ret, return_basis="total return after expenses (growth option)" if r.is_growth else "price return only (payouts not included)"))
+    return FundList(n_matching=n, rows=rows, methodology=METHOD)

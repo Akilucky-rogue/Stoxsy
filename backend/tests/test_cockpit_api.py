@@ -78,3 +78,19 @@ def test_decision_cards_endpoint_validates_parameters_and_returns_a_typed_book(c
     assert "not investment advice" in j["disclaimer"]
     for bad in ("capital=10", "risk_per_position=0.5", "horizon=intraday_1d", "min_bucket=1", "max_positions=999"):
         assert client.get(f"/api/decision/cards?{bad}").status_code == 422
+
+
+def test_funds_endpoint_shape_validation_and_basis_labels(client):
+    r = client.get("/api/funds/schemes?limit=5&growth_only=true")
+    assert r.status_code == 200
+    j = r.json()
+    assert j["n_matching"] >= 1 and 1 <= len(j["rows"]) <= 5 and "not a forecast" in j["methodology"] and "not investment advice" in j["disclaimer"]
+    for row in j["rows"]:
+        assert row["return_basis"].startswith("total return") and row["is_growth"] is True
+        for h, x in row["returns"].items():
+            assert (x["annualised"] is None) or h in ("1Y", "3Y", "5Y")                  # never annualise below one year
+    assert client.get("/api/funds/schemes?asset_class=bogus").status_code == 422
+    assert client.get("/api/funds/schemes?plan=other").status_code == 422
+    assert client.get("/api/funds/schemes?limit=1000").status_code == 422
+    idcw = client.get("/api/funds/schemes?limit=3&growth_only=false&q=idcw").json()
+    assert all(x["return_basis"].startswith("price return") for x in idcw["rows"] if x["is_growth"] is not True)

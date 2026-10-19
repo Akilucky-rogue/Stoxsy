@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { api, type AdminUser, type DecisionBook, type AuditRow, type DefensiveLatest, type ReportBody, type ReportItem, type SystemStatus } from "./api";
+import { api, type AdminUser, type DecisionBook, type FundList, type AuditRow, type DefensiveLatest, type ReportBody, type ReportItem, type SystemStatus } from "./api";
 
 const stale = 60_000;
 
@@ -30,3 +30,13 @@ export const useDecision = (p: DecisionParams) =>
     queryFn: () => api<DecisionBook>(`/api/decision/cards?capital=${p.capital}&risk_per_position=${p.risk}&horizon=${p.horizon}&max_positions=${p.maxPositions}&min_bucket=${p.minBucket}`),
     staleTime: 30_000,
   });
+
+export interface FundParams { q: string; assetClass: string; plan: string; growthOnly: boolean; etf: string }
+export const useFunds = (p: FundParams) => {
+  const qs = new URLSearchParams({ limit: "40", growth_only: String(p.growthOnly) });
+  if (p.q) qs.set("q", p.q);
+  if (p.assetClass) qs.set("asset_class", p.assetClass);
+  if (p.plan) qs.set("plan", p.plan);
+  if (p.etf) qs.set("etf", p.etf);
+  return useQuery({ queryKey: ["funds", p], queryFn: () => api<FundList>(`/api/funds/schemes?${qs}`), staleTime: 60_000 });
+};

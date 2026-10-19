@@ -125,3 +125,10 @@ export interface DecisionSummary {
   skipped: [string, string][]; evidence: string; notes: string[];
 }
 export interface DecisionBook { cards: DecisionCard[]; summary: DecisionSummary; disclaimer: string }
+
+export interface FundRow {
+  scheme_code: number; name: string; amc: string | null; category: string | null; asset_class: string | null; plan: string | null; option_type: string | null;
+  is_etf: boolean; is_index: boolean; is_liquid: boolean; is_direct: boolean | null; is_growth: boolean | null; last_nav: number | null; last_nav_date: string | null;
+  returns: Record<string, { cumulative: number; annualised: number | null; start: string; end: string }>; return_basis: string;
+}
+export interface FundList { n_matching: number; rows: FundRow[]; methodology: string; disclaimer: string }
