@@ -76,3 +76,29 @@ def _insert_returning_count(sql: str, params: dict) -> int:
         cur = conn.cursor()
         cur.execute(sql, params)
         return int(cur.rowcount or 0)
+
+
+class PgBseEodSink:
+    """BSE bhavcopy -> bse_eod_raw (its own table; NSE's eod_raw is never touched). Reloading a session replaces its rows."""
+
+    COLS = ("scrip_code", "date", "ticker", "name", "grp", "isin", "open", "high", "low", "close", "last", "prev_close", "volume",
+            "turnover_value", "trades", "source_format", "source_file", "known_at")
+
+    def upsert(self, source: str, df: pd.DataFrame, key_cols: tuple) -> int:
+        import psycopg2.extras
+
+        from qsde.db.connection import get_sync_conn
+
+        if df.empty:
+            return 0
+        rows = []
+        for r in df[list(self.COLS)].itertuples(index=False):
+            rows.append(tuple(None if (v is None or (isinstance(v, float) and v != v) or v is pd.NaT) else
+                              (v.date() if isinstance(v, pd.Timestamp) and c == "date" else v.to_pydatetime() if isinstance(v, pd.Timestamp) else
+                               int(v) if c in ("scrip_code", "volume", "trades") else v)
+                              for c, v in zip(self.COLS, r)))
+        sets = ", ".join(f"{c} = EXCLUDED.{c}" for c in self.COLS if c not in ("scrip_code", "date"))
+        sql = (f"INSERT INTO bse_eod_raw ({', '.join(self.COLS)}) VALUES %s ON CONFLICT (scrip_code, date) DO UPDATE SET {sets}, loaded_at = NOW()")
+        with get_sync_conn() as conn:
+            psycopg2.extras.execute_values(conn.cursor(), sql, rows, page_size=1000)
+        return len(rows)

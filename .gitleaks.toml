@@ -1,0 +1,14 @@
+# Stoxsy secret-scan policy (gitleaks 8.x). Findings are blocking unless allowlisted here WITH a reason.
+title = "stoxsy"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "generated build output (not source, never committed)"
+paths = [
+  '''frontend/\.next/''',
+  '''frontend/node_modules/''',
+  '''web/node_modules/''',
+  '''web/dist/''',
+]
