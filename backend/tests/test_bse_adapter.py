@@ -124,3 +124,23 @@ def test_sink_upserts_by_scrip_and_date_and_replaces_a_reload():
         assert len(got) == 4 and got["close"].eq(777.0).all() and got["isin"].notna().all()
     finally:
         execute_sql("DELETE FROM bse_eod_raw WHERE scrip_code >= 9000000")
+
+
+def test_a_spliced_corrupt_record_is_dropped_counted_and_does_not_fail_the_file():
+    good = old_zip(1600, isin=True)
+    z = zipfile.ZipFile(io.BytesIO(good))
+    text = z.read(z.namelist()[0]).decode().splitlines()
+    spliced = text[:5] + [text[5] + "," + text[6], "6010.00,,INE802B01019,07-Feb-22,,"] + text[7:]       # two rows glued + a stray tail
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zz:
+        zz.writestr("EQ_ISINCODE_070222.CSV", "\n".join(spliced) + "\n")
+    df = bse.parse_bhavcopy(buf.getvalue(), date(2019, 6, 14), "f")
+    assert df.attrs["malformed_lines"] >= 2 and len(df) <= 1600 - 1
+    a = bse.BseBhavcopyAdapter(FakeFetcher({}), now=NOW)
+    item = RawItem(buf.getvalue(), NOW(), None, {"session_date": "2019-06-14", "url": "u"}, "zip")
+    assert a.validate(a.parse(item)) == []                                                                # a stray record is tolerated ...
+    many = text[:5] + [text[i] + "," + text[i + 1] for i in range(5, 60, 2)] + text[61:]
+    buf2 = io.BytesIO()
+    with zipfile.ZipFile(buf2, "w") as zz:
+        zz.writestr("EQ_ISINCODE_070222.CSV", "\n".join(many) + "\n")
+    assert any("malformed" in e for e in a.validate(a.parse(RawItem(buf2.getvalue(), NOW(), None, {"session_date": "2019-06-14", "url": "u"}, "zip"))))   # ... a format change is not

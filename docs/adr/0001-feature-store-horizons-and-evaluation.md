@@ -451,6 +451,24 @@ files; corporate-actions source evaluation (`docs/CORPORATE_ACTIONS_EVALUATION.m
   gitignored local `.env` (the generated JWT secret) and Next.js build caches under `frontend/.next` (generated, gitignored, allow-listed in `.gitleaks.toml` with a reason). A pre-commit hook runs `gitleaks git --staged`.
   Rotation of the keys named in HANDOVER is still the owner's task; they were never committed to this repository's history.
 
+### Twelfth review (2026-10-19): ATR-neutral experiment closed; BSE history loaded and validated
+
+* **Bounded ATR-neutral experiment: REJECT (pre-registered).** Universe with the official ETF exclusion, position_20d, three trials on the real ledger key. Residual IC (OOF score vs the
+  ATR-neutral realised target) +0.086 / +0.082 / +0.087 (t 8.6 / 10.0 / 8.6) with corr(score, -ATR) ~ -0.01..-0.04, so something is left once the low-volatility exposure cannot be learned. But net Sharpe at
+  25 bps was 0.34 / 0.40 / 0.33 against MOP momentum 0.40, low-vol 0.28, 12-1 0.19 (the model never clearly beats the simple Tier-1 rule), and DSR on the real trial count was 0.80 / 0.69 / 0.75 (< 0.95).
+  The pre-registered rule closes the directional-ranker track. It reopens only with new information (new features/data classes such as fundamentals, flows or news with `known_at`), not by re-tuning.
+* **BSE history loaded** (`bse_eod_raw`, official BSE bhavcopy, raw landed first): **2,666 sessions, 2016-01-01 .. 2026-10-16, 9.72M rows, 14,364 scrip codes.** ISIN present on 100% of rows from 2017
+  (6.4% in 2016). Missing BSE sessions against NSE's archive: 1 (2023-10-19). Weekend special sessions (Muhurat 2020-11-14, budget/special Saturdays) needed explicit dates (`--extra-dates`). Two ingestion faults were
+  found and fixed: parallel workers shared one checkpoint file (Windows file lock) and BSE had published a few corrupted/spliced records (2022-02-07, 2022-07-15, 2022-07-22); malformed lines are now skipped, counted and
+  tolerated only up to a stray handful. A transient fetch failure used to look like a holiday; the 11 December-2017 sessions were recovered by an explicit re-fetch, so completeness is checked against NSE's calendar.
+* **Validation milestone** (`data/reports/bse/bse_validation.md`): scrips by rule-based type: equity 6,025, debt 7,547, fund/ETF 780. Cross-listing: ISIN-linked pairs 2,423, weaker ticker+price tier 516; 2,869 of 4,005
+  NSE symbols have a BSE link. Active BSE equities on 2026-10-16: 4,330, of which 2,301 (53%) are linked to NSE and 2,029 are BSE-only (12.3% of the last 60 days' traded value of active BSE equities) - an upper
+  bound until the NSE equity master (ISINs for all NSE symbols) is fetched. NSE-vs-BSE closing prices on ISIN-linked pairs agree to a median 0.12%; 101 pairs have a median gap > 1% and 33 a gap > 10% on some day
+  (listed in `price_divergence.csv`; e.g. DTIL vs BSE 523736 differs by ~80%: an ISIN link that needs review, not a data point to trust). 73 ISINs sit on more than one BSE scrip; 893 scrips changed ISIN over time;
+  171 BSE scrips map to more than one NSE symbol (renames / re-listings): the map is evidence for a security master, not yet one.
+* **Not yet done for BSE:** corporate-action adjustment of BSE prices (BSE-only names have no NSE action source), BSE in the universe / defensive signal / decision cards (cards still say NSE only), the NSE equity
+  master, and review of the divergent pairs. Mutual funds / ETFs (AMFI NAV and scheme data) are next in the owner's order and need the owner's approval of each source.
+
 ## Out of scope here
 
 Kite backfill/live (needs a session and the owner's go-ahead for any network call), a verified corporate-actions

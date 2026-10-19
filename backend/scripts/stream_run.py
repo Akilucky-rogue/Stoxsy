@@ -47,13 +47,13 @@ def _ca_adapter(fetcher, backfill_from, landing):
                                       landed_windows=done)
 
 
-def build(source: str, backfill_from, fetcher, landing=None):
+def build(source: str, backfill_from, fetcher, landing=None, backfill_to=None, extra_dates=()):
     from qsde.stream.adapters.nse import NseBhavcopyAdapter, NseCorporateActionsAdapter, NseSymbolChangeAdapter
 
     from qsde.stream.adapters.bse import BseBhavcopyAdapter
 
     adapters = {
-        "bse_bhavcopy": BseBhavcopyAdapter(fetcher, start_date=backfill_from,
+        "bse_bhavcopy": BseBhavcopyAdapter(fetcher, start_date=backfill_from, end_date=backfill_to, extra_dates=extra_dates,
                                            landed_sessions=landed_sessions(landing, "bse_bhavcopy") if landing is not None else ()),
         "bhavcopy": NseBhavcopyAdapter(fetcher, start_date=backfill_from,
                                        landed_sessions=landed_sessions(landing) if landing is not None else ()),
@@ -93,6 +93,9 @@ def main() -> int:
     ap.add_argument("--enable-network", action="store_true", help="required for any mode that fetches")
     ap.add_argument("--enable-scheduled-downloads", action="store_true", help="required for --mode loop")
     ap.add_argument("--backfill-from", default=None, help="YYYY-MM-DD: first bhavcopy session to fetch (10 sessions per run)")
+    ap.add_argument("--backfill-to", default=None, help="YYYY-MM-DD: last session of a BSE backfill segment (parallel workers)")
+    ap.add_argument("--extra-dates", default=None, help="comma-separated YYYY-MM-DD sessions to fetch regardless of weekday (BSE)")
+    ap.add_argument("--checkpoint-file", default="checkpoints.json", help="parallel workers each need their own checkpoint file")
     ap.add_argument("--backfill-mode", action="store_true", help="stamp known_at as publication time, not fetch time (historical data)")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -113,10 +116,11 @@ def main() -> int:
     STREAM_DIR.mkdir(parents=True, exist_ok=True)
     landing = LandingZone()
     health = PgHealthStore() if args.sink == "db" else JsonHealthStore(STREAM_DIR / "health.json")
-    cps = CheckpointStore(STREAM_DIR / "checkpoints.json")
+    cps = CheckpointStore(STREAM_DIR / args.checkpoint_file)
     alerts = LogAlertSink(STREAM_DIR / "alerts.jsonl")
     bf = date.fromisoformat(args.backfill_from) if args.backfill_from else None
-    adapters = build(args.source, bf, HttpFetcher() if args.enable_network else None, landing)
+    bt = date.fromisoformat(args.backfill_to) if args.backfill_to else None
+    adapters = build(args.source, bf, HttpFetcher() if args.enable_network else None, landing, bt, tuple(date.fromisoformat(x) for x in args.extra_dates.split(',')) if args.extra_dates else ())
     sink = Router(sinks_for(args.sink))
     mode = "backfill" if args.backfill_mode else "live"
 

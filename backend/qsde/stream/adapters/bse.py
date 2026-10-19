@@ -58,11 +58,12 @@ def _num(s) -> pd.Series:
 
 def parse_bhavcopy(payload: bytes, session: Optional[date], source_file: str) -> pd.DataFrame:
     """Any of the three formats -> OUT_COLS (+ event_time). Untraded scrips (zero open/high/low) keep their close and get NaN O/H/L."""
-    if payload[:2] == b"PK":
-        z = zipfile.ZipFile(io.BytesIO(payload))
-        raw = pd.read_csv(z.open(z.namelist()[0]), dtype=str, skipinitialspace=True)
-    else:
-        raw = pd.read_csv(io.BytesIO(payload), dtype=str, skipinitialspace=True)
+    body = zipfile.ZipFile(io.BytesIO(payload)).open(zipfile.ZipFile(io.BytesIO(payload)).namelist()[0]).read() if payload[:2] == b"PK" else payload
+    n_lines = sum(1 for ln in body.splitlines()[1:] if ln.strip())
+    # BSE occasionally publishes a corrupted record (two rows spliced into one line). Lines with too many fields are skipped by the
+    # parser; a short fragment has no scrip code and is dropped below. The number of lost lines is recorded, never hidden.
+    raw = pd.read_csv(io.BytesIO(body), dtype=str, skipinitialspace=True, on_bad_lines="skip")
+    n_parsed = len(raw)
     raw.columns = [c.strip() for c in raw.columns]
     if "TckrSymb" in raw.columns:                                           # UDiFF
         raw = raw[raw.get("FinInstrmTp", "STK").fillna("STK").str.strip().eq("STK") & raw.get("Sgmt", "CM").fillna("CM").str.strip().eq("CM")]
@@ -91,9 +92,12 @@ def parse_bhavcopy(payload: bytes, session: Optional[date], source_file: str) ->
     df["isin"] = df["isin"].where(df["isin"].fillna("").str.match(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$"), None)
     df = df[df["scrip_code"].notna() & df["date"].notna()].copy()
     df["scrip_code"] = df["scrip_code"].astype(int)
+    df.attrs["malformed_lines"] = int(max(n_lines - len(df), 0))
     df["event_time"] = [datetime.combine(d.date(), datetime.min.time().replace(hour=15, minute=30),
                                          tzinfo=timezone(timedelta(hours=5, minutes=30))).astimezone(timezone.utc) for d in df["date"]]
-    return df[OUT_COLS + ["event_time"]]
+    out = df[OUT_COLS + ["event_time"]]
+    out.attrs["malformed_lines"] = df.attrs["malformed_lines"]
+    return out
 
 
 class BseBhavcopyAdapter(SourceAdapter):
@@ -105,23 +109,28 @@ class BseBhavcopyAdapter(SourceAdapter):
     min_rows = 1500                                     # ~2,900 scrips in 2016, ~5,000 now: a short file is a broken fetch
 
     def __init__(self, fetcher=None, now: Callable[[], datetime] = lambda: datetime.now(timezone.utc), start_date: Optional[date] = None,
-                 max_days_per_run: int = 25, landed_sessions=(), min_rows: Optional[int] = None):
+                 max_days_per_run: int = 25, landed_sessions=(), min_rows: Optional[int] = None,
+                 end_date: Optional[date] = None, extra_dates=()):
         self.fetcher = fetcher or HttpFetcher(min_interval_s=1.0)
-        self.now, self.start_date, self.max_days = now, start_date, max_days_per_run
+        self.now, self.start_date, self.max_days, self.end_date = now, start_date, max_days_per_run, end_date
         self.landed = set(landed_sessions)
         self.no_file: set = set()
+        self.extra_dates = set(extra_dates)             # explicit sessions, incl. weekend specials (Muhurat, budget Saturdays)
         if min_rows is not None:
             self.min_rows = min_rows
 
     def _candidate_dates(self, since: Optional[datetime]) -> list:
         now = self.now()
         last = _ist_today(now) if now.astimezone(timezone(timedelta(hours=5, minutes=30))).hour >= IST_CLOSE_HOUR else _ist_today(now) - timedelta(days=1)
+        if self.end_date is not None:
+            last = min(last, self.end_date)                   # a bounded segment: lets a backfill be split across workers
         first = self.start_date or (since.astimezone(timezone(timedelta(hours=5, minutes=30))).date() if since else last)
         d, out = first, []
         while d <= last:
             if d.weekday() < 5 and d not in self.landed and d not in self.no_file:
                 out.append(d)
             d += timedelta(days=1)
+        out += [d for d in sorted(self.extra_dates) if d not in out and d not in self.landed and d not in self.no_file]
         return out[: self.max_days]
 
     def fetch(self, since: Optional[datetime]) -> list:
@@ -158,6 +167,9 @@ class BseBhavcopyAdapter(SourceAdapter):
             return errs + ["empty bse bhavcopy"]
         if len(df) < self.min_rows:
             errs.append(f"only {len(df)} rows (< {self.min_rows}): truncated or wrong file")
+        lost = df.attrs.get("malformed_lines", 0)
+        if lost > max(10, 0.002 * len(df)):
+            errs.append(f"{lost} malformed lines in the published file (more than a stray corrupted record)")
         sess = df.attrs.get("session")
         if sess is not None and (df["date"].dt.date != sess).mean() > 0.5:
             errs.append(f"file for {sess} holds {df['date'].dt.date.mode().iloc[0]}")
