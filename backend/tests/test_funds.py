@@ -127,3 +127,30 @@ def test_older_and_current_amfi_headings_are_mapped_and_ambiguity_is_kept_visibl
     assert odd["fund_group"] == "etf" and odd["asset_class"] == "other" and "underlying" in odd["unclassified_reason"]
     nothing = classify(None, "Mystery Scheme")
     assert nothing["fund_group"] == "unclassified" and nothing["unclassified_reason"]
+
+
+def test_amfi_window_that_returns_a_page_is_split_and_pages_are_not_landed():
+    from datetime import date
+    from qsde.stream.adapters.amfi import AmfiNavAdapter, is_amfi_data
+
+    good = b"Scheme Code;NAV Name;Plan;Option;ISIN Div Payout/ISIN Growth;ISIN Div Reinvestment;Net Asset Value;Date\n"
+    page = b"<!DOCTYPE html><html><head><title>View/Download NAV History</title></head></html>"
+    assert is_amfi_data(good) and not is_amfi_data(page) and not is_amfi_data(b"")
+
+    class F:
+        def __init__(self): self.urls = []
+        def get(self, url):
+            self.urls.append(url)
+            return page if "frmdt=01-Apr-2023&todt=30-Jun-2023" in url else good
+
+    f = F()
+    items = AmfiNavAdapter(f, windows=[(date(2023, 4, 1), date(2023, 6, 30))]).fetch(None)
+    assert len(items) == 2 and all(i.payload == good for i in items)
+    assert items[0].meta["from"] == "2023-04-01" and items[1].meta["to"] == "2023-06-30" and items[0].meta["to"] < items[1].meta["from"]
+    assert len(f.urls) == 3
+
+    class Always:
+        def get(self, url): return page
+    import pytest
+    with pytest.raises(ValueError, match="smallest window"):
+        AmfiNavAdapter(Always(), windows=[(date(2023, 4, 1), date(2023, 4, 20))]).fetch(None)

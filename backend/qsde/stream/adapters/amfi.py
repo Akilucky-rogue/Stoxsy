@@ -33,6 +33,15 @@ def _fmt(d: date) -> str:
     return d.strftime("%d-%b-%Y")
 
 
+def is_amfi_data(payload: bytes) -> bool:
+    """A real AMFI file starts with its column header; for an oversized or failing window the portal answers HTTP 200 with an HTML page."""
+    head = payload[:300].lstrip().lower()
+    return head.startswith(b"scheme code") and (b"nav name" in head or b"scheme name" in head)
+
+
+MIN_SPLIT_DAYS = 7
+
+
 def parse_amfi(payload: bytes) -> pd.DataFrame:
     """History or NAVAll file -> OUT_COLS (+ event_time). Section lines are carried forward as category / AMC."""
     txt = payload.decode("utf-8", errors="replace")
@@ -112,16 +121,26 @@ class AmfiNavAdapter(SourceAdapter):
     def fetch(self, since: Optional[datetime]) -> list:
         if self.navall:
             return [RawItem(self.fetcher.get(URL_NAVALL), self.now(), None, {"url": URL_NAVALL, "kind": "navall"}, "txt")]
-        items = []
-        for a, b in (self.windows or []):
-            if (a, b) in self.landed:
-                continue
+        items: list = []
+
+        def get(a: date, b: date) -> None:
+            """Fetch one window; if the portal answers with a page instead of data, split it in halves (down to a week) and retry each half."""
+            if (a, b) in self.landed or len(items) >= 4:                # bounded work per run: the runner loops until nothing new
+                return
             url = URL_HISTORY.format(a=_fmt(a), b=_fmt(b))
             payload = self.fetcher.get(url)
-            self.landed.add((a, b))
-            items.append(RawItem(payload, self.now(), None, {"url": url, "kind": "history", "from": str(a), "to": str(b)}, "txt"))
-            if len(items) >= 4:                       # bounded work per run: the runner loops until nothing new
-                break
+            if is_amfi_data(payload):
+                self.landed.add((a, b))
+                items.append(RawItem(payload, self.now(), None, {"url": url, "kind": "history", "from": str(a), "to": str(b)}, "txt"))
+                return
+            if (b - a).days < MIN_SPLIT_DAYS:
+                raise ValueError(f"AMFI returned a non-data page for {a}..{b} even at the smallest window")
+            mid = a + (b - a) / 2
+            get(a, mid)
+            get(mid + timedelta(days=1), b)
+
+        for a, b in (self.windows or []):
+            get(a, b)
         return items
 
     def parse(self, item: RawItem) -> pd.DataFrame:

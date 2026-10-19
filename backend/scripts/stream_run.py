@@ -56,7 +56,7 @@ def build(source: str, backfill_from, fetcher, landing=None, backfill_to=None, e
     amfi_done = set()
     if landing is not None:
         for rec in landing.records("amfi_nav"):
-            if rec.meta.get("kind") == "history" and "from" in rec.meta:
+            if rec.meta.get("kind") == "history" and "from" in rec.meta and rec.path.stat().st_size > 100_000:      # a small file is a portal error page, not data
                 amfi_done.add((date.fromisoformat(rec.meta["from"]), date.fromisoformat(rec.meta["to"])))
     adapters = {
         "amfi_nav": AmfiNavAdapter(fetcher, windows=AmfiNavAdapter.quarter_windows(backfill_from, date.today()) if backfill_from else None, landed_windows=amfi_done),
