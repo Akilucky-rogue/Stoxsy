@@ -142,6 +142,11 @@ def main() -> int:
     res = [status(r) for r in xref.itertuples()]
     xref["link_status"], xref["review_reason"] = [s for s, _ in res], [w for _, w in res]
     xref = xref[xref["link_status"].notna()].copy()
+    # a failed pair whose NSE symbol is already verified through ANOTHER BSE scrip is a legacy / secondary scrip: unlinked, but nothing to review
+    ok_syms = xref[xref["link_status"] == "linked_verified"].groupby("nse_symbol")["bse_scrip_code"].apply(list).to_dict()
+    sec = (xref["link_status"] == "unlinked_pending_review") & xref["nse_symbol"].isin(ok_syms)
+    xref.loc[sec, "review_reason"] = xref.loc[sec].apply(lambda r: f"secondary/legacy scrip: {r.nse_symbol} is already linked_verified via BSE scrip {ok_syms[r.nse_symbol][0]} ({r.review_reason})", axis=1)
+    xref.loc[sec, "link_status"] = "unlinked_secondary_scrip"
 
     # review order ------------------------------------------------------------------------------
     d0 = (hi - pd.Timedelta(days=90)).date()
@@ -164,7 +169,7 @@ def main() -> int:
     tv = read_sql("SELECT scrip_code, sum(turnover_value) AS tv FROM bse_eod_raw WHERE date >= CAST(:d AS DATE) GROUP BY 1", params={"d": (hi - pd.Timedelta(days=60)).date()})
     tvm = dict(zip(tv["scrip_code"], tv["tv"]))
     total_tv = max(sum(tvm.get(int(c), 0) for c in active["scrip_code"]), 1)
-    held = set(xref[xref["link_status"] == "unlinked_pending_review"]["bse_scrip_code"])
+    held = set(xref[xref["link_status"].isin(["unlinked_pending_review", "unlinked_secondary_scrip"])]["bse_scrip_code"])
     cats = {"linked (verified or unchecked)": active[active["scrip_code"].isin(usable)],
             "unlinked pending review": active[active["scrip_code"].isin(held) & ~active["scrip_code"].isin(usable)],
             "BSE-only (no NSE ISIN match)": active[~active["scrip_code"].isin(usable | held)]}
@@ -205,7 +210,7 @@ def main() -> int:
          f"- NSE ISIN sources: master {len(master):,} symbols, 2016-2020 bhavcopy {hist['symbol'].nunique():,}, corporate actions {ca['symbol'].nunique():,}; union covers {nse_isin['symbol'].nunique():,} of {len(nse_syms):,} NSE symbols ever loaded", "",
          "## Cross-listing map", "",
          f"- candidate pairs: ISIN {int((xref['link_basis'] == 'isin').sum()):,}, ticker+price {int((xref['link_basis'] == 'ticker_price').sum()):,}",
-         f"- **linked_verified {cnt.get('linked_verified', 0):,}**; linked_unchecked (< {MIN_OVERLAP} shared sessions) {cnt.get('linked_unchecked', 0):,}; **unlinked_pending_review {cnt.get('unlinked_pending_review', 0):,}** "
+         f"- **linked_verified {cnt.get('linked_verified', 0):,}**; linked_unchecked (< {MIN_OVERLAP} shared sessions) {cnt.get('linked_unchecked', 0):,}; unlinked_secondary_scrip {cnt.get('unlinked_secondary_scrip', 0):,} (legacy scrips of already-linked names: no review needed); **unlinked_pending_review {cnt.get('unlinked_pending_review', 0):,}** "
          f"(median close gap > {MEDIAN_GAP_LIMIT:.0%} or any day > {MAX_GAP_LIMIT:.0%} over the last <= {WINDOW} shared sessions)",
          f"- NSE master symbols with no BSE link at all: {len(master_without_bse):,}", "",
          f"## Active BSE equities on {last_day} ({len(active):,}) and their traded value (last 60 days)", "", "| status | scrips | share of traded value |", "|---|---|---|"]

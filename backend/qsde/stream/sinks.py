@@ -134,10 +134,10 @@ class PgMfNavSink:
             for r in last.itertuples(index=False):
                 c = classify(r.category_raw, r.name, r.plan, r.option_type)
                 sch.append((int(r.scheme_code), r.name, r.amc, r.category_raw, c["scheme_type"], c["broad_category"], c["sub_category"], r.plan, r.option_type, r.isin_a, r.isin_b,
-                            c["asset_class"], c["is_etf"], c["is_index"], c["is_liquid"], c["is_fof"], c["is_direct"], c["is_growth"], c["classification_evidence"],
+                            c["asset_class"], c["is_etf"], c["is_index"], c["is_liquid"], c["is_fof"], c["is_direct"], c["is_growth"], c["classification_evidence"], c["fund_group"], c["unclassified_reason"],
                             rng.loc[r.scheme_code, "min"].date(), rng.loc[r.scheme_code, "max"].date()))
             psycopg2.extras.execute_values(cur, """INSERT INTO mf_scheme_master (scheme_code, name, amc, category_raw, scheme_type, broad_category, sub_category, plan, option_type,
-                isin_growth_or_payout, isin_reinvest, asset_class, is_etf, is_index, is_liquid, is_fof, is_direct, is_growth, classification_evidence, first_nav_date, last_nav_date) VALUES %s
+                isin_growth_or_payout, isin_reinvest, asset_class, is_etf, is_index, is_liquid, is_fof, is_direct, is_growth, classification_evidence, fund_group, unclassified_reason, first_nav_date, last_nav_date) VALUES %s
                 ON CONFLICT (scheme_code) DO UPDATE SET
                   name = CASE WHEN EXCLUDED.last_nav_date >= mf_scheme_master.last_nav_date THEN EXCLUDED.name ELSE mf_scheme_master.name END,
                   amc = COALESCE(EXCLUDED.amc, mf_scheme_master.amc), category_raw = COALESCE(EXCLUDED.category_raw, mf_scheme_master.category_raw),
@@ -148,7 +148,7 @@ class PgMfNavSink:
                   isin_reinvest = COALESCE(EXCLUDED.isin_reinvest, mf_scheme_master.isin_reinvest),
                   asset_class = EXCLUDED.asset_class, is_etf = EXCLUDED.is_etf, is_index = EXCLUDED.is_index, is_liquid = EXCLUDED.is_liquid, is_fof = EXCLUDED.is_fof,
                   is_direct = COALESCE(EXCLUDED.is_direct, mf_scheme_master.is_direct), is_growth = COALESCE(EXCLUDED.is_growth, mf_scheme_master.is_growth),
-                  classification_evidence = EXCLUDED.classification_evidence,
+                  classification_evidence = EXCLUDED.classification_evidence, fund_group = EXCLUDED.fund_group, unclassified_reason = EXCLUDED.unclassified_reason,
                   first_nav_date = LEAST(mf_scheme_master.first_nav_date, EXCLUDED.first_nav_date), last_nav_date = GREATEST(mf_scheme_master.last_nav_date, EXCLUDED.last_nav_date),
                   updated_at = NOW()""", sch, page_size=2000)
         return len(nav)

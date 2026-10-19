@@ -107,3 +107,23 @@ def test_risk_metrics_drawdown_and_volatility():
     m = risk_metrics(s, window_days=2000)
     assert m["max_drawdown"] == pytest.approx(-0.5, abs=0.01) and m["ann_volatility"] > 0 and m["observations"] > 1000
     assert risk_metrics(nav_series(n=30)) == {}
+
+
+def test_older_and_current_amfi_headings_are_mapped_and_ambiguity_is_kept_visible():
+    d = classify("Open Ended Schemes ( Income/Debt Oriented Schemes - Liquid Fund )", "X Liquid Fund", "Regular Plan", "Growth Option")
+    assert (d["asset_class"], d["fund_group"]) == ("debt", "liquid_or_overnight")
+    ie = classify("Open Ended Schemes(Index Funds - Equity Funds)", "ABC Nifty 50 Index Fund")
+    idb = classify("Open Ended Schemes(Index Funds - Debt Funds)", "ABC Gilt Index Fund")
+    assert (ie["asset_class"], ie["fund_group"]) == ("equity", "index_fund") and (idb["asset_class"], idb["fund_group"]) == ("debt", "index_fund")
+    fof = classify("Open Ended Schemes(Fund of Funds Scheme (Domestic) - Fund of Funds Scheme (Domestic))", "ABC Multi Asset Allocator FoF")
+    assert fof["fund_group"] == "fund_of_funds" and fof["is_fof"] is True
+    arb = classify("Open Ended Schemes ( Income/Debt Oriented Schemes - Arbitrage Fund )", "ABC Arbitrage Fund")
+    assert (arb["asset_class"], arb["fund_group"]) == ("hybrid", "arbitrage")
+    fmp = classify("Close Ended Schemes ( Income )", "ABC Fixed Term Plan - Series 42")
+    assert fmp["fund_group"] == "fixed_term" and fmp["scheme_type"] == "Close Ended"
+    assert classify("Close Ended Schemes ( Growth )", "ABC Equity Opportunities Series 1")["fund_group"] == "closed_end"
+    assert classify("Interval Fund ( Income )", "ABC Interval Fund")["fund_group"] == "interval"
+    odd = classify("Other Scheme - Other ETFs", "XYZ Thematic ETF")                      # vehicle known, underlying not
+    assert odd["fund_group"] == "etf" and odd["asset_class"] == "other" and "underlying" in odd["unclassified_reason"]
+    nothing = classify(None, "Mystery Scheme")
+    assert nothing["fund_group"] == "unclassified" and nothing["unclassified_reason"]
