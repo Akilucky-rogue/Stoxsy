@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { api, type AdminUser, type DecisionBook, type FundList, type AuditRow, type DefensiveLatest, type ReportBody, type ReportItem, type SystemStatus } from "./api";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { api, post, ApiError, type ImportResult, type PortfolioSummary, type AdminUser, type DecisionBook, type FundList, type AuditRow, type DefensiveLatest, type ReportBody, type ReportItem, type SystemStatus } from "./api";
 
 const stale = 60_000;
 
@@ -39,4 +39,19 @@ export const useFunds = (p: FundParams) => {
   if (p.plan) qs.set("plan", p.plan);
   if (p.etf) qs.set("etf", p.etf);
   return useQuery({ queryKey: ["funds", p], queryFn: () => api<FundList>(`/api/funds/schemes?${qs}`), staleTime: 60_000 });
+};
+
+export const usePortfolio = (benchmark: string, lookbackDays: number) =>
+  useQuery({
+    queryKey: ["portfolio", benchmark, lookbackDays],
+    queryFn: () => api<PortfolioSummary | null>(`/api/portfolio/summary?benchmark=${benchmark}&lookback_days=${lookbackDays}`).catch((e) => { if (e instanceof ApiError && e.status === 404) return null; throw e; }),
+    staleTime: stale, retry: false,
+  });
+
+export const useImportHoldings = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (b: { csv_text: string; filename?: string }) => post<ImportResult>("/api/portfolio/import", b),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["portfolio"] }); },
+  });
 };

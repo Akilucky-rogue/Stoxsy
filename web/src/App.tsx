@@ -8,6 +8,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { Decision } from "./pages/Decision";
 import { Defensive } from "./pages/Defensive";
 import { Funds } from "./pages/Funds";
+import { Portfolio } from "./pages/Portfolio";
 import { ReportView, Research } from "./pages/Research";
 import { System } from "./pages/System";
 
@@ -28,6 +29,7 @@ export default function App() {
       <Route path="/change-password" element={<ChangePassword />} />
       <Route element={<Guard><Shell /></Guard>}>
         <Route index element={<Dashboard />} />
+        <Route path="portfolio" element={<Portfolio />} />
         <Route path="decision" element={<Decision />} />
         <Route path="defensive" element={<Defensive />} />
         <Route path="funds" element={<Funds />} />

@@ -58,6 +58,7 @@ export function Shell() {
         <nav className="nav">
           <div className="group">Overview</div>
           <NavLink to="/" end><Icon name="home" /><span className="txt">Dashboard</span></NavLink>
+          <NavLink to="/portfolio"><Icon name="wallet" /><span className="txt">My portfolio</span></NavLink>
           <NavLink to="/decision"><Icon name="target" /><span className="txt">Decision cards</span></NavLink>
           <NavLink to="/defensive"><Icon name="shield" /><span className="txt">Defensive signal</span></NavLink>
           <div className="group">Funds</div>

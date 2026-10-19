@@ -143,3 +143,21 @@ export interface FundRow {
   returns: Record<string, { cumulative: number; annualised: number | null; start: string; end: string }>; return_basis: string;
 }
 export interface FundList { n_matching: number; rows: FundRow[]; methodology: string; disclaimer: string }
+
+export interface HoldingRow {
+  symbol: string; quantity: number; avg_cost: number; last_price: number | null; price_date: string | null; value: number | null; weight: number | null;
+  pnl: number | null; pnl_pct: number | null; stale: boolean; defensive_bucket: number | null;
+}
+export interface PortfolioHistory {
+  start: string; end: string; sessions: number; names_priced: number; names_missing: string[]; total_return: number; ann_volatility: number; max_drawdown: number;
+  current_drawdown: number; var95_1d: number; worst_day: number; series: { date: string[]; value: number[]; drawdown: number[] };
+  benchmark?: { total_return: number; ann_volatility: number; max_drawdown: number; beta: number | null; correlation: number | null; series: { date: string[]; value: number[] } };
+}
+export interface PortfolioSummary {
+  import_id: number; imported_at: string; as_of: string | null; holdings: HoldingRow[]; benchmark_label: string | null; notes: string[]; disclaimer: string; history: PortfolioHistory | null;
+  totals: { value: number; cost: number; pnl: number; pnl_pct: number | null; n_holdings: number; n_unpriced: number; n_stale: number; winners: number; losers: number };
+  concentration: { n_positions: number; top1: number | null; top3: number | null; top5: number | null; top10: number | null; hhi: number; effective_n: number | null; limit: number; above_limit: { symbol: string; weight: number }[] };
+  defensive: { available: boolean; scored_share: number; buckets: Record<string, { share: number; names: string[] }> };
+}
+export interface ImportIssue { row: number; symbol: string; severity: string; reason: string }
+export interface ImportResult { import_id: number; n_rows: number; n_accepted: number; n_rejected: number; sha256: string; issues: ImportIssue[]; replaced_previous: boolean }
