@@ -71,8 +71,21 @@ def session_close_ist(d) -> pd.Timestamp:
     return pd.Timestamp(year=t.year, month=t.month, day=t.day, hour=CLOSE_HHMM[0], minute=CLOSE_HHMM[1], tz=IST)
 
 
-def prepare(df: pd.DataFrame, now: Optional[pd.Timestamp] = None) -> pd.DataFrame:
-    """Validate and stamp ids/hashes. Pure: no database access."""
+OPEN_HHMM = (9, 15)
+
+
+def entry_deadline_ist(as_of_date) -> pd.Timestamp:
+    """Latest moment a prediction for `as_of_date` may be logged: the open of the next WEEKDAY session. Exchange holidays make the true entry later, never earlier,
+    so this is the safe (stricter) bound: a prediction logged after it could have seen the entry price."""
+    t = pd.Timestamp(as_of_date).normalize() + pd.Timedelta(days=1)
+    while t.dayofweek >= 5:
+        t += pd.Timedelta(days=1)
+    return pd.Timestamp(year=t.year, month=t.month, day=t.day, hour=OPEN_HHMM[0], minute=OPEN_HHMM[1], tz=IST)
+
+
+def prepare(df: pd.DataFrame, now: Optional[pd.Timestamp] = None, enforce_pre_entry: bool = False) -> pd.DataFrame:
+    """Validate and stamp ids/hashes. Pure: no database access. With enforce_pre_entry, a prediction stamped at or after the next session's open is
+    rejected: the entry price (the open of t+1) would already be known, so it is not a prediction."""
     missing = [c for c in REQUIRED if c not in df.columns]
     if missing:
         raise ValueError(f"prediction frame is missing columns: {missing}")
@@ -95,6 +108,12 @@ def prepare(df: pd.DataFrame, now: Optional[pd.Timestamp] = None) -> pd.DataFram
     if early.any():
         bad = d.loc[early, ["symbol", "as_of_date"]].head(3).to_dict("records")
         raise PITViolation(f"{int(early.sum())} predictions were stamped before the close of their as_of_date, e.g. {bad}")
+    if enforce_pre_entry:
+        deadline = d["as_of_date"].map(lambda x: entry_deadline_ist(x).tz_convert("UTC"))
+        late = pt >= deadline
+        if late.any():
+            bad = d.loc[late, ["symbol", "as_of_date"]].head(3).to_dict("records")
+            raise PITViolation(f"{int(late.sum())} predictions were stamped after the next session's open (the entry price was already known), e.g. {bad}")
     if not np.isfinite(d["score"].astype(float)).all():
         raise ValueError("non-finite score")
     if not d["side"].isin([-1, 1]).all():
@@ -127,12 +146,12 @@ def split_by_existing(prepared: pd.DataFrame, existing: dict[str, str]) -> tuple
 
 # ── database ─────────────────────────────────────────────────────────
 
-def append_predictions(df: pd.DataFrame, now: Optional[pd.Timestamp] = None) -> dict:
+def append_predictions(df: pd.DataFrame, now: Optional[pd.Timestamp] = None, enforce_pre_entry: bool = True) -> dict:
     import psycopg2.extras
 
     from qsde.db.connection import get_sync_conn, read_sql
 
-    p = prepare(df, now=now)
+    p = prepare(df, now=now, enforce_pre_entry=enforce_pre_entry)
     ex = read_sql("SELECT prediction_id, content_hash FROM prediction_log WHERE prediction_id = ANY(:ids)",
                   params={"ids": p["prediction_id"].tolist()})
     new, dup = split_by_existing(p, dict(zip(ex["prediction_id"].str.strip(), ex["content_hash"].str.strip())))

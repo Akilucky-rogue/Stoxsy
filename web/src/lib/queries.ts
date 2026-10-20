@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, post, ApiError, type ImportResult, type PortfolioSummary, type AdminUser, type DecisionBook, type FundList, type FundFacets, type FundDetail, type AuditRow, type DefensiveLatest, type ReportBody, type ReportItem, type SystemStatus } from "./api";
+import { api, post, ApiError, type ImportResult, type PortfolioSummary, type AdminUser, type DecisionBook, type LiveModels, type LiveSummary, type LivePredictionList, type FundList, type FundFacets, type FundDetail, type AuditRow, type DefensiveLatest, type ReportBody, type ReportItem, type SystemStatus } from "./api";
 
 const stale = 60_000;
 
@@ -64,4 +64,16 @@ export const useImportHoldings = () => {
     mutationFn: (b: { csv_text: string; filename?: string }) => post<ImportResult>("/api/portfolio/import", b),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ["portfolio"] }); },
   });
+};
+
+export const useLiveModels = () => useQuery({ queryKey: ["live-models"], queryFn: () => api<LiveModels>("/api/live/models"), staleTime: stale });
+export const useLiveSummary = (model: string | null, horizon: string) =>
+  useQuery({ queryKey: ["live-summary", model, horizon], queryFn: () => api<LiveSummary>(`/api/live/summary?model_version=${encodeURIComponent(model ?? "")}&horizon_id=${horizon}`), enabled: !!model, staleTime: stale });
+export interface LivePredParams { model: string | null; horizon: string; state: string; selectedOnly: boolean; symbol: string; offset: number }
+export const LIVE_PAGE = 25;
+export const useLivePredictions = (p: LivePredParams) => {
+  const qs = new URLSearchParams({ model_version: p.model ?? "", horizon_id: p.horizon, state: p.state, limit: String(LIVE_PAGE), offset: String(p.offset) });
+  if (p.selectedOnly) qs.set("selected_only", "true");
+  if (p.symbol) qs.set("symbol", p.symbol);
+  return useQuery({ queryKey: ["live-pred", p], queryFn: () => api<LivePredictionList>(`/api/live/predictions?${qs}`), enabled: !!p.model, staleTime: stale, placeholderData: (prev) => prev });
 };

@@ -212,3 +212,20 @@ def test_prediction_log_rejects_update_and_delete():
         pass
     except psycopg2.OperationalError:
         pytest.skip("database not reachable")
+
+
+class TestPreEntryGuard:
+    def test_logging_after_the_next_open_is_rejected_and_before_is_accepted(self):
+        d = CAL[100]
+        ok = preds(CAL[100:101])
+        ok["prediction_time"] = ledger.session_close_ist(d) + pd.Timedelta(hours=2)
+        ledger.prepare(ok, enforce_pre_entry=True)                                              # 17:30 same day: before the next open
+        late = ok.copy()
+        late["prediction_time"] = ledger.entry_deadline_ist(d) + pd.Timedelta(minutes=1)
+        with pytest.raises(ledger.PITViolation, match="entry price was already known"):
+            ledger.prepare(late, enforce_pre_entry=True)
+        ledger.prepare(late)                                                                    # the generic validator stays permissive (backfills are labelled elsewhere)
+
+    def test_deadline_skips_weekends(self):
+        fri = pd.Timestamp("2026-10-16")
+        assert ledger.entry_deadline_ist(fri).strftime("%Y-%m-%d %H:%M") == "2026-10-19 09:15"

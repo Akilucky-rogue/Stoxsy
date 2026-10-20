@@ -8,6 +8,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { Decision } from "./pages/Decision";
 import { Defensive } from "./pages/Defensive";
 import { Funds } from "./pages/Funds";
+import { LiveCompare } from "./pages/LiveCompare";
 import { Portfolio } from "./pages/Portfolio";
 import { ReportView, Research } from "./pages/Research";
 import { System } from "./pages/System";
@@ -32,6 +33,7 @@ export default function App() {
         <Route path="portfolio" element={<Portfolio />} />
         <Route path="decision" element={<Decision />} />
         <Route path="defensive" element={<Defensive />} />
+        <Route path="live" element={<LiveCompare />} />
         <Route path="funds" element={<Funds />} />
         <Route path="research" element={<Research />} />
         <Route path="research/:group/:name" element={<ReportView />} />

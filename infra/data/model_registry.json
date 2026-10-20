@@ -1,0 +1,10 @@
+{
+  "version": "model_registry_v1",
+  "note": "State of every model_version that appears in the prediction ledger. Anything not listed is research. Only the owner changes this file; promotion is disabled in the system (QSDE_ML_PROMOTION_ENABLED=false) and a state change here is a recorded decision, never automatic.",
+  "models": {
+    "defensive_cards_v1": {
+      "state": "research",
+      "description": "Defensive risk label (five equal-weight percent ranks) and the decision-card allocation built on it. A risk-reduction signal: it makes no return forecast (no probability or expected return is logged). Logged forward, in shadow, to measure whether the ordering helps net of costs."
+    }
+  }
+}

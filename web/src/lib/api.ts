@@ -172,3 +172,33 @@ export interface PortfolioSummary {
 }
 export interface ImportIssue { row: number; symbol: string; severity: string; reason: string }
 export interface ImportResult { import_id: number; n_rows: number; n_accepted: number; n_rejected: number; sha256: string; issues: ImportIssue[]; replaced_previous: boolean }
+
+export interface LiveModel { model_version: string; state: "research" | "paper" | "approved"; description: string | null; predictions: number; resolved: number; pending: number; first_as_of: string | null; last_as_of: string | null; horizons: string[] }
+export interface LiveModels { models: LiveModel[]; ledger_rules: string[]; disclaimer: string }
+export interface LiveHealth {
+  n_resolved: number; n_dates: number; notes: string[]; kill_switch: string[]; retrain: { trigger: boolean; kinds: string[]; reasons: string[]; suppressed: string | null; action: string } | null;
+  ranking?: { ic_mean: number; ic_hit: number; ic_rolling: number; precision_at_q: number; base_rate: number; lift: number; n_dates: number };
+  economics?: { n_dates: number; net_mean_top?: number; net_mean_universe?: number; excess_mean?: number; hit_rate?: number; profit_factor?: number; max_drawdown_cum?: number };
+  calibration?: { n: number; brier: number; brier_base: number; log_loss: number; slope: number; intercept: number };
+  reliability?: { bin: number; mean_p: number; observed: number; n: number }[];
+  ic_series?: { dates: string[]; values: (number | null)[]; rolling60: (number | null)[] } | null;
+  score_drift?: { psi: number | null; reference: string; current: string; flag: boolean };
+}
+export interface LiveSummary {
+  model_version: string; horizon_id: string; state: string; notes: string[]; disclaimer: string; health: LiveHealth;
+  counts: { logged: number; resolved: number; pending: number; excluded: number; dates: number; first_as_of: string | null; last_as_of: string | null };
+  thresholds: { min_resolved: number; min_dates: number; kill_slope_low: number; kill_drawdown_cum: number; slope_band: number[]; psi_feature: number };
+}
+export interface LiveOutcome {
+  status: "WIN" | "LOSS" | "TIME"; entry_date: string | null; entry_price: number | null; exit_date: string; exit_price: number | null; stop_price: number | null; target_price: number | null;
+  gap_exit: boolean | null; ret_gross: number | null; ret_net: number | null; cost_bps: number | null; excluded: boolean; data_through: string; expected_return: number | null; realized_minus_expected: number | null;
+}
+export interface LivePrediction {
+  prediction_id: string; symbol: string; model_version: string; horizon_id: string; side: number; as_of_date: string; prediction_time: string; state: "pending" | "resolved" | "excluded";
+  score: number | null; rank_pct: number | null; p_win: number | null; expected_return: number | null; ci_low: number | null; ci_high: number | null; position_size: number | null; regime: string | null;
+  ref_price: number | null; sigma: number | null; entry_rule: string; exit_rule: string; cost_model: string; model_state: string;
+  window: { entry_date: string; exit_by: string; sessions: number; estimate: boolean };
+  barriers: { stop_sigmas: number; target_sigmas: number; stop_distance: number | null; target_distance: number | null };
+  lineage: Record<string, string | null>; outcome: LiveOutcome | null;
+}
+export interface LivePredictionList { n_matching: number; offset: number; rows: LivePrediction[]; disclaimer: string }

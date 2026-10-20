@@ -60,6 +60,7 @@ export function Shell() {
           <NavLink to="/" end><Icon name="home" /><span className="txt">Dashboard</span></NavLink>
           <NavLink to="/portfolio"><Icon name="wallet" /><span className="txt">My portfolio</span></NavLink>
           <NavLink to="/decision"><Icon name="target" /><span className="txt">Decision cards</span></NavLink>
+          <NavLink to="/live"><Icon name="pulse" /><span className="txt">Live compare</span></NavLink>
           <NavLink to="/defensive"><Icon name="shield" /><span className="txt">Defensive signal</span></NavLink>
           <div className="group">Funds</div>
           <NavLink to="/funds"><Icon name="layers" /><span className="txt">Mutual funds &amp; ETFs</span></NavLink>
