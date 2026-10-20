@@ -526,6 +526,28 @@ files; corporate-actions source evaluation (`docs/CORPORATE_ACTIONS_EVALUATION.m
 * **Daily routine after the end-of-day load:** `scripts/defensive_eval.py --latest`, then `scripts/log_cards.py` (before the next open), `scripts/live_loop.py resolve`, `scripts/fund_snapshot.py`, `scripts/run_alerts.py`.
 * **Still open for the owner:** Bucket A decisions, key rotation, the push, the F&O source (Kite after login, plus a historical-chain archive source) and a BSE corporate-action source.
 
+### Fifteenth review (2026-10-20): Bucket A decisions, price-series truth, BSE actions, NSE F&O archive
+
+* **Finding: two corporate-action truths.** The official `ohlcv` series (what the cards, defensive signal, portfolio page, outcome resolver and fund benchmark read) applies 666 NSE-source-confirmed events, including all 69 Bucket A
+  events; the governed registry `sbadj_v1` (508 events) excludes Bucket A and nothing reads it. By exact (symbol, ex-date) key, 210 events are applied in `ohlcv` but not in the registry (69 Bucket A, 137 `needs_review`, 2 rejected,
+  the rest unmatched) and 52 registry events are not applied in `ohlcv`. The decision-card transparency text had wrongly described `sbadj_v1` as the series in use: corrected.
+* **Owner decision:** keep `ohlcv` unchanged until all 69 Bucket A events are individually adjudicated (excluding them now would create false cliffs, e.g. a 90% drop in TATAINVEST inside today's lookback);
+  then reconcile the registry with the approved set, rebuild `ohlcv` ONCE, version the result, retain the prior series, and produce before/after cliff and return-continuity reports. Until then `ohlcv` is labelled
+  `official_prices_with_pending_corp_action_review` and `sbadj_v1` `governed_research_series_not_production` (System page, transparency panel, alerts). Decisions are recorded in
+  `infra/data/corp_action_bucket_a_decisions.json` (the hard bounds of `owner_approved` are not weakened): **6 confirm** (ENGINERSIN, BEL, ASTRAL, INOXWIND, CUB, TATAINVEST), **4 hold** (BLS x2, RITES, JINDWORLD), 59 pending
+  (packet generated: 26 confirm / 29 needs_more_evidence / 4 reject recommended). The prediction-ledger lineage for the shadow model now names the `ohlcv` state, not the registry (changed before the first prediction was logged).
+* **BSE corporate actions.** BSE's JSON API rejects automated clients (HTTP 403, bot protection): not circumvented. Evidence-first pipeline for BSE's own export, downloaded by the owner: raw landing (SHA-256, `known_at`), parse with
+  every bad row reported, content-hashed storage, reconciliation with the NSE v3 hard bounds into confirmed / needs_review / rejected, nothing adjusted (migration 048). The first real file is refused until its column mapping has
+  been reviewed in a dry run (the mapping was written without seeing BSE's actual file). BSE adjusted prices come only after validation and owner approval; BSE-only names stay out of universe, signal and cards.
+* **NSE F&O archive** (migration 049): the official derivatives bhavcopy carries every listed contract and strike per session, so it is a full historical chain (not only expiry level). Two formats (legacy through 2024-07-05, UDiFF from
+  2024-06-28; on their six overlap sessions settlement and open interest agree on 100% of 15-16k contracts). Loaded 2016-01-01 .. 2026-10-19: **2,667 sessions, 35.1M contract rows** (idle contracts with no OI and no volume are
+  counted per session, not stored). Gate: PASS WITH FINDINGS (`data/reports/fno/fno_validation.md`): no integrity violations; NIFTY / BANKNIFTY futures carry open interest every session; expiry weekdays follow the known
+  Thursday-to-Tuesday move; near-month stock-futures basis median +0.20% (52 observations beyond 5%). Gaps: 2021-03-30 has no file in NSE's archive (404); four earlier gaps (three Saturday special sessions and one lost to a network
+  drop) were recovered. Raw prices are not adjusted: NSE re-bases a contract on a corporate action. Implied volatility is not published and will be derived in a labelled research step. Kite (instrument master, expiry calendar, live
+  quotes) is not enabled: no session and no key in `.env`.
+* **Operations:** `scripts/daily_after_close.py` runs the daily routine in order (not yet run end to end on a live day); CI workflow added (`.github/workflows/ci.yml`, not yet run on GitHub); `docs/OWNER_CHECKLIST.md` lists what only the
+  owner can do. gitleaks re-run after the changes: history (58 commits), reports, signals, features and raw landing clean; the only working-tree hit is the local gitignored `.env` JWT secret. Key rotation is the owner's and is pending, so nothing is pushed.
+
 ## Out of scope here
 
 Kite backfill/live (needs a session and the owner's go-ahead for any network call), a verified corporate-actions

@@ -72,12 +72,12 @@ def main() -> int:
     # 4 expiry calendar ----------------------------------------------------------------------------------------------------------------------------------
     ex = read_sql("SELECT DISTINCT expiry_date FROM fno_eod_raw WHERE symbol = 'NIFTY' AND instrument = 'FUTIDX'")
     ex["expiry_date"] = pd.to_datetime(ex["expiry_date"])
-    wk = ex.groupby(ex["expiry_date"].dt.year)["expiry_date"].apply(lambda s: s.dt.day_name().value_counts().to_dict())
+    wk = {int(y): g["expiry_date"].dt.day_name().value_counts().to_dict() for y, g in ex.groupby(ex["expiry_date"].dt.year)}
     weekend = ex[ex["expiry_date"].dt.dayofweek >= 5]
     if len(weekend):
         findings.append(("warn", f"{len(weekend)} NIFTY futures expiries fall on a weekend"))
     L += ["## 4. Expiry calendar (NIFTY index futures)", "", f"- distinct monthly expiries seen: {len(ex)}; on a weekend: **{len(weekend)}**",
-          "- weekday of expiry by year (NSE moved NIFTY monthly expiry from Thursday to Tuesday in 2025): " + "; ".join(f"{y}: " + ", ".join(f"{k} {v}" for k, v in d.items()) for y, d in wk.groupby(level=0).apply(lambda s: s.iloc[0]).items()), ""]
+          "- weekday of expiry by year (NSE moved NIFTY monthly expiry from Thursday to Tuesday in 2025): " + "; ".join(f"{y}: " + ", ".join(f"{k} {v}" for k, v in d.items()) for y, d in wk.items()), ""]
 
     # 5 futures vs underlying (UDiFF only carries the underlying price) -------------------------------------------------------------------------------
     basis = read_sql("""SELECT f.trade_date, f.symbol, f.settle AS fut, f.underlying_price AS und FROM fno_eod_raw f WHERE f.instrument = 'FUTSTK' AND f.underlying_price > 0 AND f.settle > 0
