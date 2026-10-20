@@ -3,6 +3,7 @@ import { Shell } from "./components/Shell";
 import { Skeleton } from "./components/ui";
 import { useAuth } from "./lib/auth";
 import { Admin } from "./pages/Admin";
+import { Alerts } from "./pages/Alerts";
 import { ChangePassword, Login } from "./pages/Auth";
 import { Dashboard } from "./pages/Dashboard";
 import { Decision } from "./pages/Decision";
@@ -33,6 +34,7 @@ export default function App() {
         <Route path="portfolio" element={<Portfolio />} />
         <Route path="decision" element={<Decision />} />
         <Route path="defensive" element={<Defensive />} />
+        <Route path="alerts" element={<Alerts />} />
         <Route path="live" element={<LiveCompare />} />
         <Route path="funds" element={<Funds />} />
         <Route path="research" element={<Research />} />

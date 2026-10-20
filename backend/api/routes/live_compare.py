@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from qsde.db.connection import read_sql
 from qsde.live_loop import view
+from qsde.live_loop.queries import load_counts, load_joined
 from qsde.live_loop.monitor import Thresholds
 
 router = APIRouter()
@@ -69,22 +70,6 @@ class Summary(BaseModel):
     thresholds: dict
     notes: list[str]
     disclaimer: str = DISCLAIMER
-
-
-def load_joined(model_version: str, horizon_id: str) -> pd.DataFrame:
-    """Resolved predictions with their outcomes (inner join: an unresolved prediction has no outcome row and is not here)."""
-    return read_sql("""SELECT p.*, o.entry_date, o.status, o.exit_date, o.ret_gross, o.ret_net, o.cost_bps, o.excluded, o.data_through
-                       FROM prediction_log p JOIN prediction_outcomes o USING (prediction_id) WHERE p.model_version = :m AND p.horizon_id = :h""",
-                    params={"m": model_version, "h": horizon_id})
-
-
-def load_counts(model_version: str, horizon_id: str) -> dict:
-    d = read_sql("""SELECT count(*) AS logged, count(o.prediction_id) AS resolved, count(*) FILTER (WHERE o.excluded) AS excluded, count(DISTINCT p.as_of_date) AS dates,
-                           min(p.as_of_date) AS first_as_of, max(p.as_of_date) AS last_as_of FROM prediction_log p LEFT JOIN prediction_outcomes o USING (prediction_id)
-                    WHERE p.model_version = :m AND p.horizon_id = :h""", params={"m": model_version, "h": horizon_id}).iloc[0]
-    return {"logged": int(d["logged"]), "resolved": int(d["resolved"]), "pending": int(d["logged"]) - int(d["resolved"]), "excluded": int(d["excluded"]), "dates": int(d["dates"]),
-            "first_as_of": None if pd.isna(d["first_as_of"]) else str(pd.Timestamp(d["first_as_of"]).date()),
-            "last_as_of": None if pd.isna(d["last_as_of"]) else str(pd.Timestamp(d["last_as_of"]).date())}
 
 
 @router.get("/live/summary", response_model=Summary)

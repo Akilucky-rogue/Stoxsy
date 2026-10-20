@@ -202,3 +202,11 @@ export interface LivePrediction {
   lineage: Record<string, string | null>; outcome: LiveOutcome | null;
 }
 export interface LivePredictionList { n_matching: number; offset: number; rows: LivePrediction[]; disclaimer: string }
+
+export interface AlertRow {
+  id: number; scope: "system" | "you"; rule_id: string; severity: "info" | "warning" | "critical"; state: "open" | "acknowledged" | "resolved"; title: string; detail: string;
+  entity_type: string | null; entity_id: string | null; first_seen: string; last_seen: string; occurrences: number; acked_by: string | null; acked_at: string | null;
+  resolved_at: string | null; resolved_why: string | null; payload: Record<string, unknown>;
+}
+export interface AlertList { n_matching: number; offset: number; rows: AlertRow[]; last_run: string | null }
+export interface AlertSummary { open: { critical: number; warning: number; info: number }; acknowledged: number; last_run: string | null; stale: boolean }

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, post, ApiError, type ImportResult, type PortfolioSummary, type AdminUser, type DecisionBook, type LiveModels, type LiveSummary, type LivePredictionList, type FundList, type FundFacets, type FundDetail, type AuditRow, type DefensiveLatest, type ReportBody, type ReportItem, type SystemStatus } from "./api";
+import { api, post, ApiError, type ImportResult, type PortfolioSummary, type AdminUser, type DecisionBook, type AlertList, type AlertSummary, type LiveModels, type LiveSummary, type LivePredictionList, type FundList, type FundFacets, type FundDetail, type AuditRow, type DefensiveLatest, type ReportBody, type ReportItem, type SystemStatus } from "./api";
 
 const stale = 60_000;
 
@@ -76,4 +76,22 @@ export const useLivePredictions = (p: LivePredParams) => {
   if (p.selectedOnly) qs.set("selected_only", "true");
   if (p.symbol) qs.set("symbol", p.symbol);
   return useQuery({ queryKey: ["live-pred", p], queryFn: () => api<LivePredictionList>(`/api/live/predictions?${qs}`), enabled: !!p.model, staleTime: stale, placeholderData: (prev) => prev });
+};
+
+export const useAlertSummary = () => useQuery({ queryKey: ["alert-summary"], queryFn: () => api<AlertSummary>("/api/alerts/summary"), staleTime: 60_000, refetchInterval: 5 * 60_000, retry: false });
+export const useAlerts = (state: string, severity: string) =>
+  useQuery({ queryKey: ["alerts", state, severity], queryFn: () => api<AlertList>(`/api/alerts?state=${state}${severity ? `&severity=${severity}` : ""}&limit=200`), staleTime: 30_000 });
+export const useRefreshAlerts = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => post<{ evaluated: string[]; skipped_global: boolean; errors: unknown[] }>("/api/alerts/refresh"),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["alerts"] }); void qc.invalidateQueries({ queryKey: ["alert-summary"] }); },
+  });
+};
+export const useAcknowledgeAlert = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => post<{ acknowledged: number }>(`/api/alerts/${id}/acknowledge`),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["alerts"] }); void qc.invalidateQueries({ queryKey: ["alert-summary"] }); },
+  });
 };

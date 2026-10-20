@@ -1,0 +1,24 @@
+{
+  "version": "alert_rules_v1",
+  "note": "Thresholds for the in-app alert rules. Edited by the owner only; every alert states the threshold it crossed.",
+  "data_staleness": {
+    "nse_weekdays_warn": 2, "nse_weekdays_critical": 4,
+    "bse_weekdays_warn": 2, "bse_weekdays_critical": 4,
+    "amfi_days_warn": 3, "amfi_days_critical": 7,
+    "after_hours_ist": 20
+  },
+  "source_health": { "failures_warn": 1, "failures_critical": 3 },
+  "corporate_actions": {
+    "upcoming_window_days_before": 5, "upcoming_window_days_after": 7,
+    "unreviewed_research_only_warn": 1, "candidates_open_warn": 1
+  },
+  "models": { "missed_log_warn_hours_after_deadline": 0 },
+  "portfolio": {
+    "single_name_warn": 0.15, "single_name_critical": 0.25,
+    "top5_warn": 0.60,
+    "avg_pairwise_correlation_warn": 0.60, "min_names_for_correlation": 4, "correlation_lookback_sessions": 250,
+    "drawdown_warn": -0.15, "drawdown_critical": -0.25,
+    "high_risk_share_warn": 0.40
+  },
+  "kite": { "expiry_warn_hours": 2 }
+}

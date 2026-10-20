@@ -503,6 +503,29 @@ files; corporate-actions source evaluation (`docs/CORPORATE_ACTIONS_EVALUATION.m
   whose window contains such a move is dropped rather than reported (`MAX_DAILY_MOVE`); annualised figures only from 1Y; IDCW and ETF lines are labelled price return.
 * **BSE replay idempotency confirmed:** a second replay of 2,672 landed files left `bse_eod_raw` unchanged (9,720,416 rows; identical sums of close and volume).
 
+### Fourteenth review (2026-10-20): funds page, live compare, alerts
+
+* **Owner order followed:** funds page completion, then live compare, then alerts. Fund analytics stay a separate layer (nothing feeds the equity universe, defensive signal or decision cards); the three IL&FS series with a
+  92-day NAV gap and the 2,305 schemes without a growth/IDCW flag are flagged in the product, not treated as clean.
+* **Funds page.** Derived table `mf_fund_snapshot` (migration 046, rebuilt by `scripts/fund_snapshot.py` after each NAV load; 8,685 active / recent schemes: 7,640 data ok, 944 caution, 101 poor; 3,339 with peer
+  context). Basis labels are explicit and never mixed: `total_return_after_expenses` (growth), `price_return_only` (IDCW / payout), `price_return` (ETF), `option_unknown`. Every horizon carries a status
+  (`ok`, `insufficient_history`, `stale_start`, `nav_discontinuity`) with the reason: no extrapolation. The data-quality badge (ok / caution / poor) comes from unit-change moves, NAV gaps, short history and
+  classification uncertainty. Peer context is like-for-like only (same asset class, category and plan; growth lines, or ETFs of one asset class), needs 8+ peers and excludes `poor` schemes; the benchmark
+  line is the NIFTYBEES ETF price return and is labelled a proxy. Filters: fund house, category, vehicle, plan, growth / IDCW / ETF, status, data quality, sort. Not added (no reliable source): expense ratio,
+  holdings overlap, AUM.
+* **Live compare.** Read-only API and page over the existing append-only ledger: lineage, forecast (only if the model logged one), entry rule, estimated exit window, outcome (shown only after the resolver's
+  data cut-off reached the exit date), realised-vs-expected (only against a logged expectation), rank IC, economics net of the registered cost model, calibration, score drift, kill switch, retrain candidate.
+  New ledger guard: a prediction stamped after the next session's open is rejected (the entry price would already be known). A `model_registry.json` carries the state (`research` / `paper` / `approved`; unknown
+  is `research`). Forward source: `scripts/log_cards.py` logs the whole defensive signal universe per session at 5 and 20 sessions, with the decision-card size, as model `defensive_cards_v1` in shadow mode and
+  with no forecast fields (the model makes no return forecast). Today's signal (2026-10-16) could not be logged: its entry open had passed, so the ledger is empty until the first end-of-day load after this change.
+* **Alerts.** In-app only (migration 047; nothing is sent outside the application, nothing can place an order). Rules in `qsde/alerts/rules.py` with thresholds in `infra/data/alert_rules.json`: data staleness
+  (NSE, BSE, AMFI), source failures, corporate-action state (events applied in research only, unresolved candidates, ex-dates around signal-universe names), model health (kill switch, degradation, score drift,
+  missed / due logging), Kite session, portfolio risk (single-name and top-5 concentration, average correlation, pro-forma drawdown, high-risk share in a risk-off regime), and a visible alert when a check itself
+  cannot run. Alerts are derived: a persisting condition is one alert (refreshed), a cleared condition resolves, an acknowledgement survives refreshes unless the severity worsens. Current open alerts on the real
+  data: 12 unresolved corporate-action candidates, 151 research-only events, logging not started, no Kite session.
+* **Daily routine after the end-of-day load:** `scripts/defensive_eval.py --latest`, then `scripts/log_cards.py` (before the next open), `scripts/live_loop.py resolve`, `scripts/fund_snapshot.py`, `scripts/run_alerts.py`.
+* **Still open for the owner:** Bucket A decisions, key rotation, the push, the F&O source (Kite after login, plus a historical-chain archive source) and a BSE corporate-action source.
+
 ## Out of scope here
 
 Kite backfill/live (needs a session and the owner's go-ahead for any network call), a verified corporate-actions

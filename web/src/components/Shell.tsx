@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../lib/auth";
 import { REGIME_LABEL, regimeTone, shortDate } from "../lib/format";
-import { useDefensive, useSystem } from "../lib/queries";
+import { useAlertSummary, useDefensive, useSystem } from "../lib/queries";
 import { applyPref, nextPref, readPref, type ThemePref } from "../lib/theme";
 import { Chip, Icon, Logo, type Tone } from "./ui";
 
@@ -23,6 +23,20 @@ function ThemeButton() {
     <button className="icon-btn" aria-label={`Theme: ${pref}. Click to change`} title={`Theme: ${pref}`} onClick={() => { const n = nextPref(pref); applyPref(n); setPref(n); }}>
       <Icon name={icon} />
     </button>
+  );
+}
+
+function AlertBell() {
+  const a = useAlertSummary();
+  const o = a.data?.open;
+  const n = o ? o.critical + o.warning : 0;
+  const label = o ? `Alerts: ${o.critical} critical, ${o.warning} warning, ${o.info} info open` : "Alerts";
+  return (
+    <Link to="/alerts" className="icon-btn" aria-label={label} title={label} style={{ position: "relative" }}>
+      <Icon name="bell" />
+      {n > 0 && <span aria-hidden="true" style={{ position: "absolute", top: 2, right: 2, minWidth: 16, height: 16, padding: "0 4px", borderRadius: 8, fontSize: 10, lineHeight: "16px", textAlign: "center", fontWeight: 700,
+        color: "#fff", background: o && o.critical > 0 ? "var(--down)" : "var(--warn)" }}>{n}</span>}
+    </Link>
   );
 }
 
@@ -60,6 +74,7 @@ export function Shell() {
           <NavLink to="/" end><Icon name="home" /><span className="txt">Dashboard</span></NavLink>
           <NavLink to="/portfolio"><Icon name="wallet" /><span className="txt">My portfolio</span></NavLink>
           <NavLink to="/decision"><Icon name="target" /><span className="txt">Decision cards</span></NavLink>
+          <NavLink to="/alerts"><Icon name="bell" /><span className="txt">Alerts</span></NavLink>
           <NavLink to="/live"><Icon name="pulse" /><span className="txt">Live compare</span></NavLink>
           <NavLink to="/defensive"><Icon name="shield" /><span className="txt">Defensive signal</span></NavLink>
           <div className="group">Funds</div>
@@ -84,6 +99,7 @@ export function Shell() {
           <button className="icon-btn menu-btn" aria-label="Open menu" onClick={() => setDrawer(true)}><Icon name="menu" /></button>
           <StatusStrip />
           <div className="spacer" />
+          <AlertBell />
           <ThemeButton />
           {status === "authed" && <button className="icon-btn" aria-label="Sign out" title="Sign out" onClick={() => void logout()}><Icon name="out" /></button>}
         </header>
