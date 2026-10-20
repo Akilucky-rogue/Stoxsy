@@ -65,9 +65,11 @@ def gather(scores: pd.DataFrame, price_last_date: Optional[str]) -> dict:
         sc = series_consistency()
         adj = read_sql("SELECT version, validation_status, n_events, built_at FROM adjustment_runs WHERE kind = 'split_bonus' ORDER BY built_at DESC LIMIT 1")
         row = adj.iloc[0] if len(adj) else None
-        out["corporate_actions"] = {"policy": CA_POLICY, "series": "ohlcv (official: NSE-source-confirmed adjustments)", "validation": "method source_confirmed", "events_applied": sc["applied_in_ohlcv"],
+        from qsde.ingestion import bucket_a_decisions as BA, ca_series
+        out["corporate_actions"] = {"policy": CA_POLICY, "series": f"ohlcv [{ca_series.OHLCV_LABEL}]", "validation": "method source_confirmed", "events_applied": sc["applied_in_ohlcv"],
                                     "built_at": None if row is None else pd.Timestamp(row["built_at"]).isoformat(),
-                                    "governed_registry": {"version": None if row is None else str(row["version"]), "events": sc["registry_events"], "applied_in_ohlcv_not_in_registry": sc["applied_not_in_registry"],
+                                    "bucket_a": BA.progress(),
+                                    "governed_registry": {"label": ca_series.REGISTRY_LABEL, "version": None if row is None else str(row["version"]), "events": sc["registry_events"], "applied_in_ohlcv_not_in_registry": sc["applied_not_in_registry"],
                                                           "in_registry_not_applied_in_ohlcv": sc["registry_not_applied"]}}
     except Exception as ex:      # noqa: BLE001
         out["corporate_actions"] = {"policy": CA_POLICY}

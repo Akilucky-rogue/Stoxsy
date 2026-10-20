@@ -51,6 +51,8 @@ class Export:
     sha256: str
     n_rows: int
     issues: list = field(default_factory=list)
+    mapping: dict = field(default_factory=dict)         # canonical column -> the header found in the file
+    unmatched: list = field(default_factory=list)       # headers in the file that map to nothing (kept in raw_row)
 
     @property
     def n_bad(self) -> int:
@@ -116,7 +118,7 @@ def read_export(payload: bytes, filename: str = "") -> Export:
         rows.append(row)
     if not rows:
         raise ValueError("no valid rows in the file: " + "; ".join(i["reason"] for i in issues[:3]))
-    return Export(pd.DataFrame(rows), sha, int(len(raw)), issues)
+    return Export(pd.DataFrame(rows), sha, int(len(raw)), issues, {k: v for k, v in pick.items() if v}, [c for c in raw.columns if c not in pick.values()])
 
 
 def classify_purpose(purpose: str) -> dict:

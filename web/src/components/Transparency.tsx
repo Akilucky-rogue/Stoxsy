@@ -43,6 +43,12 @@ export function Transparency({ t }: { t: DecisionTransparency }) {
               )}
             </p>
           )}
+          {t.corporate_actions.bucket_a && t.corporate_actions.bucket_a.total != null && (
+            <p className="muted" style={{ fontSize: "0.85rem" }}>
+              Bucket A review: {t.corporate_actions.bucket_a.decided} of {t.corporate_actions.bucket_a.total} events adjudicated ({t.corporate_actions.bucket_a.confirm} confirmed, {t.corporate_actions.bucket_a.needs_more_evidence} held,
+              {" "}{t.corporate_actions.bucket_a.pending} pending). The official series is rebuilt once after all are decided.
+            </p>
+          )}
         </section>
         <section>
           <h3>Risk inputs</h3>

@@ -30,7 +30,8 @@ def collect_global(cfg: dict, now: pd.Timestamp) -> tuple[list, list]:
     f = {"now": now, "data": _gather("data dates", F.data_dates, errors) or {}, "sources": _gather("source health", F.sources, errors) or [],
          "corp_actions": _gather("corporate actions", lambda: F.corp_actions(cfg, now), errors) or {}, "models": _gather("model health", F.models, errors) or [],
          "logging": _gather("prediction logging", F.logging_status, errors) or [], "kite": _gather("kite session", F.kite, errors),
-         "series": _gather("price-series consistency", F.series_consistency, errors), "bse_ca": _gather("BSE corporate actions", F.bse_corporate_actions, errors)}
+         "series": _gather("price-series consistency", F.series_consistency, errors), "bse_ca": _gather("BSE corporate actions", F.bse_corporate_actions, errors),
+         "bucket_a": _gather("Bucket A decisions", F.bucket_a, errors)}
     f["models"] = [{**m, "model_version": m["model_version"], "horizon_id": m["horizon_id"]} for m in f["models"]]
     out = []
     for rule in R.GLOBAL_RULES:

@@ -84,3 +84,10 @@ def test_actions_without_price_bars_need_review_and_a_huge_dividend_does_not_pas
     assert res.loc[1, "classification"] == "needs_review" and "no price bars" in res.loc[1, "reason"]
     assert res.loc[2, "classification"] == "needs_review" and "above 25%" in res.loc[2, "reason"]
     assert res.loc[3, "classification"] == "needs_review" and "could not be read" in res.loc[3, "reason"]
+
+
+def test_the_column_mapping_is_exposed_so_a_person_can_check_it_against_the_real_file():
+    ex = B.read_export(NL.join(["Security Code,Security Name,Ex Date,Purpose,Weird Extra", "500001,A,15 Mar 2024,Bonus issue 1:1,zzz"]).encode())
+    assert ex.mapping["scrip_code"] == "Security Code" and ex.mapping["purpose"] == "Purpose" and ex.mapping["ex_date"] == "Ex Date"
+    assert ex.unmatched == ["Weird Extra"] and "record_date" not in ex.mapping
+    assert ex.frame["raw_row"].iloc[0]["Weird Extra"] == "zzz"

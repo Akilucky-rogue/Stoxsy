@@ -149,3 +149,22 @@ def test_series_mismatch_and_bse_source_rules():
     none = R.rule_bse_corporate_actions({"bse_ca": {"files": 0, "actions": 0, "last_loaded": None}}, CFG)
     assert kinds(none) == [("bse_ca_source", "info")] and "inbox" in none[0]["detail"] and "bse_corporate_actions" in none[0]["detail"]
     assert R.rule_bse_corporate_actions({"bse_ca": {"files": 1, "actions": 400, "last_loaded": NOW}}, CFG) == []
+
+
+def test_bucket_a_progress_alert_and_decisions_file_are_consistent():
+    from qsde.ingestion import bucket_a_decisions as D
+    d = D.load()
+    assert len(d["decisions"]) == 10 and {x["decision"] for x in d["decisions"]} == {"confirm", "needs_more_evidence"}
+    assert [x["symbol"] for x in d["decisions"] if x["decision"] == "confirm"] == ["ENGINERSIN", "BEL", "ASTRAL", "INOXWIND", "CUB", "TATAINVEST"]
+    pr = D.progress(d, keys={(x["symbol"], x["ex_date"]) for x in d["decisions"]} | {("X", f"2020-01-{i:02d}") for i in range(1, 60)})
+    assert (pr["total"], pr["decided"], pr["pending"], pr["confirm"], pr["needs_more_evidence"]) == (69, 10, 59, 6, 4) and pr["unknown"] == []
+    a = R.rule_bucket_a({"bucket_a": {**pr, "fingerprint": "x"}}, CFG)
+    assert kinds(a) == [("ca_bucket_a_progress", "info")] and "10 of 69" in a[0]["title"] and "rebuild waits" in a[0]["detail"]
+    assert R.rule_bucket_a({"bucket_a": {**pr, "pending": 0, "needs_more_evidence": 0}}, CFG) == [] and R.rule_bucket_a({}, CFG) == []
+    from qsde.ingestion import ca_series
+    assert ca_series.OHLCV_LABEL == "official_prices_with_pending_corp_action_review" and ca_series.REGISTRY_LABEL == "governed_research_series_not_production"
+    with pytest.raises(D.DecisionError):
+        import json, tempfile, pathlib
+        bad = pathlib.Path(tempfile.mkdtemp()) / "d.json"
+        bad.write_text(json.dumps({"decisions": [{"symbol": "A", "ex_date": "2020-01-01", "decision": "approve", "decided_by": "o", "decided_at": "x", "reason": "r"}]}))
+        D.load(bad)

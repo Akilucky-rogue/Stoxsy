@@ -24,9 +24,10 @@ def _signal() -> Optional[pd.DataFrame]:
 
 
 def data_dates() -> dict:
-    d = read_sql("SELECT (SELECT max(date) FROM eod_raw WHERE exchange = 'NSE') AS nse, (SELECT max(date) FROM bse_eod_raw) AS bse, (SELECT max(date) FROM mf_nav) AS amfi").iloc[0]
+    d = read_sql("SELECT (SELECT max(date) FROM eod_raw WHERE exchange = 'NSE') AS nse, (SELECT max(date) FROM bse_eod_raw) AS bse, (SELECT max(date) FROM mf_nav) AS amfi, (SELECT max(trade_date) FROM fno_eod_sessions) AS fno").iloc[0]
     return {"nse_last": None if pd.isna(d["nse"]) else pd.Timestamp(d["nse"]).date(), "bse_last": None if pd.isna(d["bse"]) else pd.Timestamp(d["bse"]).date(),
-            "amfi_last": None if pd.isna(d["amfi"]) else pd.Timestamp(d["amfi"]).date()}
+            "amfi_last": None if pd.isna(d["amfi"]) else pd.Timestamp(d["amfi"]).date(),
+            "fno_last": None if pd.isna(d["fno"]) else pd.Timestamp(d["fno"]).date()}
 
 
 def sources() -> list:
@@ -129,3 +130,10 @@ def series_consistency() -> dict:
 def bse_corporate_actions() -> dict:
     d = read_sql("SELECT (SELECT count(*) FROM bse_ca_files) AS files, (SELECT max(loaded_at) FROM bse_ca_files) AS last_loaded, (SELECT count(*) FROM bse_corporate_actions) AS actions").iloc[0]
     return {"files": int(d["files"]), "actions": int(d["actions"]), "last_loaded": None if pd.isna(d["last_loaded"]) else pd.Timestamp(d["last_loaded"])}
+
+
+def bucket_a() -> dict:
+    from qsde.ingestion import bucket_a_decisions as BA
+
+    pr = BA.progress()
+    return {**pr, "fingerprint": BA.fingerprint()}

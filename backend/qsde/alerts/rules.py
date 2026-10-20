@@ -54,8 +54,11 @@ def rule_data_staleness(facts: dict, cfg: dict) -> list:
     exp = expected_last_session(now_ist, c["after_hours_ist"])
     out = []
     for key, label, warn, crit in (("nse_last", "NSE end-of-day prices", c["nse_weekdays_warn"], c["nse_weekdays_critical"]),
-                                   ("bse_last", "BSE end-of-day prices", c["bse_weekdays_warn"], c["bse_weekdays_critical"])):
-        last = facts.get("data", {}).get(key)
+                                   ("bse_last", "BSE end-of-day prices", c["bse_weekdays_warn"], c["bse_weekdays_critical"]),
+                                   ("fno_last", "NSE F&O end-of-day archive", c["bse_weekdays_warn"], c["bse_weekdays_critical"])):
+        if key not in facts.get("data", {}):
+            continue                                                      # a source that is not part of this run's facts is not judged
+        last = facts["data"][key]
         if last is None:
             out.append(alert("data_staleness", "critical", f"{label}: no data loaded", "The source table is empty.", f"stale:{key}", entity_type="source", entity_id=key))
             continue
@@ -117,8 +120,20 @@ def rule_price_series(facts: dict, cfg: dict) -> list:
     return [alert("price_series_mismatch", "warning", "The official price series and the governed adjustment registry disagree",
                   f"{s['applied_not_in_registry']} events are adjusted in the official `ohlcv` series (the one the cards, signals and portfolio read) but are not in the governed registry "
                   f"(these include the Bucket A events awaiting your decision), and {s['registry_not_applied']} governed events are not applied in `ohlcv`. "
-                  f"(`ohlcv`: {s['applied_in_ohlcv']} events; registry: {s['registry_events']}.) Decide whether `ohlcv` should be rebuilt from the registry.",
+                  f"(`ohlcv`: {s['applied_in_ohlcv']} events, labelled official_prices_with_pending_corp_action_review; registry: {s['registry_events']} events, labelled governed_research_series_not_production.) "
+                  "Owner decision: `ohlcv` stays unchanged until all Bucket A events are adjudicated, then it is rebuilt once from the reconciled registry (versioned, prior series kept, before/after cliff and continuity reports).",
                   "series:mismatch", entity_type="corporate_actions", payload=s)]
+
+
+def rule_bucket_a(facts: dict, cfg: dict) -> list:
+    b = facts.get("bucket_a")
+    if not b or b.get("pending") is None:
+        return []
+    if b["pending"] == 0 and b["needs_more_evidence"] == 0:
+        return []
+    return [alert("ca_bucket_a_progress", "info", f"Bucket A adjudication: {b['decided']} of {b['total']} decided, {b['pending']} pending",
+                  f"{b['confirm']} confirmed, {b['needs_more_evidence']} held for more evidence, {b['reject']} rejected, {b['pending']} not yet reviewed. The official `ohlcv` rebuild waits for every event to be adjudicated.",
+                  "ca:bucket_a_progress", entity_type="corporate_actions", payload={k: b[k] for k in ("total", "confirm", "needs_more_evidence", "reject", "pending")})]
 
 
 def rule_bse_corporate_actions(facts: dict, cfg: dict) -> list:
@@ -225,5 +240,5 @@ def rule_portfolio(facts: dict, cfg: dict) -> list:
     return out
 
 
-GLOBAL_RULES = (rule_data_staleness, rule_source_health, rule_corporate_actions, rule_price_series, rule_bse_corporate_actions, rule_models, rule_kite)
+GLOBAL_RULES = (rule_data_staleness, rule_source_health, rule_corporate_actions, rule_price_series, rule_bucket_a, rule_bse_corporate_actions, rule_models, rule_kite)
 USER_RULES = (rule_portfolio,)

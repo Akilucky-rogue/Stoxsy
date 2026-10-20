@@ -26,7 +26,7 @@ REPORT = Path(r"D:\Stoxsy\data\reports\bse")
 CHUNK = 400
 
 
-def load_file(path: Path, dry_run: bool) -> dict:
+def load_file(path: Path, dry_run: bool, mapping_ok: bool = False) -> dict:
     from qsde.db.connection import get_sync_conn, read_sql
     from qsde.ingestion import bse_corporate_actions as B
     from qsde.stream.base import RawItem
@@ -39,8 +39,13 @@ def load_file(path: Path, dry_run: bool) -> dict:
         return {"file": path.name, "status": "already loaded", "file_id": int(ins["id"].iloc[0])}
     isin = read_sql("SELECT scrip_code, isin FROM bse_listing_master WHERE isin IS NOT NULL")
     frame = B.enrich(ex.frame, dict(zip(isin["scrip_code"].astype(int), isin["isin"])))
+    info = {"file": path.name, "rows": ex.n_rows, "parsed": len(frame), "bad": ex.n_bad, "column_mapping": ex.mapping, "unmatched_headers": ex.unmatched,
+            "by_type": frame["action_type"].value_counts().to_dict(), "sample": frame[["scrip_code", "ex_date", "purpose", "action_type", "factor"]].head(5).astype(str).to_dict("records"), "issues": ex.issues[:10]}
+    first = int(read_sql("SELECT count(*) AS n FROM bse_ca_files")["n"].iloc[0]) == 0
     if dry_run:
-        return {"file": path.name, "status": "dry run", "rows": ex.n_rows, "parsed": len(frame), "bad": ex.n_bad, "by_type": frame["action_type"].value_counts().to_dict(), "issues": ex.issues[:10]}
+        return {"status": "dry run", **info}
+    if first and not mapping_ok:                                  # the first real export must be checked by a person: the column mapping was written without seeing BSE's actual file
+        return {"status": "REFUSED: first real file needs a reviewed mapping. Run with --dry-run, check column_mapping / sample against the file, then repeat with --mapping-ok", **info}
     now = datetime.now(timezone.utc)
     rec = LandingZone().write("bse_corporate_actions", RawItem(payload, now, None, {"origin": "manual_download", "filename": path.name,
                                                                                  "page": "BSE Corporate Actions page (Download); BSE's API rejects automated clients"}, path.suffix.lstrip(".") or "csv"))
@@ -117,13 +122,14 @@ def main() -> int:
     ap.add_argument("--inbox", action="store_true")
     ap.add_argument("--reconcile-only", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--mapping-ok", action="store_true", help="I have checked the column mapping and sample of a dry run against the real file")
     a = ap.parse_args()
     files = [Path(a.file)] if a.file else (sorted(p for p in INBOX.glob("*") if p.suffix.lower() in (".csv", ".xlsx", ".xls")) if a.inbox else [])
     if a.inbox and not files:
         print(f"nothing in {INBOX}: download the export from BSE's Corporate Actions page and save it there")
     for p in files:
         try:
-            print(json.dumps(load_file(p, a.dry_run), default=str))
+            print(json.dumps(load_file(p, a.dry_run, a.mapping_ok), default=str))
         except ValueError as e:
             print(f"REJECTED {p.name}: {e}")
             return 2

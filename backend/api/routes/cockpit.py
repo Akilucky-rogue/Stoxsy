@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from qsde.config.settings import settings
 from qsde.db.connection import read_sql
+from qsde.ingestion.bucket_a_decisions import SERIES_LABELS
 
 router = APIRouter()
 DATA = Path(os.environ.get("STOXSY_DATA_DIR", r"D:\Stoxsy\data"))
@@ -88,6 +89,7 @@ class SystemStatus(BaseModel):
     eod_raw_latest: Optional[str]
     current_snapshots: list[dict]
     adjustment_series: list[dict]
+    series_labels: dict = {}
     auth_enforced: bool
     promotion_enabled: bool
     scheduled_downloads_enabled: bool = False
@@ -122,7 +124,7 @@ def system_status():
     rec = lambda df: json.loads(df.to_json(orient="records", date_format="iso"))      # noqa: E731
     return SystemStatus(database=db, ohlcv_latest=str(pd.Timestamp(o).date()) if pd.notna(o) else None,
                         eod_raw_latest=str(pd.Timestamp(e).date()) if pd.notna(e) else None, current_snapshots=rec(snaps),
-                        adjustment_series=rec(adj), auth_enforced=settings.auth_enforced, promotion_enabled=promo, exchanges=exchanges, notes=notes)
+                        adjustment_series=rec(adj), series_labels=SERIES_LABELS, auth_enforced=settings.auth_enforced, promotion_enabled=promo, exchanges=exchanges, notes=notes)
 
 
 # ── research reports ─────────────────────────────────────────────────

@@ -104,6 +104,7 @@ export interface DefensiveLatest { as_of: string | null; regime: string | null; 
 export interface SystemStatus {
   database: string; ohlcv_latest: string | null; eod_raw_latest: string | null;
   current_snapshots: { snapshot_id: string; factor_version: string; universe_version: string; n_rows: number; n_symbols: number; date_max: string; built_at: string }[];
+  series_labels?: Record<string, string>;
   adjustment_series: { version: string; kind: string; validation_status: string; n_events: number | null; rows: number; built_at: string }[];
   auth_enforced: boolean; promotion_enabled: boolean; scheduled_downloads_enabled: boolean; notes: string[];
   exchanges: Record<string, { prices: string; in_universe_signals_cards: boolean; last_session?: string | null; sessions?: number; cross_listing?: Record<string, number>; reason?: string }>;
@@ -132,7 +133,8 @@ export interface DecisionTransparency {
   universe: { method: string; description: string; non_equity_exclusion: string; non_equity_symbols_excluded: number; signal_rows: number; exchange: string };
   not_covered?: { bse_active_equities: number; reason: string; unlinked_nse_bse_pairs: number; other_asset_classes: string };
   corporate_actions: { policy: string; series?: string | null; validation?: string | null; events_applied?: number | null; built_at?: string | null;
-    governed_registry?: { version: string | null; events: number; applied_in_ohlcv_not_in_registry: number; in_registry_not_applied_in_ohlcv: number } };
+    bucket_a?: { total: number | null; confirm: number; needs_more_evidence: number; reject: number; pending: number | null; decided: number };
+    governed_registry?: { label?: string; version: string | null; events: number; applied_in_ohlcv_not_in_registry: number; in_registry_not_applied_in_ohlcv: number } };
   data_as_of: { signal_date: string; prices_last_date?: string | null; eod_raw_latest?: string | null; ohlcv_latest?: string | null; generated_at: string };
   notes: string[];
 }

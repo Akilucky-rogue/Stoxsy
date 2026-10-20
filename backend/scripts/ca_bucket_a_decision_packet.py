@@ -29,6 +29,7 @@ DEMERGER = r"demerg|de-merg|spin|scheme of arrangement|amalgam|merger|capital re
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--top", type=int, default=10)
+    ap.add_argument("--remaining", action="store_true", help="every event WITHOUT an owner decision (in priority order), written to packet_bucket_a_decision_remaining.*")
     args = ap.parse_args()
     from qsde.db.connection import read_sql
     from qsde.ingestion import nse_eod
@@ -40,7 +41,13 @@ def main() -> int:
     w["stitched"] = w["symbol"].isin(set(sm.merge(multi, on="security_id")["symbol"]))
     w["priority"] = (3 * w["in_universe_within_60d"].astype(int) + 2 * (w["best_universe_rank"].fillna(9999) <= 100).astype(int) + 1 * (w["best_universe_rank"].fillna(9999) <= 250).astype(int)
                      + 1 * w["stitched"].astype(int) + w["residual_in_sigma"].abs().clip(upper=4) / 4 - 2 * w["flags"].notna().astype(int))
-    top = w.sort_values("priority", ascending=False).head(args.top).reset_index(drop=True)
+    ranked = w.sort_values("priority", ascending=False)
+    if args.remaining:
+        from qsde.ingestion import bucket_a_decisions as BA
+        done = {(x["symbol"], x["ex_date"]) for x in BA.load()["decisions"]}
+        ranked = ranked[[(r.symbol, str(pd.Timestamp(r.nse_ex_date).date())) not in done for r in ranked.itertuples()]]
+    top = ranked.head(len(ranked) if args.remaining else args.top).reset_index(drop=True)
+    stem = "packet_bucket_a_decision_remaining" if args.remaining else "packet_bucket_a_decision_top10"
     syms = sorted(top["symbol"].unique())
     raw = read_sql("SELECT exchange, symbol, series, date, open, high, low, close, volume FROM eod_raw WHERE exchange = 'NSE' AND symbol = ANY(:s)", params={"s": syms})
     raw["date"] = pd.to_datetime(raw["date"])
@@ -56,7 +63,7 @@ def main() -> int:
     sig = pd.read_parquet(SIGNAL) if SIGNAL.exists() else pd.DataFrame(columns=["symbol", "date"])
     sig_date = pd.to_datetime(sig["date"]).max() if len(sig) else None
 
-    head = [f"# Bucket A decision packet (compact): top {len(top)} of {len(w)} events, status `official_match_price_mismatch`", "",
+    head = [f"# Bucket A decision packet (compact): {'the ' + str(len(top)) + ' events without a decision' if args.remaining else 'top ' + str(len(top))} of {len(w)} events, status `official_match_price_mismatch`", "",
             "Nothing here approves or applies anything. The NSE record matches (type, ratio, ex-date, ISIN) but the observed price gap differs from the listed factor by 3-10%, outside the hard tolerance. "
             "Judge the **residual move after the listed factor**: an ordinary move (about 2-3 daily sigma, ordinary volume, no jump afterwards) supports the listed factor; a large or one-off residual does not.",
             "", "| # | symbol | action | listed x | ex-date | observed x | residual | sigma | flags | recommendation |", "|---|---|---|---|---|---|---|---|---|---|"]
@@ -124,9 +131,9 @@ def main() -> int:
         body += [""] + blk
     counts = pd.Series([x["recommended"] for x in rows]).value_counts().to_dict()
     head += ["", f"Recommendations: " + ", ".join(f"{k} {v}" for k, v in counts.items()) + ". Rules: `confirm` needs no flag, residual within 2.5 sigma, gap-bar volume at least 0.5x median and no jump above 3 sigma in the next 3 bars; "
-             "`reject` is a demerger / other action within 10 days or a residual above 4 sigma; everything else is `needs_more_evidence`. Decision column: `decision` in `packet_bucket_a_decision_top10.csv` is blank for you."]
-    (OUT / "packet_bucket_a_decision_top10.md").write_text("\n".join(head + body), encoding="utf-8")
-    pd.DataFrame(rows).to_csv(OUT / "packet_bucket_a_decision_top10.csv", index=False)
+             f"`reject` is a demerger / other action within 10 days or a residual above 4 sigma; everything else is `needs_more_evidence`. Decision column: `decision` in `{stem}.csv` is blank for you."]
+    (OUT / f"{stem}.md").write_text("\n".join(head + body), encoding="utf-8")
+    pd.DataFrame(rows).to_csv(OUT / f"{stem}.csv", index=False)
     print("\n".join(head))
     return 0
 

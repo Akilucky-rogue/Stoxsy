@@ -43,6 +43,12 @@ export function System() {
 
           <div className="card">
             <header><h2>Corporate-action adjusted series</h2><Chip>kept separate from the official price table</Chip></header>
+            {s.data.series_labels && (
+              <p style={{ marginTop: 0 }}>
+                <code>ohlcv</code> (what cards, signals and the portfolio read): <Chip tone="warn">{s.data.series_labels.ohlcv}</Chip>{" "}
+                <code>sbadj_v1</code> (governed registry): <Chip>{s.data.series_labels.sbadj_v1}</Chip>
+              </p>
+            )}
             <div className="table-wrap"><table>
               <thead><tr><th>Version</th><th>Kind</th><th>Validation</th><th className="num">Events</th><th className="num">Rows</th><th>Built</th></tr></thead>
               <tbody>{s.data.adjustment_series.map((x) => (

@@ -60,12 +60,12 @@ def main() -> int:
         weights[hid] = {c["symbol"]: c["weight"] for c in book["cards"]}
         sigma[hid] = pd.Series({s: realised_sigma(g.sort_values("date")["close"], spec.barrier.vol_span) for s, g in cl.groupby("symbol")})
         print(f"  {hid}: {len(book['cards'])} cards, invested {book['summary']['invested_pct']:.0%}")
-    adj = read_sql("SELECT version FROM adjustment_runs WHERE kind = 'split_bonus' ORDER BY built_at DESC LIMIT 1")
+    from qsde.ingestion import ca_series
     try:
         sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, cwd=Path(__file__).resolve().parents[2]).stdout.strip() or None
     except OSError:
         sha = None
-    lineage = {"universe_version": f"{UNIVERSE_METHOD}|{instruments.tag()}", "ca_source_hash": adj["version"].iloc[0] if len(adj) else None, "git_sha": sha,
+    lineage = {"universe_version": f"{UNIVERSE_METHOD}|{instruments.tag()}", "ca_source_hash": ca_series.lineage_tag(), "git_sha": sha,
                "model_card_id": "defensive_signal_v1"}
     df = signal_predictions(sc, last_close, sigma, weights, now, portfolio_params_dict(PortfolioParams()), lineage)
     print(f"  {len(df)} predictions ({df['horizon_id'].nunique()} horizons)")
