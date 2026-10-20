@@ -114,3 +114,18 @@ def portfolio(user_id: str, cfg: dict) -> Optional[dict]:
         reg = str(sig["regime"].iloc[0])
     return {"weights": {k: float(v) for k, v in wts.items()}, "avg_pairwise_correlation": corr, "top_pair": pair, "current_drawdown": None if hist is None else hist["current_drawdown"],
             "high_risk_share": hr, "regime": reg}
+
+
+def series_consistency() -> dict:
+    """The official `ohlcv` series (events flagged applied) versus the governed registry (`adjustment_events_applied`), keyed on symbol and NSE ex-date."""
+    d = read_sql("""WITH a AS (SELECT symbol, ex_date FROM corp_action_events WHERE applied),
+                         r AS (SELECT symbol, nse_ex_date AS ex_date FROM adjustment_events_applied)
+                    SELECT (SELECT count(*) FROM a) AS applied, (SELECT count(*) FROM r) AS registry,
+                           (SELECT count(*) FROM a WHERE NOT EXISTS (SELECT 1 FROM r WHERE r.symbol = a.symbol AND r.ex_date = a.ex_date)) AS a_not_r,
+                           (SELECT count(*) FROM r WHERE NOT EXISTS (SELECT 1 FROM a WHERE a.symbol = r.symbol AND a.ex_date = r.ex_date)) AS r_not_a""").iloc[0]
+    return {"applied_in_ohlcv": int(d["applied"]), "registry_events": int(d["registry"]), "applied_not_in_registry": int(d["a_not_r"]), "registry_not_applied": int(d["r_not_a"])}
+
+
+def bse_corporate_actions() -> dict:
+    d = read_sql("SELECT (SELECT count(*) FROM bse_ca_files) AS files, (SELECT max(loaded_at) FROM bse_ca_files) AS last_loaded, (SELECT count(*) FROM bse_corporate_actions) AS actions").iloc[0]
+    return {"files": int(d["files"]), "actions": int(d["actions"]), "last_loaded": None if pd.isna(d["last_loaded"]) else pd.Timestamp(d["last_loaded"])}

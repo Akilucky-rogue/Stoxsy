@@ -13,9 +13,9 @@ import pandas as pd
 
 UNIVERSE_METHOD = "adv60_top500_v1"
 SIGNAL_COMPONENTS = ["ATR% (14d)", "60d volatility", "60d downside deviation", "drawdown from 120-session high", "liquidity (median traded value)"]
-CA_POLICY = ("Prices are NSE close prices adjusted for splits, bonuses and similar actions (series `sbadj_v1`, price-only; dividends are not included in the price series). "
-             "An action enters the adjustment only if it is confirmed by an official NSE record, or by two independent price-based checks, or approved by the owner event by event; "
-             "adjustments are bounded (<= 5 sessions of mismatch, 5% / 3% factor tolerance) and every rebuild is hash-identical. Unconfirmed price-only split candidates are NOT adjusted.")
+CA_POLICY = ("Prices are NSE closes from the official `ohlcv` series, adjusted for splits and bonuses whose NSE record matched the price gap (method `source_confirmed`); dividends are not in the price series. "
+             "A stricter governed series (`sbadj_v1`: confirmed or owner-approved events only, bounded and hash-reproducible) is built separately and is NOT yet the series the cards read: the two disagree on the events listed below. "
+             "Price-only split candidates that no NSE record backs are not adjusted.")
 
 
 def explain_exclusions(scores: pd.DataFrame, p, skipped_reasons: dict) -> dict:
@@ -61,10 +61,14 @@ def gather(scores: pd.DataFrame, price_last_date: Optional[str]) -> dict:
     except Exception as ex:      # noqa: BLE001
         out["notes"].append(f"BSE coverage facts unavailable ({type(ex).__name__})")
     try:
-        adj = read_sql("SELECT version, kind, validation_status, n_events, rows, built_at FROM adjustment_runs WHERE kind = 'split_bonus' ORDER BY built_at DESC LIMIT 1")
+        from qsde.alerts.facts import series_consistency
+        sc = series_consistency()
+        adj = read_sql("SELECT version, validation_status, n_events, built_at FROM adjustment_runs WHERE kind = 'split_bonus' ORDER BY built_at DESC LIMIT 1")
         row = adj.iloc[0] if len(adj) else None
-        out["corporate_actions"] = {"policy": CA_POLICY, "series": None if row is None else str(row["version"]), "validation": None if row is None else str(row["validation_status"]),
-                                    "events_applied": None if row is None else int(row["n_events"]), "built_at": None if row is None else pd.Timestamp(row["built_at"]).isoformat()}
+        out["corporate_actions"] = {"policy": CA_POLICY, "series": "ohlcv (official: NSE-source-confirmed adjustments)", "validation": "method source_confirmed", "events_applied": sc["applied_in_ohlcv"],
+                                    "built_at": None if row is None else pd.Timestamp(row["built_at"]).isoformat(),
+                                    "governed_registry": {"version": None if row is None else str(row["version"]), "events": sc["registry_events"], "applied_in_ohlcv_not_in_registry": sc["applied_not_in_registry"],
+                                                          "in_registry_not_applied_in_ohlcv": sc["registry_not_applied"]}}
     except Exception as ex:      # noqa: BLE001
         out["corporate_actions"] = {"policy": CA_POLICY}
         out["notes"].append(f"adjustment series facts unavailable ({type(ex).__name__})")

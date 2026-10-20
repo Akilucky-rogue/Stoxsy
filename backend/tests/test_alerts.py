@@ -138,3 +138,14 @@ def test_alerts_api_shapes_rows_validates_input_and_has_no_destructive_endpoint(
     paths = {k: set(v) for k, v in app.openapi()["paths"].items() if k.startswith("/api/alerts")}
     assert paths["/api/alerts"] == {"get"} and paths["/api/alerts/summary"] == {"get"} and paths["/api/alerts/refresh"] == {"post"} and paths["/api/alerts/{alert_id}/acknowledge"] == {"post"}
     assert not any("delete" in v for v in paths.values())
+
+
+def test_series_mismatch_and_bse_source_rules():
+    f = {"series": {"applied_in_ohlcv": 666, "registry_events": 508, "applied_not_in_registry": 210, "registry_not_applied": 52}}
+    a = R.rule_price_series(f, CFG)
+    assert kinds(a) == [("price_series_mismatch", "warning")] and "210" in a[0]["detail"] and "52" in a[0]["detail"] and "Bucket A" in a[0]["detail"]
+    assert R.rule_price_series({"series": {"applied_in_ohlcv": 5, "registry_events": 5, "applied_not_in_registry": 0, "registry_not_applied": 0}}, CFG) == []
+    assert R.rule_price_series({}, CFG) == []
+    none = R.rule_bse_corporate_actions({"bse_ca": {"files": 0, "actions": 0, "last_loaded": None}}, CFG)
+    assert kinds(none) == [("bse_ca_source", "info")] and "inbox" in none[0]["detail"] and "bse_corporate_actions" in none[0]["detail"]
+    assert R.rule_bse_corporate_actions({"bse_ca": {"files": 1, "actions": 400, "last_loaded": NOW}}, CFG) == []

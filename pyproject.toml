@@ -83,3 +83,4 @@ select = ["E", "F", "I", "N", "W"]
 [tool.pytest.ini_options]
 testpaths = ["backend/tests"]
 asyncio_mode = "auto"
+markers = ["real_data: needs the loaded market / fund datasets (skipped in CI, which has an empty database)"]

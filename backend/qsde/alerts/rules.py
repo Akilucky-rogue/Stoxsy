@@ -110,6 +110,29 @@ def rule_corporate_actions(facts: dict, cfg: dict) -> list:
     return out
 
 
+def rule_price_series(facts: dict, cfg: dict) -> list:
+    s = facts.get("series")
+    if not s or not (s["applied_not_in_registry"] or s["registry_not_applied"]):
+        return []
+    return [alert("price_series_mismatch", "warning", "The official price series and the governed adjustment registry disagree",
+                  f"{s['applied_not_in_registry']} events are adjusted in the official `ohlcv` series (the one the cards, signals and portfolio read) but are not in the governed registry "
+                  f"(these include the Bucket A events awaiting your decision), and {s['registry_not_applied']} governed events are not applied in `ohlcv`. "
+                  f"(`ohlcv`: {s['applied_in_ohlcv']} events; registry: {s['registry_events']}.) Decide whether `ohlcv` should be rebuilt from the registry.",
+                  "series:mismatch", entity_type="corporate_actions", payload=s)]
+
+
+def rule_bse_corporate_actions(facts: dict, cfg: dict) -> list:
+    b = facts.get("bse_ca")
+    if b is None:
+        return []
+    if b["files"] == 0:
+        return [alert("bse_ca_source", "info", "No BSE corporate-action export has been ingested",
+                      "BSE-only names stay out of the universe, the defensive signal and decision cards until BSE actions are ingested, reconciled and a BSE adjusted series is validated. "
+                      "BSE's API rejects automated clients: download the export from BSE's Corporate Actions page and save it in D:\Stoxsy\data\inbox\bse_corporate_actions, then run scripts/load_bse_corporate_actions.py --inbox.",
+                      "bse_ca:none", entity_type="source", entity_id="bse_corporate_actions")]
+    return []
+
+
 def rule_models(facts: dict, cfg: dict) -> list:
     out = []
     now = pd.Timestamp(facts["now"])
@@ -202,5 +225,5 @@ def rule_portfolio(facts: dict, cfg: dict) -> list:
     return out
 
 
-GLOBAL_RULES = (rule_data_staleness, rule_source_health, rule_corporate_actions, rule_models, rule_kite)
+GLOBAL_RULES = (rule_data_staleness, rule_source_health, rule_corporate_actions, rule_price_series, rule_bse_corporate_actions, rule_models, rule_kite)
 USER_RULES = (rule_portfolio,)

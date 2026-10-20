@@ -131,7 +131,8 @@ export interface DecisionTransparency {
     eligible_after_filters: number; dropped_during_construction: Record<string, number> };
   universe: { method: string; description: string; non_equity_exclusion: string; non_equity_symbols_excluded: number; signal_rows: number; exchange: string };
   not_covered?: { bse_active_equities: number; reason: string; unlinked_nse_bse_pairs: number; other_asset_classes: string };
-  corporate_actions: { policy: string; series?: string | null; validation?: string | null; events_applied?: number | null; built_at?: string | null };
+  corporate_actions: { policy: string; series?: string | null; validation?: string | null; events_applied?: number | null; built_at?: string | null;
+    governed_registry?: { version: string | null; events: number; applied_in_ohlcv_not_in_registry: number; in_registry_not_applied_in_ohlcv: number } };
   data_as_of: { signal_date: string; prices_last_date?: string | null; eod_raw_latest?: string | null; ohlcv_latest?: string | null; generated_at: string };
   notes: string[];
 }

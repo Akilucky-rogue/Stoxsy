@@ -36,7 +36,11 @@ export function Transparency({ t }: { t: DecisionTransparency }) {
           <p style={{ marginTop: 0 }}>{t.corporate_actions.policy}</p>
           {t.corporate_actions.series && (
             <p className="muted" style={{ fontSize: "0.85rem" }}>
-              Series <code>{t.corporate_actions.series}</code> ({t.corporate_actions.validation}; {t.corporate_actions.events_applied} events applied).
+              Series in use: <code>{t.corporate_actions.series}</code> ({t.corporate_actions.events_applied} events applied).
+              {t.corporate_actions.governed_registry && (
+                <> Governed registry <code>{t.corporate_actions.governed_registry.version}</code> has {t.corporate_actions.governed_registry.events} events; {t.corporate_actions.governed_registry.applied_in_ohlcv_not_in_registry} events
+                  are adjusted in the series in use but not in the registry, and {t.corporate_actions.governed_registry.in_registry_not_applied_in_ohlcv} registry events are not applied in it.</>
+              )}
             </p>
           )}
         </section>

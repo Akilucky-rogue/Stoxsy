@@ -80,6 +80,7 @@ def test_decision_cards_endpoint_validates_parameters_and_returns_a_typed_book(c
         assert client.get(f"/api/decision/cards?{bad}").status_code == 422
 
 
+@pytest.mark.real_data
 def test_funds_endpoint_labels_basis_statuses_and_validates_input(client):
     r = client.get("/api/funds/schemes?limit=5&option=growth")
     assert r.status_code == 200
@@ -104,6 +105,7 @@ def test_funds_endpoint_labels_basis_statuses_and_validates_input(client):
     assert vals == sorted(vals, reverse=True)
 
 
+@pytest.mark.real_data
 def test_funds_facets_and_detail_series_are_rebased_and_flag_events(client):
     f = client.get("/api/funds/facets").json()
     assert f["asset_classes"] and f["amcs"] and f["fund_groups"] and f["categories"]
