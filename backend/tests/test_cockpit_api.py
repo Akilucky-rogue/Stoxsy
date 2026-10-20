@@ -80,17 +80,36 @@ def test_decision_cards_endpoint_validates_parameters_and_returns_a_typed_book(c
         assert client.get(f"/api/decision/cards?{bad}").status_code == 422
 
 
-def test_funds_endpoint_shape_validation_and_basis_labels(client):
-    r = client.get("/api/funds/schemes?limit=5&growth_only=true")
+def test_funds_endpoint_labels_basis_statuses_and_validates_input(client):
+    r = client.get("/api/funds/schemes?limit=5&option=growth")
     assert r.status_code == 200
     j = r.json()
-    assert j["n_matching"] >= 1 and 1 <= len(j["rows"]) <= 5 and "not a forecast" in j["methodology"] and "not investment advice" in j["disclaimer"]
+    assert j["n_matching"] >= 1 and 1 <= len(j["rows"]) <= 5 and "not a forecast" in j["disclaimer"] and "not investment advice" in j["disclaimer"]
     for row in j["rows"]:
-        assert row["return_basis"].startswith("total return") and row["is_growth"] is True
+        assert row["basis"] == "total_return_after_expenses" and row["is_growth"] is True and row["quality"]["level"] in ("ok", "caution", "poor")
         for h, x in row["returns"].items():
-            assert (x["annualised"] is None) or h in ("1Y", "3Y", "5Y")                  # never annualise below one year
-    assert client.get("/api/funds/schemes?asset_class=bogus").status_code == 422
-    assert client.get("/api/funds/schemes?plan=other").status_code == 422
-    assert client.get("/api/funds/schemes?limit=1000").status_code == 422
-    idcw = client.get("/api/funds/schemes?limit=3&growth_only=false&q=idcw").json()
-    assert all(x["return_basis"].startswith("price return") for x in idcw["rows"] if x["is_growth"] is not True)
+            assert x["status"] in ("ok", "insufficient_history", "stale_start", "nav_discontinuity")
+            if x["status"] == "ok":
+                assert (x["annualised"] is None) or h in ("1Y", "3Y", "5Y")             # never annualise below one year
+            else:
+                assert x["detail"] and "cumulative" not in x                              # a missing figure says why and carries no number
+    for bad in ("asset_class=bogus", "plan=other", "limit=1000", "option=maybe", "sort=drop", "quality=great"):
+        assert client.get(f"/api/funds/schemes?{bad}").status_code == 422
+    idcw = client.get("/api/funds/schemes?limit=5&option=idcw").json()
+    assert all(x["basis"] == "price_return_only" for x in idcw["rows"])
+    etf = client.get("/api/funds/schemes?limit=5&option=etf").json()
+    assert all(x["basis"] in ("price_return", "total_return_after_expenses", "price_return_only") and x["is_etf"] for x in etf["rows"])
+    srt = client.get("/api/funds/schemes?limit=10&sort=ret_1y&order=desc&asset_class=equity&plan=direct").json()["rows"]
+    vals = [x["returns"].get("1Y", {}).get("annualised") for x in srt if x["returns"].get("1Y", {}).get("status") == "ok"]
+    assert vals == sorted(vals, reverse=True)
+
+
+def test_funds_facets_and_detail_series_are_rebased_and_flag_events(client):
+    f = client.get("/api/funds/facets").json()
+    assert f["asset_classes"] and f["amcs"] and f["fund_groups"] and f["categories"]
+    code = client.get("/api/funds/schemes?limit=1&option=growth&asset_class=equity&plan=direct&sort=ret_3y&order=desc").json()["rows"][0]["scheme_code"]
+    d = client.get(f"/api/funds/schemes/{code}?window=3y").json()
+    assert d["fund"]["scheme_code"] == code and d["series"]["value"][0] == 100.0 and len(d["series"]["dates"]) == len(d["series"]["drawdown"]) <= 520
+    assert max(d["series"]["drawdown"]) <= 0 and "unit_changes" in d["events"] and "gaps_over_30d" in d["events"]
+    assert client.get("/api/funds/schemes/1").status_code in (404, 200)
+    assert client.get("/api/funds/schemes/999999999").status_code == 404

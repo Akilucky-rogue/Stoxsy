@@ -137,12 +137,23 @@ export interface DecisionTransparency {
 }
 export interface DecisionBook { cards: DecisionCard[]; summary: DecisionSummary; transparency?: DecisionTransparency; disclaimer: string }
 
+export type ReturnCell = { status: "ok"; cumulative: number; annualised: number | null; start: string; end: string } | { status: "insufficient_history" | "stale_start" | "nav_discontinuity"; detail: string };
+export interface RiskCell { status: string; detail?: string; ann_volatility?: number; max_drawdown?: number; current_drawdown?: number; downside_deviation?: number; observations?: number; start?: string; end?: string }
+export interface FundQuality { level: "ok" | "caution" | "poor"; reasons: string[]; flags: Record<string, number | boolean> }
+export interface FundPeers { key: string; group_size: number; horizons: Record<string, { percentile: number | null; median: number; n: number }> }
 export interface FundRow {
-  scheme_code: number; name: string; amc: string | null; category: string | null; asset_class: string | null; plan: string | null; option_type: string | null;
-  is_etf: boolean; is_index: boolean; is_liquid: boolean; is_direct: boolean | null; is_growth: boolean | null; last_nav: number | null; last_nav_date: string | null;
-  returns: Record<string, { cumulative: number; annualised: number | null; start: string; end: string }>; return_basis: string;
+  scheme_code: number; name: string; amc: string | null; category: string | null; asset_class: string | null; fund_group: string | null; plan: string | null; option_type: string | null;
+  is_etf: boolean; is_index: boolean; is_direct: boolean | null; is_growth: boolean | null; lifecycle: string | null; last_nav: number | null; last_nav_date: string | null;
+  basis: string | null; basis_text: string | null; returns: Record<string, ReturnCell>; risk: RiskCell; quality: FundQuality | null; peers: FundPeers | null; snapshot_as_of: string | null;
 }
-export interface FundList { n_matching: number; rows: FundRow[]; methodology: string; disclaimer: string }
+export interface FundList { n_matching: number; offset: number; rows: FundRow[]; methodology: string; disclaimer: string }
+export interface FundFacets { asset_classes: { name: string; n: number }[]; fund_groups: { name: string; n: number }[]; amcs: { name: string; n: number }[]; categories: { asset_class: string; name: string; n: number }[] }
+export interface FundDetail {
+  fund: FundRow; window: string; methodology: string; disclaimer: string;
+  series: { dates: string[]; value: number[]; drawdown: number[] } | null;
+  benchmark: { label: string; dates: string[]; value: number[] } | null;
+  events: { unit_changes: { date: string; move: number }[]; gaps_over_30d: { from: string; to: string; days: number }[] };
+}
 
 export interface HoldingRow {
   symbol: string; quantity: number; avg_cost: number; last_price: number | null; price_date: string | null; value: number | null; weight: number | null;

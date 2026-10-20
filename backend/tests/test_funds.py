@@ -103,7 +103,8 @@ def test_no_extrapolation_and_stale_start_navs_are_rejected():
 
 def test_risk_metrics_drawdown_and_volatility():
     s = nav_series(daily=0.0)
-    s.iloc[1000:1100] *= 0.5                                                                      # a 50% fall that stays
+    s.iloc[1000:1100] *= np.linspace(1.0, 0.5, 100)                                               # a gradual 50% fall
+    s.iloc[1100:] *= 0.5                                                                          # ... that stays
     m = risk_metrics(s, window_days=2000)
     assert m["max_drawdown"] == pytest.approx(-0.5, abs=0.01) and m["ann_volatility"] > 0 and m["observations"] > 1000
     assert risk_metrics(nav_series(n=30)) == {}
@@ -174,3 +175,17 @@ def test_income_distribution_reinvestment_lines_are_idcw_and_etfs_stay_undetermi
     b = classify("Other Scheme - Exchange Traded Funds (ETFs)", "Motilal Oswal Nifty 50 ETF", None)
     assert b["is_growth"] is None and b["is_etf"] is True
     assert classify("Open Ended Schemes(Equity Scheme - Large Cap Fund)", "Axis Bluechip Fund - Direct Plan - Growth", "Direct Plan", "Growth")["is_growth"] is True
+
+
+def test_detailed_statuses_say_why_a_horizon_is_missing_and_risk_flags_unit_changes():
+    from qsde.funds.returns import risk_metrics_detailed, scheme_returns_detailed
+    young = nav_series(n=200)
+    d = scheme_returns_detailed(young)
+    assert d["3M"]["status"] == "ok" and d["1Y"]["status"] == "insufficient_history" and "first NAV" in d["1Y"]["detail"]
+    jumped = nav_series(n=1500)
+    jumped.iloc[900:] = jumped.iloc[900:] * 100.0
+    dj = scheme_returns_detailed(jumped)
+    assert dj["5Y"]["status"] == "nav_discontinuity" and "unit change" in dj["5Y"]["detail"] and dj["1M"]["status"] == "ok"
+    assert risk_metrics_detailed(jumped, window_days=1400)["status"] == "nav_discontinuity"
+    assert risk_metrics_detailed(nav_series(n=30))["status"] == "insufficient_history"
+    assert risk_metrics_detailed(nav_series(n=400))["status"] == "ok"

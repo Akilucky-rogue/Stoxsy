@@ -55,6 +55,7 @@ from api.routes.scorecard import router as scorecard_router
 from api.routes.auth import router as auth_router
 from api.routes.cockpit import router as cockpit_router
 from api.routes.portfolio import router as portfolio_router
+from api.routes.funds import router as funds_router
 
 app = FastAPI(
     title="Stoxsy -- Quantitative Stock Decision Engine",
@@ -96,6 +97,7 @@ app.include_router(scorecard_router, prefix="/api", tags=["scorecard"])
 app.include_router(auth_router,      prefix="/api", tags=["auth"])
 app.include_router(cockpit_router,   prefix="/api", tags=["cockpit"])
 app.include_router(portfolio_router, prefix="/api", tags=["portfolio"])
+app.include_router(funds_router,     prefix="/api", tags=["funds"])
 
 
 @app.get("/")

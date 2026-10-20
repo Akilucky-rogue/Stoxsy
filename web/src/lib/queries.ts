@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, post, ApiError, type ImportResult, type PortfolioSummary, type AdminUser, type DecisionBook, type FundList, type AuditRow, type DefensiveLatest, type ReportBody, type ReportItem, type SystemStatus } from "./api";
+import { api, post, ApiError, type ImportResult, type PortfolioSummary, type AdminUser, type DecisionBook, type FundList, type FundFacets, type FundDetail, type AuditRow, type DefensiveLatest, type ReportBody, type ReportItem, type SystemStatus } from "./api";
 
 const stale = 60_000;
 
@@ -31,15 +31,25 @@ export const useDecision = (p: DecisionParams) =>
     staleTime: 30_000,
   });
 
-export interface FundParams { q: string; assetClass: string; plan: string; growthOnly: boolean; etf: string }
+export interface FundParams {
+  q: string; assetClass: string; amc: string; fundGroup: string; category: string; plan: string; option: string; status: string; quality: string;
+  sort: string; order: string; offset: number;
+}
+export const FUND_PAGE = 40;
 export const useFunds = (p: FundParams) => {
-  const qs = new URLSearchParams({ limit: "40", growth_only: String(p.growthOnly) });
+  const qs = new URLSearchParams({ limit: String(FUND_PAGE), offset: String(p.offset), option: p.option, status: p.status, sort: p.sort, order: p.order });
   if (p.q) qs.set("q", p.q);
   if (p.assetClass) qs.set("asset_class", p.assetClass);
+  if (p.amc) qs.set("amc", p.amc);
+  if (p.fundGroup) qs.set("fund_group", p.fundGroup);
+  if (p.category) qs.set("category", p.category);
   if (p.plan) qs.set("plan", p.plan);
-  if (p.etf) qs.set("etf", p.etf);
-  return useQuery({ queryKey: ["funds", p], queryFn: () => api<FundList>(`/api/funds/schemes?${qs}`), staleTime: 60_000 });
+  if (p.quality) qs.set("quality", p.quality);
+  return useQuery({ queryKey: ["funds", p], queryFn: () => api<FundList>(`/api/funds/schemes?${qs}`), staleTime: 60_000, placeholderData: (prev) => prev });
 };
+export const useFundFacets = () => useQuery({ queryKey: ["fund-facets"], queryFn: () => api<FundFacets>("/api/funds/facets"), staleTime: 10 * 60_000 });
+export const useFundDetail = (code: number | null, window: string) =>
+  useQuery({ queryKey: ["fund-detail", code, window], queryFn: () => api<FundDetail>(`/api/funds/schemes/${code}?window=${window}`), enabled: code != null, staleTime: 60_000 });
 
 export const usePortfolio = (benchmark: string, lookbackDays: number) =>
   useQuery({
