@@ -64,6 +64,7 @@ def build(source: str, backfill_from, fetcher, landing=None, backfill_to=None, e
 
     from qsde.stream.adapters.amfi import AmfiNavAdapter
     from qsde.stream.adapters.bse import BseBhavcopyAdapter
+    from qsde.stream.adapters.nse_deals import NseDealsAdapter
     from qsde.stream.adapters.nse_fo import NseFoBhavcopyAdapter
 
     amfi_done = set()
@@ -74,6 +75,7 @@ def build(source: str, backfill_from, fetcher, landing=None, backfill_to=None, e
     adapters = {
         "amfi_nav": AmfiNavAdapter(fetcher, windows=amfi_windows(backfill_from, monthly_from), landed_windows=amfi_done),
         "amfi_navall": AmfiNavAdapter(fetcher, navall=True),
+        "nse_deals": NseDealsAdapter(fetcher),
         "nse_fo_bhavcopy": NseFoBhavcopyAdapter(fetcher, start_date=backfill_from, end_date=backfill_to, extra_dates=extra_dates,
                                                 landed_sessions=landed_sessions(landing, "nse_fo_bhavcopy") if landing is not None else ()),
         "bse_bhavcopy": BseBhavcopyAdapter(fetcher, start_date=backfill_from, end_date=backfill_to, extra_dates=extra_dates,
@@ -84,18 +86,18 @@ def build(source: str, backfill_from, fetcher, landing=None, backfill_to=None, e
         "symbol_changes": NseSymbolChangeAdapter(fetcher),
     }
     # "all" is the NSE bundle (the owner approved BSE separately): BSE runs only when asked for by name
-    return [a for k, a in adapters.items() if k not in ("bse_bhavcopy", "amfi_nav", "amfi_navall", "nse_fo_bhavcopy")] if source == "all" else [adapters[source]]
+    return [a for k, a in adapters.items() if k not in ("bse_bhavcopy", "amfi_nav", "amfi_navall", "nse_fo_bhavcopy", "nse_deals")] if source == "all" else [adapters[source]]
 
 
 def sinks_for(kind: str):
     from qsde.stream.runner import InMemorySink
-    from qsde.stream.sinks import PgBseEodSink, PgCorporateActionsSink, PgFnoEodSink, PgMfNavSink, PgEodRawSink, PgSymbolChangeSink
+    from qsde.stream.sinks import PgBseEodSink, PgCorporateActionsSink, PgDealsSink, PgFnoEodSink, PgMfNavSink, PgEodRawSink, PgSymbolChangeSink
 
     if kind == "memory":
         mem = InMemorySink()
-        return {"nse_bhavcopy": mem, "nse_corporate_actions": mem, "nse_symbol_changes": mem, "bse_bhavcopy": mem, "amfi_nav": mem, "nse_fo_bhavcopy": mem}
+        return {"nse_bhavcopy": mem, "nse_corporate_actions": mem, "nse_symbol_changes": mem, "bse_bhavcopy": mem, "amfi_nav": mem, "nse_fo_bhavcopy": mem, "nse_deals": mem}
     return {"nse_bhavcopy": PgEodRawSink(), "nse_corporate_actions": PgCorporateActionsSink(),
-            "nse_symbol_changes": PgSymbolChangeSink(), "bse_bhavcopy": PgBseEodSink(), "amfi_nav": PgMfNavSink(), "nse_fo_bhavcopy": PgFnoEodSink()}
+            "nse_symbol_changes": PgSymbolChangeSink(), "bse_bhavcopy": PgBseEodSink(), "amfi_nav": PgMfNavSink(), "nse_fo_bhavcopy": PgFnoEodSink(), "nse_deals": PgDealsSink()}
 
 
 class Router:
@@ -110,7 +112,7 @@ class Router:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--source", choices=["bhavcopy", "corporate_actions", "symbol_changes", "bse_bhavcopy", "nse_fo_bhavcopy", "amfi_nav", "amfi_navall", "all"], default="all")
+    ap.add_argument("--source", choices=["bhavcopy", "corporate_actions", "symbol_changes", "bse_bhavcopy", "nse_fo_bhavcopy", "nse_deals", "amfi_nav", "amfi_navall", "all"], default="all")
     ap.add_argument("--mode", choices=["replay", "once", "loop"], default="replay")
     ap.add_argument("--sink", choices=["memory", "db"], default="memory")
     ap.add_argument("--enable-network", action="store_true", help="required for any mode that fetches")

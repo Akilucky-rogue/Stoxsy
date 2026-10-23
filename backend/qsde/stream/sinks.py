@@ -139,6 +139,29 @@ class PgFnoEodSink:
         return len(rows)
 
 
+class PgDealsSink:
+    """NSE bulk / block deals -> deals_raw. Idempotent on the natural key; a re-landed identical file changes nothing."""
+
+    COLS = ("kind", "trade_date", "symbol", "security_name", "client_name", "side", "quantity", "price", "remarks", "seq", "source_sha256", "known_at")
+
+    def upsert(self, source: str, df: pd.DataFrame, key_cols: tuple) -> int:
+        import psycopg2.extras
+
+        from qsde.db.connection import get_sync_conn
+
+        if df.empty:
+            return 0
+        d = df.rename(columns={"_sha256": "source_sha256"})
+        rows = [tuple(None if (v is None or (isinstance(v, float) and v != v)) else (v.date() if c == "trade_date" else v.to_pydatetime() if isinstance(v, pd.Timestamp) else int(v) if c in ("quantity", "seq") else v)
+                      for c, v in zip(self.COLS, r)) for r in d[list(self.COLS)].itertuples(index=False)]
+        keys = ("kind", "trade_date", "symbol", "client_name", "side", "quantity", "price", "seq")
+        sets = ", ".join(f"{c} = EXCLUDED.{c}" for c in self.COLS if c not in keys)
+        sql = f"INSERT INTO deals_raw ({', '.join(self.COLS)}) VALUES %s ON CONFLICT ({', '.join(keys)}) DO UPDATE SET {sets}, loaded_at = NOW()"
+        with get_sync_conn() as conn:
+            psycopg2.extras.execute_values(conn.cursor(), sql, rows, page_size=2000)
+        return len(rows)
+
+
 class PgMfNavSink:
     """AMFI NAV rows -> mf_nav (+ the load registry with the source hash) and the scheme master (names, categories, ISINs, classification)."""
 

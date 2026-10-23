@@ -28,6 +28,7 @@ STEPS = [
     ("rebuild_ohlcv", True, "rebuild the official `ohlcv` series from raw prices and the applied events (no decision changes)",
      [PY, "-c", "import sys; sys.path.insert(0, r'" + str(HERE.parent) + "'); from qsde.ingestion import corp_actions as c; print(c.rebuild_from_db())"]),
     ("intraday_reconcile", False, "reconcile today's streamed minute bars against Kite's historical minute bars (skips if nothing was streamed)", [PY, str(HERE / "reconcile_intraday.py")]),
+    ("nse_deals", False, "NSE bulk and block deals (rolling files: only landing every day builds history)", [PY, *STREAM, "--source", "nse_deals"]),
     ("nse_fo", False, "NSE F&O end-of-day archive", [PY, *STREAM, "--source", "nse_fo_bhavcopy"]),
     ("bse_cash", False, "BSE end-of-day prices (raw only)", [PY, *STREAM, "--source", "bse_bhavcopy"]),
     ("amfi_nav", False, "AMFI NAVs (today's file)", [PY, *STREAM, "--source", "amfi_navall"]),
