@@ -10,6 +10,7 @@ import { Decision } from "./pages/Decision";
 import { Defensive } from "./pages/Defensive";
 import { Funds } from "./pages/Funds";
 import { LiveCompare } from "./pages/LiveCompare";
+import { Plan } from "./pages/Plan";
 import { Portfolio } from "./pages/Portfolio";
 import { Profile } from "./pages/Profile";
 import { ReportView, Research } from "./pages/Research";
@@ -32,6 +33,7 @@ export default function App() {
       <Route path="/change-password" element={<ChangePassword />} />
       <Route element={<Guard><Shell /></Guard>}>
         <Route index element={<Dashboard />} />
+        <Route path="plan" element={<Plan />} />
         <Route path="profile" element={<Profile />} />
         <Route path="portfolio" element={<Portfolio />} />
         <Route path="decision" element={<Decision />} />

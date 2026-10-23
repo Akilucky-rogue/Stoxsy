@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, post, put, ApiError, type ModeAuditRow, type Pot, type Profile, type ProfilePut, type ImportResult, type PortfolioSummary, type AdminUser, type DecisionBook, type AlertList, type AlertSummary, type LiveModels, type LiveSummary, type LivePredictionList, type FundList, type FundFacets, type FundDetail, type AuditRow, type DefensiveLatest, type ReportBody, type ReportItem, type SystemStatus } from "./api";
+import { api, del, patch, post, put, ApiError, type Balance, type Goal, type GoalIn, type InvestorPlan, type ModeAuditRow, type Pot, type Profile, type ProfilePut, type ImportResult, type PortfolioSummary, type AdminUser, type DecisionBook, type AlertList, type AlertSummary, type LiveModels, type LiveSummary, type LivePredictionList, type FundList, type FundFacets, type FundDetail, type AuditRow, type DefensiveLatest, type ReportBody, type ReportItem, type SystemStatus } from "./api";
 
 const stale = 60_000;
 
@@ -57,7 +57,7 @@ export const useUpdateProfile = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (b: ProfilePut) => put<Profile>("/api/me/profile", b),
-    onSuccess: (p) => { qc.setQueryData(["profile"], p); void qc.invalidateQueries({ queryKey: ["mode-audit"] }); void qc.invalidateQueries({ queryKey: ["portfolio"] }); },
+    onSuccess: (p) => { qc.setQueryData(["profile"], p); void qc.invalidateQueries({ queryKey: ["mode-audit"] }); void qc.invalidateQueries({ queryKey: ["portfolio"] }); void qc.invalidateQueries({ queryKey: ["plan"] }); },
   });
 };
 
@@ -107,3 +107,13 @@ export const useAcknowledgeAlert = () => {
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ["alerts"] }); void qc.invalidateQueries({ queryKey: ["alert-summary"] }); },
   });
 };
+
+const invalidatePlan = (qc: ReturnType<typeof useQueryClient>) => { void qc.invalidateQueries({ queryKey: ["plan"] }); void qc.invalidateQueries({ queryKey: ["goals"] }); void qc.invalidateQueries({ queryKey: ["balances"] }); void qc.invalidateQueries({ queryKey: ["mode-audit"] }); };
+export const usePlan = () => useQuery({ queryKey: ["plan"], queryFn: () => api<InvestorPlan>("/api/investor/plan"), staleTime: stale, retry: false });
+export const useGoals = () => useQuery({ queryKey: ["goals"], queryFn: () => api<Goal[]>("/api/investor/goals"), staleTime: stale });
+export const useBalances = () => useQuery({ queryKey: ["balances"], queryFn: () => api<Balance[]>("/api/investor/balances"), staleTime: stale });
+export const useAddGoal = () => { const qc = useQueryClient(); return useMutation({ mutationFn: (g: GoalIn) => post<{ id: number }>("/api/investor/goals", g), onSuccess: () => invalidatePlan(qc) }); };
+export const useEditGoal = () => { const qc = useQueryClient(); return useMutation({ mutationFn: (x: { id: number; body: Partial<GoalIn> }) => patch<{ id: number }>(`/api/investor/goals/${x.id}`, x.body), onSuccess: () => invalidatePlan(qc) }); };
+export const useArchiveGoal = () => { const qc = useQueryClient(); return useMutation({ mutationFn: (id: number) => del<unknown>(`/api/investor/goals/${id}`), onSuccess: () => invalidatePlan(qc) }); };
+export const useAddBalance = () => { const qc = useQueryClient(); return useMutation({ mutationFn: (b: Omit<Balance, "id">) => post<{ id: number }>("/api/investor/balances", b), onSuccess: () => invalidatePlan(qc) }); };
+export const useArchiveBalance = () => { const qc = useQueryClient(); return useMutation({ mutationFn: (id: number) => del<unknown>(`/api/investor/balances/${id}`), onSuccess: () => invalidatePlan(qc) }); };

@@ -83,6 +83,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export const post = <T>(path: string, body?: unknown) => api<T>(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) });
 export const put = <T>(path: string, body: unknown) => api<T>(path, { method: "PUT", body: JSON.stringify(body) });
+export const del = <T>(path: string) => api<T>(path, { method: "DELETE" });
 export const patch = <T>(path: string, body: unknown) => api<T>(path, { method: "PATCH", body: JSON.stringify(body) });
 
 // ── response shapes (mirror api/routes/*.py) ───────────────────────
@@ -218,13 +219,44 @@ export interface AlertList { n_matching: number; offset: number; rows: AlertRow[
 export interface AlertSummary { open: { critical: number; warning: number; info: number }; acknowledged: number; last_run: string | null; stale: boolean }
 
 export interface Profile {
-  user_id: string; mode: Mode; lens_pot: Pot; risk_profile: string | null; investment_capital: number | null; trading_capital: number | null; emergency_fund: number | null;
+  user_id: string; mode: Mode; lens_pot: Pot; risk_profile: string | null; income_stability: string | null; dependents: number | null; drawdown_reaction: string | null; investment_capital: number | null; trading_capital: number | null; emergency_fund: number | null;
   trading_share_of_investable: number | null; effective_limits: Record<string, number>; limit_defaults: Record<string, number>; limit_ceilings: Record<string, number>;
   loosened_limits: string[]; engine_approved: boolean; warnings: string[]; policy_version: string; disclaimer: string;
   rules: { trader: { losing_streak: { stops: number; half_size_next_trades: number; multiplier: number }; time_stop_sessions: number[]; averaging_down: boolean }; pots: { trading_max_share_of_investable: number }; guardrails: string[] };
 }
 export interface ProfilePut {
+  income_stability?: "stable" | "variable" | "uncertain"; dependents?: number; drawdown_reaction?: "add" | "hold" | "sell_some" | "sell_all"; risk_profile?: string;
   mode?: Mode; investment_capital?: number | null; trading_capital?: number | null; emergency_fund?: number | null; limits?: Record<string, number>;
   approval_note?: string; trading_override_note?: string;
 }
 export interface ModeAuditRow { ts: string; action: string; actor_role: string | null; payload: Record<string, unknown> }
+
+export type Mix = { equity: number; gold: number; debt: number };
+export interface Goal { id: number; name: string; kind: "goal" | "emergency"; target_amount: number; target_date: string; current_amount: number; monthly_sip: number; priority: number; is_test: boolean }
+export interface GoalIn { name: string; kind: "goal" | "emergency"; target_amount: number; target_date: string; current_amount: number; monthly_sip: number; priority?: number; is_test?: boolean }
+export interface Balance { id: number; asset_class: "equity" | "gold" | "debt"; label: string; amount: number; as_of: string }
+export interface Stress { cagr: number; vol: number; max_drawdown: number; peak: string; trough: string; recovery_days: number | null; worst_12m: number | null; start: string; end: string; years: number }
+export interface Projection {
+  run_id: string; n_blocks_in_history: number; label: string; contributed: number; prob_below_contributed: number;
+  inputs: { months: number; paths: number; block_months: number; seed: number; inflation: number; history_start: string; history_end: string; history_months: number; contribution_timing: string; return_basis: string };
+  percentiles: Record<string, { nominal: number; real: number }>; prob_reach_target: { nominal: number; real: number };
+  fan: { months: number[]; [q: string]: number[] };
+}
+export interface Tradeoffs { want_probability: number; current_probability: number; on_track: boolean; monthly_contribution_needed?: number; extra_months_needed?: number | null; target_reachable_at_probability?: number; note?: string }
+export interface GoalPlan {
+  id: number; name: string; kind: "goal" | "emergency"; target_amount: number; target_date: string; current_amount: number; monthly_sip: number; years_left: number; is_test: boolean;
+  status: "on_track" | "off_track" | "past_due"; headline: string; profile?: string; profile_reasons?: string[]; mix?: Mix; glide?: boolean; stress?: Stress; projection?: Projection;
+  gate?: { binding: boolean; met: boolean; tolerated_fall: number; final_max_drawdown: number; steps: { equity: number; max_drawdown: number }[] } | null;
+  sensitivity?: { block_months: number; prob_reach_target_nominal: number; median_nominal: number }[]; haircut?: { points_per_year: number; prob_reach_target_nominal: number; median_nominal: number }[]; tradeoffs?: Tradeoffs;
+}
+export interface BandRow { class: keyof Mix; current: number; target: number; drift_points: number; breach: boolean; rule: string | null }
+export interface Rebalance {
+  action: "no_action" | "direct_sip" | "rebalance" | "data_incomplete" | "no_data"; headline: string; bands: BandRow[]; sip_split: Partial<Mix>; trades: { class: keyof Mix; side: "buy" | "sell"; amount: number }[];
+  next_review: string; tax_note: string; band_rule: string; months_to_fix?: number; unclassified_share?: number;
+}
+export interface InvestorPlan {
+  status: "needs_input" | "needs_goal" | "ok"; headline: string; as_of: string; label: string; needs?: string[]; notes: string[]; policy_version: string; emergency_fund: number | null;
+  history: { start: string; end: string; months: number; proxies: Record<string, { series: string; basis: string }>; notes: string[] };
+  current: { values: Mix; parts: Record<keyof Mix, { label: string; value: number; source: string }[]>; unclassified: { symbol: string; value: number; reason: string }[]; total_classified: number };
+  goals: GoalPlan[]; target?: Mix | null; rebalance?: Rebalance; stress?: Stress; holdings_priced_at?: string | null; balances?: Balance[];
+}

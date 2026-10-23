@@ -222,3 +222,13 @@ def test_debt_basket_is_the_median_and_ignores_bad_prints():
     b = H.debt_basket(nav)
     assert b.iloc[0] == pytest.approx(0.000125) and b.iloc[1] == pytest.approx(0.00015, rel=0.02)    # day 2: the +100% print of scheme 4 is excluded, median of the other three
     assert (b.abs() < 0.01).all()
+
+
+def test_a_return_haircut_lowers_the_outcome_and_is_part_of_the_run_identity():
+    m = monthly()
+    mix = P.target_mix("growth")
+    base = P.project(m, mix, 0, 20_000, 120, 4_000_000, 10)
+    cut = P.project(m, mix, 0, 20_000, 120, 4_000_000, 10, haircut_points=3.0)
+    assert cut["percentiles"]["50"]["nominal"] < base["percentiles"]["50"]["nominal"] and cut["prob_reach_target"]["nominal"] <= base["prob_reach_target"]["nominal"] and cut["run_id"] != base["run_id"]
+    h = P.haircut_sensitivity(m, mix, 0, 20_000, 120, 4_000_000, 10)
+    assert [x["points_per_year"] for x in h] == [2, 4] and h[1]["median_nominal"] < h[0]["median_nominal"] < base["percentiles"]["50"]["nominal"]

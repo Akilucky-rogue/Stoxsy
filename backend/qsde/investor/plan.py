@@ -224,13 +224,13 @@ def block_indices(rng: np.random.Generator, n_hist: int, months: int, block: int
     return idx[:, :months]
 
 
-def simulate(hist_monthly: pd.DataFrame, sched: np.ndarray, start_value: float, monthly_contribution: float, paths: int, block: int, seed: int) -> np.ndarray:
+def simulate(hist_monthly: pd.DataFrame, sched: np.ndarray, start_value: float, monthly_contribution: float, paths: int, block: int, seed: int, haircut_per_year: float = 0.0) -> np.ndarray:
     """Terminal path matrix (paths x (months+1)) of portfolio value: contribute at the start of each month, then earn that month's bootstrapped return."""
     R = hist_monthly[list(CLASSES)].to_numpy()
     months = sched.shape[0]
     rng = np.random.default_rng(seed)
     idx = block_indices(rng, len(R), months, block, paths)
-    pr = (R[idx] * sched[None, :, :]).sum(axis=2)                       # paths x months portfolio return
+    pr = (R[idx] * sched[None, :, :]).sum(axis=2) - haircut_per_year / 12.0         # paths x months portfolio return, less any stress haircut
     v = np.empty((paths, months + 1))
     v[:, 0] = start_value
     for t in range(months):
@@ -239,7 +239,8 @@ def simulate(hist_monthly: pd.DataFrame, sched: np.ndarray, start_value: float, 
 
 
 def project(hist_monthly: pd.DataFrame, mix: dict, start_value: float, monthly_contribution: float, months: int, target: float, years_left: float, glide: bool = False,
-            paths: Optional[int] = None, block: Optional[int] = None, seed: Optional[int] = None, inflation: Optional[float] = None, policy: Optional[dict] = None) -> dict:
+            paths: Optional[int] = None, block: Optional[int] = None, seed: Optional[int] = None, inflation: Optional[float] = None, policy: Optional[dict] = None,
+            haircut_points: float = 0.0) -> dict:
     p = policy or pol.load_policy()
     cfg = p["investor"]["projection"]
     paths, block, seed = paths or cfg["paths"], block or cfg["block_months"], cfg["seed_default"] if seed is None else seed
@@ -247,7 +248,7 @@ def project(hist_monthly: pd.DataFrame, mix: dict, start_value: float, monthly_c
     if len(hist_monthly) < cfg["min_history_months"]:
         raise ValueError(f"only {len(hist_monthly)} months of history; at least {cfg['min_history_months']} are needed")
     sched = weight_schedule(mix, months, years_left, glide, p)
-    v = simulate(hist_monthly, sched, start_value, monthly_contribution, paths, block, seed)
+    v = simulate(hist_monthly, sched, start_value, monthly_contribution, paths, block, seed, haircut_points / 100.0)
     end = v[:, -1]
     deflator = (1.0 + inflation) ** (months / 12.0)
     pct = lambda a, q: float(np.percentile(a, q))                          # noqa: E731
@@ -255,7 +256,7 @@ def project(hist_monthly: pd.DataFrame, mix: dict, start_value: float, monthly_c
     fan_idx = sorted(set(list(range(0, months + 1, max(1, months // 60))) + [months]))
     inputs = {"mix": {k: round(mix[k], 6) for k in CLASSES}, "start_value": start_value, "monthly_contribution": monthly_contribution, "months": months, "target": target, "glide": glide,
               "paths": paths, "block_months": block, "seed": seed, "inflation": inflation, "history_start": str(hist_monthly.index[0].date()), "history_end": str(hist_monthly.index[-1].date()),
-              "history_months": int(len(hist_monthly)), "contribution_timing": "start of each month", "return_basis": "nominal monthly proxy returns (equity and gold price return, debt total return)"}
+              "history_months": int(len(hist_monthly)), "haircut_points_per_year": haircut_points, "contribution_timing": "start of each month", "return_basis": "nominal monthly proxy returns (equity and gold price return, debt total return)"}
     run_id = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()[:16]
     contributed = start_value + monthly_contribution * months
     return {
@@ -314,4 +315,15 @@ def tradeoffs(hist_monthly: pd.DataFrame, mix: dict, start_value: float, monthly
     out["target_reachable_at_probability"] = float(np.percentile(simulate(hist_monthly, weight_schedule(mix, months, years_left, glide, p), start_value, monthly_contribution,
                                                                                cfg["paths"], cfg["block_months"], sd)[:, -1], (1 - want_prob) * 100))
     out["note"] = "Levers shown with the risk profile held fixed: a higher SIP, a later date, or a smaller target. Taking more equity risk to chase the target is not offered."
+    return out
+
+
+def haircut_sensitivity(hist_monthly: pd.DataFrame, mix: dict, start_value: float, monthly_contribution: float, months: int, target: float, years_left: float, glide: bool = False,
+                        seed: Optional[int] = None, policy: Optional[dict] = None) -> list:
+    """Probability of reaching the target if every return is lower by a fixed number of points a year: how much the answer leans on the last decade being generous."""
+    p = policy or pol.load_policy()
+    out = []
+    for pts in p["investor"]["projection"]["haircut_points_per_year"]:
+        r = project(hist_monthly, mix, start_value, monthly_contribution, months, target, years_left, glide, seed=seed, policy=p, haircut_points=pts)
+        out.append({"points_per_year": pts, "prob_reach_target_nominal": r["prob_reach_target"]["nominal"], "median_nominal": r["percentiles"]["50"]["nominal"]})
     return out

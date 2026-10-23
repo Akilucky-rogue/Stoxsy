@@ -64,6 +64,7 @@ def goal_plan(g: dict, profile: dict, hist: H.History, today: date, policy: dict
     want = policy["investor"]["projection"]["on_track_probability"]
     prob = proj["prob_reach_target"]["nominal"]
     res = {**out, "status": "on_track" if prob >= want else "off_track", "profile": prof, "profile_reasons": reasons, "mix": mix, "gate": gated, "stress": stats, "projection": proj, "glide": glide,
+           "haircut": P.haircut_sensitivity(hist.monthly, mix, float(g["current_amount"]), float(g["monthly_sip"]), months, float(g["target_amount"]), yl, glide, policy=policy),
            "sensitivity": P.sensitivity(hist.monthly, mix, float(g["current_amount"]), float(g["monthly_sip"]), months, float(g["target_amount"]), yl, glide, policy=policy)}
     if prob < want:
         res["tradeoffs"] = P.tradeoffs(hist.monthly, mix, float(g["current_amount"]), float(g["monthly_sip"]), months, float(g["target_amount"]), yl, glide, want_prob=want, policy=policy)
