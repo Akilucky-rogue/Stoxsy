@@ -154,9 +154,18 @@ def test_series_mismatch_and_bse_source_rules():
 def test_bucket_a_progress_alert_and_decisions_file_are_consistent():
     from qsde.ingestion import bucket_a_decisions as D
     d = D.load()
-    assert len(d["decisions"]) == 10 and {x["decision"] for x in d["decisions"]} == {"confirm", "needs_more_evidence"}
-    assert [x["symbol"] for x in d["decisions"] if x["decision"] == "confirm"] == ["ENGINERSIN", "BEL", "ASTRAL", "INOXWIND", "CUB", "TATAINVEST"]
-    pr = D.progress(d, keys={(x["symbol"], x["ex_date"]) for x in d["decisions"]} | {("X", f"2020-01-{i:02d}") for i in range(1, 60)})
+    first10 = [x for x in d["decisions"] if x["decided_at"] == "2026-10-20"]
+    assert len(first10) == 10 and {x["decision"] for x in first10} == {"confirm", "needs_more_evidence"}
+    assert [x["symbol"] for x in first10 if x["decision"] == "confirm"] == ["ENGINERSIN", "BEL", "ASTRAL", "INOXWIND", "CUB", "TATAINVEST"]
+    # all 69 are now adjudicated (23 Oct: packet recommendations accepted, SONAMLTD held by owner exception)
+    assert len(d["decisions"]) == 69 and {x["decision"] for x in d["decisions"]} == {"confirm", "needs_more_evidence", "reject"}
+    son = [x for x in d["decisions"] if x["symbol"] == "SONAMLTD"]
+    assert len(son) == 1 and son[0]["decision"] == "needs_more_evidence" and "rename" in son[0]["reason"]
+    full = D.progress(d, keys={(x["symbol"], x["ex_date"]) for x in d["decisions"]})
+    assert (full["total"], full["decided"], full["pending"], full["confirm"], full["needs_more_evidence"], full["reject"]) == (69, 69, 0, 31, 34, 4)
+    # the alert's partial-progress behaviour, on the first ten decisions only
+    part = {"decisions": first10}
+    pr = D.progress(part, keys={(x["symbol"], x["ex_date"]) for x in first10} | {("X", f"2020-01-{i:02d}") for i in range(1, 60)})
     assert (pr["total"], pr["decided"], pr["pending"], pr["confirm"], pr["needs_more_evidence"]) == (69, 10, 59, 6, 4) and pr["unknown"] == []
     a = R.rule_bucket_a({"bucket_a": {**pr, "fingerprint": "x"}}, CFG)
     assert kinds(a) == [("ca_bucket_a_progress", "info")] and "10 of 69" in a[0]["title"] and "rebuild waits" in a[0]["detail"]
