@@ -33,6 +33,10 @@ class Update:
     approval_note: Optional[str] = None           # admin note to loosen a limit above its default
     trading_override_note: Optional[str] = None   # admin note to exceed the trading-pot share guard
     set_fields: set = field(default_factory=set)  # which capital fields were explicitly sent (so null can clear)
+    income_stability: Optional[str] = None
+    dependents: Optional[int] = None
+    drawdown_reaction: Optional[str] = None
+    risk_profile: Optional[str] = None            # an optional choice that may only LOWER the derived profile; checked by the plan, stored as given
 
 
 @dataclass
@@ -45,7 +49,8 @@ class Plan:
 
 def blank(policy_version: str) -> dict:
     return {"mode": "investor", "risk_profile": None, "capacity_score": None, "tolerance_score": None, "investment_capital": None,
-            "trading_capital": None, "emergency_fund": None, "limits": {}, "policy_version": policy_version}
+            "trading_capital": None, "emergency_fund": None, "limits": {}, "policy_version": policy_version,
+            "income_stability": None, "dependents": None, "drawdown_reaction": None}
 
 
 def plan_update(current: dict, u: Update, is_admin: bool, policy: Optional[dict] = None, approved_engine: bool = False) -> Plan:
@@ -72,6 +77,31 @@ def plan_update(current: dict, u: Update, is_admin: bool, policy: Optional[dict]
                 if chk["overridden"]:
                     payload["override_note"] = u.trading_override_note.strip()
                 plan.audits.append(("capital.change", payload))
+    q = {}
+    opts = p["investor"]["questionnaire"]
+    if u.income_stability is not None:
+        if u.income_stability not in opts["income_stability"]["options"]:
+            plan.errors.append(f"income_stability must be one of {', '.join(opts['income_stability']['options'])}")
+        elif u.income_stability != current.get("income_stability"):
+            q["income_stability"] = u.income_stability
+    if u.dependents is not None:
+        if u.dependents < 0 or u.dependents > 20:
+            plan.errors.append("dependents must be between 0 and 20")
+        elif u.dependents != current.get("dependents"):
+            q["dependents"] = u.dependents
+    if u.drawdown_reaction is not None:
+        if u.drawdown_reaction not in opts["drawdown_reaction"]["options"]:
+            plan.errors.append(f"drawdown_reaction must be one of {', '.join(opts['drawdown_reaction']['options'])}")
+        elif u.drawdown_reaction != current.get("drawdown_reaction"):
+            q["drawdown_reaction"] = u.drawdown_reaction
+    if u.risk_profile is not None:
+        if u.risk_profile not in p["investor"]["risk_profiles"]:
+            plan.errors.append(f"risk_profile must be one of {', '.join(p['investor']['risk_profiles'])}")
+        elif u.risk_profile != current.get("risk_profile"):
+            q["risk_profile"] = u.risk_profile
+    if q:
+        plan.changes.update(q)
+        plan.audits.append(("questionnaire.change", {"before": {k: current.get(k) for k in q}, "after": q}))
     if u.limits:
         chk = pol.check_limit_changes(u.limits, current.get("limits"), p, approved_engine)
         plan.errors += chk.errors

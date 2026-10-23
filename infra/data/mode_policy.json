@@ -103,7 +103,9 @@
       "seed_default": 20261023,
       "inflation_assumption": 0.05,
       "inflation_note": "An ASSUMPTION, not data: real values are the nominal path deflated at this rate.",
-      "min_history_months": 60
+      "min_history_months": 60,
+      "on_track_probability": 0.5,
+      "on_track_note": "On track = the share of scenarios that reach the target is at least this. The probability itself is always shown."
     },
     "risk_profiles": {
       "conservative": {

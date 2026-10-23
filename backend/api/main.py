@@ -59,6 +59,7 @@ from api.routes.funds import router as funds_router
 from api.routes.live_compare import router as live_compare_router
 from api.routes.alerts import router as alerts_router
 from api.routes.me import router as me_router
+from api.routes.investor import router as investor_router
 
 app = FastAPI(
     title="Stoxsy -- Quantitative Stock Decision Engine",
@@ -104,6 +105,7 @@ app.include_router(funds_router,     prefix="/api", tags=["funds"])
 app.include_router(live_compare_router, prefix="/api", tags=["live-compare"])
 app.include_router(alerts_router,    prefix="/api", tags=["alerts"])
 app.include_router(me_router,        prefix="/api", tags=["modes"])
+app.include_router(investor_router,  prefix="/api", tags=["investor"])
 
 
 @app.get("/")

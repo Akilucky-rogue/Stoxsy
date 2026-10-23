@@ -25,6 +25,10 @@ class ProfilePut(BaseModel):
     trading_capital: Optional[float] = Field(default=None, ge=0)
     emergency_fund: Optional[float] = Field(default=None, ge=0)
     limits: Optional[dict[str, float]] = None
+    income_stability: Optional[str] = None
+    dependents: Optional[int] = Field(default=None, ge=0, le=20)
+    drawdown_reaction: Optional[str] = None
+    risk_profile: Optional[str] = None
     approval_note: Optional[str] = Field(default=None, max_length=500)
     trading_override_note: Optional[str] = Field(default=None, max_length=500)
 
@@ -34,6 +38,9 @@ class ProfileOut(BaseModel):
     mode: str
     lens_pot: str
     risk_profile: Optional[str]
+    income_stability: Optional[str] = None
+    dependents: Optional[int] = None
+    drawdown_reaction: Optional[str] = None
     investment_capital: Optional[float]
     trading_capital: Optional[float]
     emergency_fund: Optional[float]
@@ -65,7 +72,8 @@ def _view(user_id: str, row: dict, warnings: list) -> ProfileOut:
     notes = list(warnings) + [w for w in chk["warnings"] if "override" not in w and w not in warnings]
     if chk["errors"]:                      # an earlier override-approved state stays visible
         notes.append("trading pot is above the guard (an audited override is on record)")
-    return ProfileOut(user_id=user_id, mode=row["mode"], lens_pot=pol.pot_for_mode(row["mode"]), risk_profile=row["risk_profile"],
+    return ProfileOut(user_id=user_id, mode=row["mode"], lens_pot=pol.pot_for_mode(row["mode"]), risk_profile=row["risk_profile"], income_stability=row.get("income_stability"),
+                      dependents=row.get("dependents"), drawdown_reaction=row.get("drawdown_reaction"),
                       investment_capital=row["investment_capital"], trading_capital=row["trading_capital"], emergency_fund=row["emergency_fund"],
                       trading_share_of_investable=(chk["trading_share"] if inv + trd > 0 else None), effective_limits=eff, limit_defaults=pol.defaults(policy),
                       limit_ceilings={k: pol.ceiling_for(k, policy, approved) for k in policy["trader_limits"]},
@@ -85,6 +93,7 @@ def put_profile(body: ProfilePut, p: Principal = Depends(require_role("admin", "
     sent = body.model_fields_set
     u = prof.Update(mode=body.mode, investment_capital=body.investment_capital, trading_capital=body.trading_capital, emergency_fund=body.emergency_fund,
                     limits=body.limits, approval_note=body.approval_note, trading_override_note=body.trading_override_note,
+                    income_stability=body.income_stability, dependents=body.dependents, drawdown_reaction=body.drawdown_reaction, risk_profile=body.risk_profile,
                     set_fields={f for f in prof.CAPITAL_FIELDS if f in sent})
     try:
         with get_sync_conn() as c:
