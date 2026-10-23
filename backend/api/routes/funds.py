@@ -196,8 +196,10 @@ def fund_detail(scheme_code: int, window: str = Query("3y", pattern="^(1y|3y|5y|
                 from qsde.ml import data as mldata
                 bx = mldata.load_prices(["NIFTYBEES"], start=str(w.index[0].date()))
                 if len(bx):
-                    b = bx.set_index("date")["close"].reindex(eq.index, method="ffill").dropna()
+                    from qsde.funds.returns import trim_after_unit_change
+                    bser, cut = trim_after_unit_change(bx.set_index("date")["close"].astype(float))        # the ETF had an unadjusted unit change in 2019
+                    b = bser.reindex(eq.index, method="ffill").dropna()
                     if len(b) >= 2:
-                        bench = {"label": "Nifty 50 ETF (NIFTYBEES) price return: a tradable proxy for the index, shown for context only",
+                        bench = {"label": "Nifty 50 ETF (NIFTYBEES) price return: a tradable proxy for the index, shown for context only" + (f"; shown from {b.index[0].date()} because of a unit change in the ETF's price on {cut.date()}" if cut is not None else ""),
                                  "dates": [str(x.date()) for x in b.index], "value": [float(x) for x in (b / b.iloc[0] * 100.0).values]}
     return FundDetail(fund=row, window=window, series=series, benchmark=bench, events=events)

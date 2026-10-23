@@ -189,3 +189,14 @@ def test_detailed_statuses_say_why_a_horizon_is_missing_and_risk_flags_unit_chan
     assert risk_metrics_detailed(jumped, window_days=1400)["status"] == "nav_discontinuity"
     assert risk_metrics_detailed(nav_series(n=30))["status"] == "insufficient_history"
     assert risk_metrics_detailed(nav_series(n=400))["status"] == "ok"
+
+
+def test_trim_after_unit_change_starts_the_line_after_the_last_cliff():
+    from qsde.funds.returns import trim_after_unit_change
+    idx = pd.bdate_range("2019-01-01", periods=600)
+    s = pd.Series(1000.0 * (1.0003 ** np.arange(600)), index=idx)
+    s.iloc[300:] = s.iloc[300:] / 10.0                                  # a 1:10 unit change
+    t, cut = trim_after_unit_change(s)
+    assert cut == idx[300] and t.index[0] == idx[300] and t.pct_change().abs().max() < 0.5
+    same, none = trim_after_unit_change(s.iloc[300:])
+    assert none is None and len(same) == 300

@@ -62,6 +62,8 @@ def history(h: pd.DataFrame, closes: pd.DataFrame, bench: Optional[pd.Series], l
            "current_drawdown": float(dd.iloc[-1]), "var95_1d": float(-np.percentile(ret, 5)), "worst_day": float(ret.min()),
            "series": {"date": [str(d.date()) for d in eq.index], "value": [float(x) for x in eq.values], "drawdown": [float(x) for x in dd.values]}}
     if bench is not None:
+        from qsde.funds.returns import trim_after_unit_change
+        bench, _ = trim_after_unit_change(bench.astype(float))        # a benchmark ETF with an unadjusted unit change must not show a false cliff
         b = bench.sort_index().reindex(full.index).ffill().dropna()
         if len(b) >= 30:
             bret = b.pct_change().dropna()

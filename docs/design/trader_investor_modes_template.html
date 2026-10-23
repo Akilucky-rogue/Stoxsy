@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Stoxsy: Trader mode and Investor mode</title>
+<style>
+:root{--bg:#f6f8fa;--card:#fff;--ink:#14202b;--mut:#5b6b7a;--line:#dfe5ea;--brand:#0a8f6a;--blue:#2563eb;--red:#c0392b;--amber:#b7791f;--soft:#eef3f7;--trader:#d9480f;--investor:#0a8f6a}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1720;--card:#16212c;--ink:#e6edf3;--mut:#9fb0bf;--line:#26343f;--brand:#2fc79a;--blue:#6ea0ff;--red:#ff7b6b;--amber:#f2b84b;--soft:#1b2a36;--trader:#ff8a4c;--investor:#2fc79a}}
+*{box-sizing:border-box}body{margin:0;font:15px/1.55 system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+main{max-width:1080px;margin:0 auto;padding:20px 16px 90px}h1{font-size:1.7rem;margin:.2rem 0}h2{font-size:1.2rem;margin:0 0 .5rem}h3{font-size:1rem;margin:.8rem 0 .3rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin:16px 0}.muted{color:var(--mut)}.row{display:flex;gap:16px;flex-wrap:wrap}.col{flex:1 1 360px;min-width:0}
+.pill{display:inline-block;padding:2px 10px;border-radius:99px;font-size:.78rem;font-weight:600;color:#fff}.pill.t{background:var(--trader)}.pill.i{background:var(--investor)}
+table{border-collapse:collapse;width:100%;font-size:.92rem}th,td{border-top:1px solid var(--line);padding:7px 8px;text-align:left;vertical-align:top}th{color:var(--mut);font-weight:600}
+td.t{border-left:4px solid var(--trader)}td.i{border-left:4px solid var(--investor)}
+label{display:block;font-size:.85rem;color:var(--mut);margin-top:8px}input[type=range]{width:100%}.val{font-weight:700;color:var(--ink)}
+button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:7px 12px;border-radius:10px;cursor:pointer}button.primary{background:var(--brand);color:#fff;border-color:transparent}
+svg{width:100%;height:auto;display:block}.kpi{display:flex;gap:10px;flex-wrap:wrap;margin:8px 0}.kpi div{flex:1 1 120px;background:var(--soft);border-radius:10px;padding:8px 10px}.kpi b{display:block;font-size:1.15rem}.kpi span{font-size:.78rem;color:var(--mut)}
+.note{background:var(--soft);border-radius:10px;padding:10px 12px;font-size:.88rem}.warn{border-left:4px solid var(--amber)}
+.flow{display:flex;gap:6px;flex-wrap:wrap;align-items:stretch}.flow .step{flex:1 1 130px;background:var(--soft);border-radius:10px;padding:8px 10px;font-size:.85rem;position:relative}.flow .step b{display:block;margin-bottom:2px}
+.flow.t .step{border-top:3px solid var(--trader)}.flow.i .step{border-top:3px solid var(--investor)}
+@keyframes pop{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}.flow .step{animation:pop .5s both}.flow .step:nth-child(2){animation-delay:.12s}.flow .step:nth-child(3){animation-delay:.24s}.flow .step:nth-child(4){animation-delay:.36s}.flow .step:nth-child(5){animation-delay:.48s}.flow .step:nth-child(6){animation-delay:.6s}
+</style></head><body><main>
+<h1>Stoxsy: <span style="color:var(--trader)">Trader mode</span> and <span style="color:var(--investor)">Investor mode</span></h1>
+<p class="muted">Two different mindsets, so two different tools on the same honest foundation. Everything below is interactive. Numbers marked <i>history</i> are measured from your own loaded data (2016 to 2026); nothing here is a forecast or advice.</p>
+
+<section class="card">
+  <h2>1. Same market, different questions</h2>
+  <svg viewBox="0 0 900 190" role="img" aria-label="Time horizon: a trader works in days and weeks, an investor in years">
+    <defs><marker id="ah" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="currentColor"/></marker></defs>
+    <text x="10" y="22" font-size="13" font-weight="700" fill="currentColor">Time horizon of a typical decision</text>
+    <line x1="40" y1="100" x2="880" y2="100" stroke="currentColor" opacity=".35" stroke-width="2" marker-end="url(#ah)"/>
+    <g font-size="11" fill="currentColor" opacity=".75"><text x="40" y="122">today</text><text x="150" y="122">1 week</text><text x="250" y="122">1 month</text><text x="400" y="122">1 year</text><text x="580" y="122">5 years</text><text x="780" y="122">20+ years</text></g>
+    <rect x="40" y="52" width="230" height="30" rx="8" fill="var(--trader)" opacity=".9"><animate attributeName="width" from="0" to="230" dur="1.4s" fill="freeze"/></rect>
+    <text x="50" y="72" font-size="12" fill="#fff" font-weight="700">Trader: hours to ~20 sessions</text>
+    <rect x="330" y="132" width="540" height="30" rx="8" fill="var(--investor)" opacity=".9"><animate attributeName="width" from="0" to="540" dur="1.8s" fill="freeze"/></rect>
+    <text x="340" y="152" font-size="12" fill="#fff" font-weight="700">Investor: 3 to 30 years, reviewed quarterly</text>
+  </svg>
+  <table>
+    <tr><th></th><th>Trader mode</th><th>Investor mode</th></tr>
+    <tr><th>Mindset</th><td class="t">"Is there a setup worth the risk <b>right now</b>, and exactly where am I wrong?"</td><td class="i">"Is my money arranged to reach my goals, and what (if anything) should I change?"</td></tr>
+    <tr><th>Objective</th><td class="t">Positive expectancy <b>after costs</b> with a loss limit you can survive</td><td class="i">Reach the goal with a drawdown you can live with, low cost, little tinkering</td></tr>
+    <tr><th>The number that matters</th><td class="t">Risk per trade (R), open risk, expectancy in R, drawdown</td><td class="i">Allocation vs target, chance of reaching the goal (a range), worst fall, years to recover</td></tr>
+    <tr><th>Sizing</th><td class="t">Shares = risk budget / stop distance (capped by liquidity and correlation)</td><td class="i">Weights from a risk profile, monthly SIP needed, rebalance when drift passes a band</td></tr>
+    <tr><th>Output</th><td class="t">What, where (entry), stop, target, time stop, how many shares, till when</td><td class="i">Target mix, current gaps, what to add or trim, next review date, goal range</td></tr>
+    <tr><th>Evidence shown</th><td class="t">Live compare: hit rate, expectancy, calibration, drift. Paper first.</td><td class="i">Historical behaviour of the plan (labelled), peer context, data-quality badges</td></tr>
+    <tr><th>Does not do</th><td class="t">Place orders, promise direction, size beyond risk caps</td><td class="i">Time the market, predict returns, give tax advice</td></tr>
+  </table>
+</section>
+
+<section class="card">
+  <h2><span class="pill t">TRADER</span> 2. Position size: where am I wrong, and how much can that cost?</h2>
+  <p class="muted">Move the sliders. The shares come from your stop, not from a hunch: a wider stop means fewer shares so that being wrong always costs the same fixed amount.</p>
+  <div class="row"><div class="col">
+    <label>Trading capital: <span class="val" id="tcV"></span><input id="tc" type="range" min="100000" max="2500000" step="50000" value="500000"></label>
+    <label>Risk per trade: <span class="val" id="trV"></span><input id="tr" type="range" min="0.1" max="2" step="0.1" value="0.5"></label>
+    <label>Entry price (Rs): <span class="val" id="tpV"></span><input id="tp" type="range" min="50" max="5000" step="10" value="1200"></label>
+    <label>Stop distance: <span class="val" id="tsV"></span> (in %; the system uses 2.5 typical daily moves)<input id="ts" type="range" min="1" max="15" step="0.5" value="5"></label>
+    <div class="kpi"><div><b id="kSh"></b><span>shares</span></div><div><b id="kPos"></b><span>position value</span></div><div><b id="kRisk"></b><span>lost if stopped (all costs aside)</span></div><div><b id="kW"></b><span>of capital in this trade</span></div></div>
+    <div class="note">Open-risk limit: <b>4%</b> of capital across all trades at once. This trade uses <b id="kHeat"></b> of it; <b id="kMax"></b> such trades would hit the limit.</div>
+  </div><div class="col"><svg id="trSvg" viewBox="0 0 440 250" role="img" aria-label="Entry, stop and target ladder"></svg></div></div>
+</section>
+
+<section class="card">
+  <h2><span class="pill t">TRADER</span> 3. Why a good system still has bad streaks (and why we need 60+ resolved ideas)</h2>
+  <p class="muted">Each line is one possible run of trades with the hit rate and payoff you set. Even with positive expectancy, many runs dip first. This is why Stoxsy demands a large resolved sample before any model leaves research.</p>
+  <div class="row"><div class="col">
+    <label>Hit rate: <span class="val" id="wrV"></span><input id="wr" type="range" min="25" max="75" step="1" value="40"></label>
+    <label>Average win (in R): <span class="val" id="awV"></span><input id="aw" type="range" min="0.5" max="4" step="0.1" value="1.8"></label>
+    <label>Trades per run: <span class="val" id="ntV"></span><input id="nt" type="range" min="20" max="200" step="10" value="100"></label>
+    <div class="verd" style="display:flex;gap:8px;margin-top:8px"><button id="simGo" class="primary">Run again</button></div>
+    <div class="kpi"><div><b id="sExp"></b><span>expectancy per trade (R)</span></div><div><b id="sPos"></b><span>runs ending in profit</span></div><div><b id="sDD"></b><span>median worst dip (R)</span></div><div><b id="sStreak"></b><span>median longest losing streak</span></div></div>
+  </div><div class="col"><svg id="simSvg" viewBox="0 0 440 260" role="img" aria-label="Simulated equity paths in R multiples"></svg></div></div>
+  <p class="note warn">Illustration only: the hit rate and payoff here are inputs you choose. Stoxsy's own measured values appear on the Live compare page as predictions resolve; today no model has shown a net edge, so trader ideas are RESEARCH / PAPER.</p>
+</section>
+
+<section class="card">
+  <h2><span class="pill i">INVESTOR</span> 4. Will my goal be reached? A range, not a promise</h2>
+  <p class="muted">The fan is built by re-sampling real monthly returns from the last 10 years (equity: Nifty 50 ETF, gold ETF, debt: a liquid fund) in 6-month blocks, 1,500 times. The dark band is the middle 50% of outcomes, the light band the middle 80%. The next 10 years will not be the last 10: that is why it is a range.</p>
+  <div class="row"><div class="col">
+    <label>Starting amount: <span class="val" id="ivV"></span><input id="iv" type="range" min="0" max="5000000" step="100000" value="1500000"></label>
+    <label>Monthly investment (SIP): <span class="val" id="imV"></span><input id="im" type="range" min="0" max="200000" step="5000" value="25000"></label>
+    <label>Years: <span class="val" id="iyV"></span><input id="iy" type="range" min="3" max="30" step="1" value="15"></label>
+    <label>Equity: <span class="val" id="ieV"></span><input id="ie" type="range" min="0" max="100" step="5" value="60"></label>
+    <label>Gold: <span class="val" id="igV"></span><input id="ig" type="range" min="0" max="50" step="5" value="10"></label>
+    <div class="muted" style="font-size:.85rem">Debt: <b id="idV"></b> (the rest)</div>
+    <label>Goal amount (Rs): <span class="val" id="ioV"></span><input id="io" type="range" min="1000000" max="100000000" step="1000000" value="20000000"></label>
+    <div class="verd" style="display:flex;gap:8px;margin-top:8px"><button id="fanGo" class="primary">Replay</button></div>
+  </div><div class="col"><svg id="fanSvg" viewBox="0 0 440 280" role="img" aria-label="Fan chart of possible portfolio values over time"></svg>
+    <div class="kpi"><div><b id="fMed"></b><span>middle outcome</span></div><div><b id="fLow"></b><span>weak case (10th pct)</span></div><div><b id="fHigh"></b><span>strong case (90th pct)</span></div><div><b id="fProb"></b><span>of runs reach the goal</span></div></div></div></div>
+  <div class="note warn" id="histNote"></div>
+</section>
+
+<section class="card">
+  <h2><span class="pill i">INVESTOR</span> 5. The worst fall you would have lived through</h2>
+  <p class="muted">Pick a mix and see how deep the portfolio fell at its worst point in the last 10 years. Investor mode asks about this before recommending any mix.</p>
+  <svg id="ddSvg" viewBox="0 0 900 220" role="img" aria-label="Historical drawdown of the chosen mix"></svg>
+  <div class="kpi"><div><b id="ddMax"></b><span>worst fall of the mix (monthly data)</span></div><div><b id="ddCagr"></b><span>past yearly return (price / NAV, before tax)</span></div><div><b id="ddRec"></b><span>months to recover from the worst fall</span></div></div>
+</section>
+
+<section class="card">
+  <h2>6. How a recommendation is produced in each mode</h2>
+  <h3><span class="pill t">TRADER</span> daily, after the close</h3>
+  <div class="flow t">
+    <div class="step"><b>1 Data check</b>fresh prices and F&amp;O? else stop and say so</div>
+    <div class="step"><b>2 Regime</b>calm, neutral or risk-off: sets risk multiplier and exposure cap</div>
+    <div class="step"><b>3 Candidates</b>liquid names that pass the rules; risk screen from the defensive signal</div>
+    <div class="step"><b>4 Plan</b>entry, stop (in typical daily moves), target, time stop</div>
+    <div class="step"><b>5 Size</b>risk budget / stop, capped by liquidity, correlation, open risk</div>
+    <div class="step"><b>6 Log and track</b>immutable prediction, resolved by barrier rules; alerts on stop, target, time</div>
+  </div>
+  <h3><span class="pill i">INVESTOR</span> at onboarding, then quarterly</h3>
+  <div class="flow i">
+    <div class="step"><b>1 Goals and profile</b>amount, date, SIP, risk capacity and tolerance</div>
+    <div class="step"><b>2 Target mix</b>profile sets equity / gold / debt bands</div>
+    <div class="step"><b>3 Check holdings</b>drift, concentration, overlap, data quality of each fund</div>
+    <div class="step"><b>4 Stress and range</b>worst fall, goal probability range, sequence risk near the goal date</div>
+    <div class="step"><b>5 Actions</b>only if a band is breached or the goal is off track: how much to add or trim</div>
+    <div class="step"><b>6 Review date</b>next check; alerts for drift and goal slippage</div>
+  </div>
+</section>
+
+<section class="card">
+  <h2>7. What works today, honestly</h2>
+  <table>
+    <tr><th>Capability</th><th>Trader</th><th>Investor</th></tr>
+    <tr><th>Prices, funds, F&amp;O history</th><td>NSE / BSE (raw) / F&amp;O archive loaded</td><td>NSE, AMFI NAV 2016 to now loaded</td></tr>
+    <tr><th>Risk screen and sizing</th><td>Defensive signal and decision-card sizing exist</td><td>Portfolio cockpit: concentration, drawdown, benchmark exist</td></tr>
+    <tr><th>Return forecast</th><td class="t">None validated. Directional ranker was rejected. Ideas stay RESEARCH or PAPER until 60+ resolved ideas pass the gate.</td><td class="i">Not needed: the plan does not rely on a forecast, only on allocation, costs and behaviour.</td></tr>
+    <tr><th>To build next</th><td>Trader dashboard, idea book, risk limits, journal, F&amp;O structures</td><td>Risk profile, goals, allocation engine, rebalance, goal fan, fund-based plan</td></tr>
+    <tr><th>Missing data</th><td>Live Kite quotes in-session; implied volatility (derived)</td><td>Fund expense ratio, holdings overlap, tax lots (not loaded)</td></tr>
+  </table>
+</section>
+</main>
+<script>
+const H = /*HISTORY*/null;
+const $ = id => document.getElementById(id), inr = x => "Rs " + (x>=1e7 ? (x/1e7).toFixed(2)+" Cr" : x>=1e5 ? (x/1e5).toFixed(1)+" L" : Math.round(x).toLocaleString("en-IN"));
+function rng(seed){ let a=seed>>>0; return ()=>{ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+// ---- trader sizing
+function sizing(){
+  const cap=+$("tc").value, rp=+$("tr").value/100, px=+$("tp").value, sd=+$("ts").value/100;
+  $("tcV").textContent=inr(cap); $("trV").textContent=(rp*100).toFixed(1)+"% = "+inr(cap*rp); $("tpV").textContent="Rs "+px; $("tsV").textContent=(sd*100).toFixed(1)+"%";
+  const risk=cap*rp, sh=Math.floor(risk/(px*sd)), pos=sh*px;
+  $("kSh").textContent=sh.toLocaleString("en-IN"); $("kPos").textContent=inr(pos); $("kRisk").textContent=inr(sh*px*sd); $("kW").textContent=(pos/cap*100).toFixed(1)+"%";
+  $("kHeat").textContent=(rp/0.04*100).toFixed(0)+"%"; $("kMax").textContent=Math.floor(0.04/rp);
+  const stop=px*(1-sd), t1=px*(1+sd*1.5), t2=px*(1+sd*3), lo=stop*0.985, hi=t2*1.015, Y=v=>20+210*(1-(v-lo)/(hi-lo));
+  const band=(a,b,c)=>`<rect x="150" y="${Y(b)}" width="150" height="${Y(a)-Y(b)}" fill="${c}" opacity=".25"/>`;
+  $("trSvg").innerHTML = band(stop,px,"#c0392b")+band(px,t2,"#0a8f6a")+
+    [[stop,"Stop "+stop.toFixed(1),"#c0392b","loss = 1R"],[px,"Entry "+px.toFixed(1),"currentColor","next open"],[t1,"Target 1 "+t1.toFixed(1),"#0a8f6a","+1.5R"],[t2,"Target 2 "+t2.toFixed(1),"#0a8f6a","+3R"]].map(([v,l,c,s])=>
+    `<line x1="40" x2="400" y1="${Y(v)}" y2="${Y(v)}" stroke="${c}" stroke-width="2" ${l.startsWith("Entry")?"":"stroke-dasharray='6 4'"}><animate attributeName="x2" from="40" to="400" dur=".8s" fill="freeze"/></line><text x="44" y="${Y(v)-5}" font-size="12" fill="${c}" font-weight="700">${l}</text><text x="404" y="${Y(v)+4}" font-size="11" fill="${c}" text-anchor="end">${s}</text>`).join("");
+}
+["tc","tr","tp","ts"].forEach(i=>$(i).oninput=sizing); sizing();
+// ---- trader simulation
+function sim(){
+  const wr=+$("wr").value/100, aw=+$("aw").value, n=+$("nt").value; $("wrV").textContent=(wr*100).toFixed(0)+"%"; $("awV").textContent=aw.toFixed(1)+"R (loss = 1R)"; $("ntV").textContent=n;
+  const r=rng(Math.floor(Math.random()*1e9)), P=40, paths=[]; let pos=0, dds=[], streaks=[];
+  for(let p=0;p<P;p++){ let e=0, peak=0, dd=0, cur=0, mx=0; const a=[0]; for(let t=0;t<n;t++){ const win=r()<wr; e+= win?aw:-1; if(win) cur=0; else {cur++; mx=Math.max(mx,cur);} peak=Math.max(peak,e); dd=Math.min(dd,e-peak); a.push(e);} paths.push(a); if(e>0) pos++; dds.push(dd); streaks.push(mx); }
+  const med=a=>a.slice().sort((x,y)=>x-y)[Math.floor(a.length/2)];
+  $("sExp").textContent=(wr*aw-(1-wr)).toFixed(2); $("sPos").textContent=Math.round(pos/P*100)+"%"; $("sDD").textContent=med(dds).toFixed(1); $("sStreak").textContent=med(streaks);
+  const lo=Math.min(...paths.flat()), hi=Math.max(...paths.flat()), X=i=>36+(400-36)*i/n, Y=v=>14+232*(1-(v-lo)/((hi-lo)||1));
+  let s=`<line x1="36" x2="436" y1="${Y(0)}" y2="${Y(0)}" stroke="currentColor" opacity=".35" stroke-dasharray="4 4"/><text x="4" y="${Y(0)+4}" font-size="10" fill="currentColor">0R</text>`;
+  s+=paths.map((a,i)=>`<polyline fill="none" stroke="${a[n]>0?'#0a8f6a':'#c0392b'}" stroke-width="1.2" opacity=".55" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1" points="${a.map((v,t)=>X(t).toFixed(1)+","+Y(v).toFixed(1)).join(" ")}"><animate attributeName="stroke-dashoffset" from="1" to="0" dur="${(1.2+i*0.02).toFixed(2)}s" fill="freeze"/></polyline>`).join("");
+  s+=`<text x="36" y="258" font-size="10" fill="currentColor" opacity=".7">trade number (0 to ${n})</text>`; $("simSvg").innerHTML=s;
+}
+["wr","aw","nt"].forEach(i=>$(i).oninput=sim); $("simGo").onclick=sim; sim();
+// ---- investor fan
+function pct(arr,q){ const a=arr.slice().sort((x,y)=>x-y); return a[Math.min(a.length-1,Math.floor(q*a.length))]; }
+function fan(){
+  const iv=+$("iv").value, im=+$("im").value, iy=+$("iy").value; let we=+$("ie").value, wg=+$("ig").value; if(we+wg>100){ wg=100-we; $("ig").value=wg; }
+  const wd=100-we-wg, goal=+$("io").value; $("ivV").textContent=inr(iv); $("imV").textContent=inr(im)+" / month"; $("iyV").textContent=iy; $("ieV").textContent=we+"%"; $("igV").textContent=wg+"%"; $("idV").textContent=wd+"%"; $("ioV").textContent=inr(goal);
+  const months=iy*12, N=1500, B=6, r=rng(7), E=H.monthly.equity, G=H.monthly.gold, D=H.monthly.debt, L=E.length, w=[we/100,wg/100,wd/100];
+  const finals=new Array(N), byM=Array.from({length:months+1},()=>new Array(N));
+  for(let p=0;p<N;p++){ let v=iv; byM[0][p]=v; let m=0; while(m<months){ const s=Math.floor(r()*(L-B)); for(let b=0;b<B&&m<months;b++,m++){ const i=s+b; v=(v+im)*(1+w[0]*E[i]+w[1]*G[i]+w[2]*D[i]); byM[m+1][p]=v; } } finals[p]=v; }
+  const q=(m,x)=>pct(byM[m],x), pts=[]; for(let m=0;m<=months;m+=Math.max(1,Math.floor(months/60))) pts.push(m); if(pts[pts.length-1]!==months) pts.push(months);
+  const hi=q(months,0.95)*1.05, X=m=>46+(430-46)*m/months, Y=v=>12+236*(1-v/hi), area=(a,b)=>`M${pts.map(m=>X(m)+","+Y(q(m,b))).join(" L")} L${pts.slice().reverse().map(m=>X(m)+","+Y(q(m,a))).join(" L")} Z`;
+  let s=`<defs><clipPath id="rev"><rect id="revR" x="40" y="0" width="0" height="280"/></clipPath></defs>`;
+  for(let t=0;t<=3;t++){ const v=hi*t/3; s+=`<line x1="46" x2="430" y1="${Y(v)}" y2="${Y(v)}" stroke="currentColor" opacity=".12"/><text x="42" y="${Y(v)+4}" font-size="10" text-anchor="end" fill="currentColor" opacity=".7">${inr(v)}</text>`; }
+  s+=`<g clip-path="url(#rev)"><path d="${area(0.1,0.9)}" fill="#0a8f6a" opacity=".2"/><path d="${area(0.25,0.75)}" fill="#0a8f6a" opacity=".35"/><polyline fill="none" stroke="#0a8f6a" stroke-width="2.5" points="${pts.map(m=>X(m)+","+Y(q(m,0.5))).join(" ")}"/>
+    <line x1="46" x2="430" y1="${Y(goal)}" y2="${Y(goal)}" stroke="#d9480f" stroke-width="2" stroke-dasharray="6 4"/><text x="430" y="${Y(goal)-5}" font-size="11" text-anchor="end" fill="#d9480f" font-weight="700">goal ${inr(goal)}</text></g>`;
+  const inv=[...Array(months+1).keys()].map(m=>iv+im*m); s+=`<polyline fill="none" stroke="currentColor" opacity=".5" stroke-dasharray="3 3" points="${pts.map(m=>X(m)+","+Y(inv[m])).join(" ")}"/><text x="46" y="274" font-size="10" fill="currentColor" opacity=".7">dashed: money you put in. Years 0 to ${iy}</text>`;
+  $("fanSvg").innerHTML=s; const R=$("revR"); let t0=performance.now(); const tick=now=>{ const k=Math.min(1,(now-t0)/1600); R.setAttribute("width",String(400*k)); if(k<1) requestAnimationFrame(tick); }; requestAnimationFrame(tick);
+  $("fMed").textContent=inr(pct(finals,.5)); $("fLow").textContent=inr(pct(finals,.1)); $("fHigh").textContent=inr(pct(finals,.9)); $("fProb").textContent=Math.round(finals.filter(x=>x>=goal).length/N*100)+"%";
+}
+["iv","im","iy","ie","ig","io"].forEach(i=>$(i).oninput=fan); $("fanGo").onclick=fan;
+const st=H.stats; $("histNote").innerHTML=`<b>What the last ${H.months.length} months contained</b> (history, before tax and fund costs): equity ${(st.equity.cagr*100).toFixed(1)}% a year with a worst fall of ${(st.equity.maxdd*100).toFixed(0)}% (2020); gold ${(st.gold.cagr*100).toFixed(1)}% (an unusually strong decade for gold: do not extrapolate it); liquid debt ${(st.debt.cagr*100).toFixed(1)}%. Proxies: ${H.proxies.equity}; ${H.proxies.gold}; ${H.proxies.debt}. Only ${Math.round(H.months.length/12)} years of data: results are a scenario range, not a forecast.`;
+fan();
+// ---- drawdown of the mix
+function dd(){
+  const we=+$("ie").value/100, wg=+$("ig").value/100, wd=1-we-wg, E=H.monthly.equity, G=H.monthly.gold, D=H.monthly.debt; let v=1, peak=1, curve=[], ddc=[], worst=0, wi=0;
+  for(let i=0;i<E.length;i++){ v*=1+we*E[i]+wg*G[i]+wd*D[i]; peak=Math.max(peak,v); const d=v/peak-1; curve.push(v); ddc.push(d); if(d<worst){worst=d; wi=i;} }
+  let rec=0; for(let i=wi;i<curve.length;i++){ if(curve[i]>=Math.max(...curve.slice(0,wi+1))){ rec=i-wi; break; } if(i===curve.length-1) rec=-1; }
+  const yrs=E.length/12, cagr=Math.pow(v,1/yrs)-1, X=i=>40+(880-40)*i/(E.length-1), lo=Math.min(-0.05,worst*1.1), Y=x=>14+170*(x/lo);
+  let s=`<line x1="40" x2="880" y1="14" y2="14" stroke="currentColor" opacity=".3"/>`+[0.25,0.5,0.75,1].map(t=>`<line x1="40" x2="880" y1="${14+170*t}" y2="${14+170*t}" stroke="currentColor" opacity=".1"/><text x="36" y="${14+170*t+4}" font-size="10" text-anchor="end" fill="currentColor" opacity=".7">${(lo*t*100).toFixed(0)}%</text>`).join("");
+  s+=`<path d="M40,14 L${ddc.map((d,i)=>X(i)+","+Y(d)).join(" L")} L880,14 Z" fill="#c0392b" opacity=".3"/><polyline fill="none" stroke="#c0392b" stroke-width="2" points="${ddc.map((d,i)=>X(i)+","+Y(d)).join(" ")}"/>`;
+  s+=`<circle cx="${X(wi)}" cy="${Y(worst)}" r="5" fill="#c0392b"/><text x="${X(wi)+8}" y="${Y(worst)+4}" font-size="11" fill="currentColor" font-weight="700">worst: ${(worst*100).toFixed(0)}% (${H.months[wi].slice(0,7)})</text>`;
+  s+=`<text x="40" y="212" font-size="10" fill="currentColor" opacity=".7">${H.months[0].slice(0,4)} to ${H.months[H.months.length-1].slice(0,4)}, monthly steps</text>`;
+  $("ddSvg").innerHTML=s; $("ddMax").textContent=(worst*100).toFixed(0)+"%"; $("ddCagr").textContent=(cagr*100).toFixed(1)+"%"; $("ddRec").textContent=rec<0?"not yet recovered":rec;
+}
+["ie","ig"].forEach(i=>$(i).addEventListener("input",dd)); dd();
+</script></body></html>

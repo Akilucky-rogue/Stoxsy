@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Stoxsy: Trader mode and Investor mode</title>
+<style>
+:root{--bg:#f6f8fa;--card:#fff;--ink:#14202b;--mut:#5b6b7a;--line:#dfe5ea;--brand:#0a8f6a;--blue:#2563eb;--red:#c0392b;--amber:#b7791f;--soft:#eef3f7;--trader:#d9480f;--investor:#0a8f6a}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1720;--card:#16212c;--ink:#e6edf3;--mut:#9fb0bf;--line:#26343f;--brand:#2fc79a;--blue:#6ea0ff;--red:#ff7b6b;--amber:#f2b84b;--soft:#1b2a36;--trader:#ff8a4c;--investor:#2fc79a}}
+*{box-sizing:border-box}body{margin:0;font:15px/1.55 system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+main{max-width:1080px;margin:0 auto;padding:20px 16px 90px}h1{font-size:1.7rem;margin:.2rem 0}h2{font-size:1.2rem;margin:0 0 .5rem}h3{font-size:1rem;margin:.8rem 0 .3rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin:16px 0}.muted{color:var(--mut)}.row{display:flex;gap:16px;flex-wrap:wrap}.col{flex:1 1 360px;min-width:0}
+.pill{display:inline-block;padding:2px 10px;border-radius:99px;font-size:.78rem;font-weight:600;color:#fff}.pill.t{background:var(--trader)}.pill.i{background:var(--investor)}
+table{border-collapse:collapse;width:100%;font-size:.92rem}th,td{border-top:1px solid var(--line);padding:7px 8px;text-align:left;vertical-align:top}th{color:var(--mut);font-weight:600}
+td.t{border-left:4px solid var(--trader)}td.i{border-left:4px solid var(--investor)}
+label{display:block;font-size:.85rem;color:var(--mut);margin-top:8px}input[type=range]{width:100%}.val{font-weight:700;color:var(--ink)}
+button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:7px 12px;border-radius:10px;cursor:pointer}button.primary{background:var(--brand);color:#fff;border-color:transparent}
+svg{width:100%;height:auto;display:block}.kpi{display:flex;gap:10px;flex-wrap:wrap;margin:8px 0}.kpi div{flex:1 1 120px;background:var(--soft);border-radius:10px;padding:8px 10px}.kpi b{display:block;font-size:1.15rem}.kpi span{font-size:.78rem;color:var(--mut)}
+.note{background:var(--soft);border-radius:10px;padding:10px 12px;font-size:.88rem}.warn{border-left:4px solid var(--amber)}
+.flow{display:flex;gap:6px;flex-wrap:wrap;align-items:stretch}.flow .step{flex:1 1 130px;background:var(--soft);border-radius:10px;padding:8px 10px;font-size:.85rem;position:relative}.flow .step b{display:block;margin-bottom:2px}
+.flow.t .step{border-top:3px solid var(--trader)}.flow.i .step{border-top:3px solid var(--investor)}
+@keyframes pop{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}.flow .step{animation:pop .5s both}.flow .step:nth-child(2){animation-delay:.12s}.flow .step:nth-child(3){animation-delay:.24s}.flow .step:nth-child(4){animation-delay:.36s}.flow .step:nth-child(5){animation-delay:.48s}.flow .step:nth-child(6){animation-delay:.6s}
+</style></head><body><main>
+<h1>Stoxsy: <span style="color:var(--trader)">Trader mode</span> and <span style="color:var(--investor)">Investor mode</span></h1>
+<p class="muted">Two different mindsets, so two different tools on the same honest foundation. Everything below is interactive. Numbers marked <i>history</i> are measured from your own loaded data (2016 to 2026); nothing here is a forecast or advice.</p>
+
+<section class="card">
+  <h2>1. Same market, different questions</h2>
+  <svg viewBox="0 0 900 190" role="img" aria-label="Time horizon: a trader works in days and weeks, an investor in years">
+    <defs><marker id="ah" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="currentColor"/></marker></defs>
+    <text x="10" y="22" font-size="13" font-weight="700" fill="currentColor">Time horizon of a typical decision</text>
+    <line x1="40" y1="100" x2="880" y2="100" stroke="currentColor" opacity=".35" stroke-width="2" marker-end="url(#ah)"/>
+    <g font-size="11" fill="currentColor" opacity=".75"><text x="40" y="122">today</text><text x="150" y="122">1 week</text><text x="250" y="122">1 month</text><text x="400" y="122">1 year</text><text x="580" y="122">5 years</text><text x="780" y="122">20+ years</text></g>
+    <rect x="40" y="52" width="230" height="30" rx="8" fill="var(--trader)" opacity=".9"><animate attributeName="width" from="0" to="230" dur="1.4s" fill="freeze"/></rect>
+    <text x="50" y="72" font-size="12" fill="#fff" font-weight="700">Trader: hours to ~20 sessions</text>
+    <rect x="330" y="132" width="540" height="30" rx="8" fill="var(--investor)" opacity=".9"><animate attributeName="width" from="0" to="540" dur="1.8s" fill="freeze"/></rect>
+    <text x="340" y="152" font-size="12" fill="#fff" font-weight="700">Investor: 3 to 30 years, reviewed quarterly</text>
+  </svg>
+  <table>
+    <tr><th></th><th>Trader mode</th><th>Investor mode</th></tr>
+    <tr><th>Mindset</th><td class="t">"Is there a setup worth the risk <b>right now</b>, and exactly where am I wrong?"</td><td class="i">"Is my money arranged to reach my goals, and what (if anything) should I change?"</td></tr>
+    <tr><th>Objective</th><td class="t">Positive expectancy <b>after costs</b> with a loss limit you can survive</td><td class="i">Reach the goal with a drawdown you can live with, low cost, little tinkering</td></tr>
+    <tr><th>The number that matters</th><td class="t">Risk per trade (R), open risk, expectancy in R, drawdown</td><td class="i">Allocation vs target, chance of reaching the goal (a range), worst fall, years to recover</td></tr>
+    <tr><th>Sizing</th><td class="t">Shares = risk budget / stop distance (capped by liquidity and correlation)</td><td class="i">Weights from a risk profile, monthly SIP needed, rebalance when drift passes a band</td></tr>
+    <tr><th>Output</th><td class="t">What, where (entry), stop, target, time stop, how many shares, till when</td><td class="i">Target mix, current gaps, what to add or trim, next review date, goal range</td></tr>
+    <tr><th>Evidence shown</th><td class="t">Live compare: hit rate, expectancy, calibration, drift. Paper first.</td><td class="i">Historical behaviour of the plan (labelled), peer context, data-quality badges</td></tr>
+    <tr><th>Does not do</th><td class="t">Place orders, promise direction, size beyond risk caps</td><td class="i">Time the market, predict returns, give tax advice</td></tr>
+  </table>
+</section>
+
+<section class="card">
+  <h2><span class="pill t">TRADER</span> 2. Position size: where am I wrong, and how much can that cost?</h2>
+  <p class="muted">Move the sliders. The shares come from your stop, not from a hunch: a wider stop means fewer shares so that being wrong always costs the same fixed amount.</p>
+  <div class="row"><div class="col">
+    <label>Trading capital: <span class="val" id="tcV"></span><input id="tc" type="range" min="100000" max="2500000" step="50000" value="500000"></label>
+    <label>Risk per trade: <span class="val" id="trV"></span><input id="tr" type="range" min="0.1" max="2" step="0.1" value="0.5"></label>
+    <label>Entry price (Rs): <span class="val" id="tpV"></span><input id="tp" type="range" min="50" max="5000" step="10" value="1200"></label>
+    <label>Stop distance: <span class="val" id="tsV"></span> (in %; the system uses 2.5 typical daily moves)<input id="ts" type="range" min="1" max="15" step="0.5" value="5"></label>
+    <div class="kpi"><div><b id="kSh"></b><span>shares</span></div><div><b id="kPos"></b><span>position value</span></div><div><b id="kRisk"></b><span>lost if stopped (all costs aside)</span></div><div><b id="kW"></b><span>of capital in this trade</span></div></div>
+    <div class="note">Open-risk limit: <b>4%</b> of capital across all trades at once. This trade uses <b id="kHeat"></b> of it; <b id="kMax"></b> such trades would hit the limit.</div>
+  </div><div class="col"><svg id="trSvg" viewBox="0 0 440 250" role="img" aria-label="Entry, stop and target ladder"></svg></div></div>
+</section>
+
+<section class="card">
+  <h2><span class="pill t">TRADER</span> 3. Why a good system still has bad streaks (and why we need 60+ resolved ideas)</h2>
+  <p class="muted">Each line is one possible run of trades with the hit rate and payoff you set. Even with positive expectancy, many runs dip first. This is why Stoxsy demands a large resolved sample before any model leaves research.</p>
+  <div class="row"><div class="col">
+    <label>Hit rate: <span class="val" id="wrV"></span><input id="wr" type="range" min="25" max="75" step="1" value="40"></label>
+    <label>Average win (in R): <span class="val" id="awV"></span><input id="aw" type="range" min="0.5" max="4" step="0.1" value="1.8"></label>
+    <label>Trades per run: <span class="val" id="ntV"></span><input id="nt" type="range" min="20" max="200" step="10" value="100"></label>
+    <div class="verd" style="display:flex;gap:8px;margin-top:8px"><button id="simGo" class="primary">Run again</button></div>
+    <div class="kpi"><div><b id="sExp"></b><span>expectancy per trade (R)</span></div><div><b id="sPos"></b><span>runs ending in profit</span></div><div><b id="sDD"></b><span>median worst dip (R)</span></div><div><b id="sStreak"></b><span>median longest losing streak</span></div></div>
+  </div><div class="col"><svg id="simSvg" viewBox="0 0 440 260" role="img" aria-label="Simulated equity paths in R multiples"></svg></div></div>
+  <p class="note warn">Illustration only: the hit rate and payoff here are inputs you choose. Stoxsy's own measured values appear on the Live compare page as predictions resolve; today no model has shown a net edge, so trader ideas are RESEARCH / PAPER.</p>
+</section>
+
+<section class="card">
+  <h2><span class="pill i">INVESTOR</span> 4. Will my goal be reached? A range, not a promise</h2>
+  <p class="muted">The fan is built by re-sampling real monthly returns from the last 10 years (equity: Nifty 50 ETF, gold ETF, debt: a liquid fund) in 6-month blocks, 1,500 times. The dark band is the middle 50% of outcomes, the light band the middle 80%. The next 10 years will not be the last 10: that is why it is a range.</p>
+  <div class="row"><div class="col">
+    <label>Starting amount: <span class="val" id="ivV"></span><input id="iv" type="range" min="0" max="5000000" step="100000" value="1500000"></label>
+    <label>Monthly investment (SIP): <span class="val" id="imV"></span><input id="im" type="range" min="0" max="200000" step="5000" value="25000"></label>
+    <label>Years: <span class="val" id="iyV"></span><input id="iy" type="range" min="3" max="30" step="1" value="15"></label>
+    <label>Equity: <span class="val" id="ieV"></span><input id="ie" type="range" min="0" max="100" step="5" value="60"></label>
+    <label>Gold: <span class="val" id="igV"></span><input id="ig" type="range" min="0" max="50" step="5" value="10"></label>
+    <div class="muted" style="font-size:.85rem">Debt: <b id="idV"></b> (the rest)</div>
+    <label>Goal amount (Rs): <span class="val" id="ioV"></span><input id="io" type="range" min="1000000" max="100000000" step="1000000" value="20000000"></label>
+    <div class="verd" style="display:flex;gap:8px;margin-top:8px"><button id="fanGo" class="primary">Replay</button></div>
+  </div><div class="col"><svg id="fanSvg" viewBox="0 0 440 280" role="img" aria-label="Fan chart of possible portfolio values over time"></svg>
+    <div class="kpi"><div><b id="fMed"></b><span>middle outcome</span></div><div><b id="fLow"></b><span>weak case (10th pct)</span></div><div><b id="fHigh"></b><span>strong case (90th pct)</span></div><div><b id="fProb"></b><span>of runs reach the goal</span></div></div></div></div>
+  <div class="note warn" id="histNote"></div>
+</section>
+
+<section class="card">
+  <h2><span class="pill i">INVESTOR</span> 5. The worst fall you would have lived through</h2>
+  <p class="muted">Pick a mix and see how deep the portfolio fell at its worst point in the last 10 years. Investor mode asks about this before recommending any mix.</p>
+  <svg id="ddSvg" viewBox="0 0 900 220" role="img" aria-label="Historical drawdown of the chosen mix"></svg>
+  <div class="kpi"><div><b id="ddMax"></b><span>worst fall of the mix (monthly data)</span></div><div><b id="ddCagr"></b><span>past yearly return (price / NAV, before tax)</span></div><div><b id="ddRec"></b><span>months to recover from the worst fall</span></div></div>
+</section>
+
+<section class="card">
+  <h2>6. How a recommendation is produced in each mode</h2>
+  <h3><span class="pill t">TRADER</span> daily, after the close</h3>
+  <div class="flow t">
+    <div class="step"><b>1 Data check</b>fresh prices and F&amp;O? else stop and say so</div>
+    <div class="step"><b>2 Regime</b>calm, neutral or risk-off: sets risk multiplier and exposure cap</div>
+    <div class="step"><b>3 Candidates</b>liquid names that pass the rules; risk screen from the defensive signal</div>
+    <div class="step"><b>4 Plan</b>entry, stop (in typical daily moves), target, time stop</div>
+    <div class="step"><b>5 Size</b>risk budget / stop, capped by liquidity, correlation, open risk</div>
+    <div class="step"><b>6 Log and track</b>immutable prediction, resolved by barrier rules; alerts on stop, target, time</div>
+  </div>
+  <h3><span class="pill i">INVESTOR</span> at onboarding, then quarterly</h3>
+  <div class="flow i">
+    <div class="step"><b>1 Goals and profile</b>amount, date, SIP, risk capacity and tolerance</div>
+    <div class="step"><b>2 Target mix</b>profile sets equity / gold / debt bands</div>
+    <div class="step"><b>3 Check holdings</b>drift, concentration, overlap, data quality of each fund</div>
+    <div class="step"><b>4 Stress and range</b>worst fall, goal probability range, sequence risk near the goal date</div>
+    <div class="step"><b>5 Actions</b>only if a band is breached or the goal is off track: how much to add or trim</div>
+    <div class="step"><b>6 Review date</b>next check; alerts for drift and goal slippage</div>
+  </div>
+</section>
+
+<section class="card">
+  <h2>7. What works today, honestly</h2>
+  <table>
+    <tr><th>Capability</th><th>Trader</th><th>Investor</th></tr>
+    <tr><th>Prices, funds, F&amp;O history</th><td>NSE / BSE (raw) / F&amp;O archive loaded</td><td>NSE, AMFI NAV 2016 to now loaded</td></tr>
+    <tr><th>Risk screen and sizing</th><td>Defensive signal and decision-card sizing exist</td><td>Portfolio cockpit: concentration, drawdown, benchmark exist</td></tr>
+    <tr><th>Return forecast</th><td class="t">None validated. Directional ranker was rejected. Ideas stay RESEARCH or PAPER until 60+ resolved ideas pass the gate.</td><td class="i">Not needed: the plan does not rely on a forecast, only on allocation, costs and behaviour.</td></tr>
+    <tr><th>To build next</th><td>Trader dashboard, idea book, risk limits, journal, F&amp;O structures</td><td>Risk profile, goals, allocation engine, rebalance, goal fan, fund-based plan</td></tr>
+    <tr><th>Missing data</th><td>Live Kite quotes in-session; implied volatility (derived)</td><td>Fund expense ratio, holdings overlap, tax lots (not loaded)</td></tr>
+  </table>
+</section>
+</main>
+<script>
+const H = {"stats": {"equity": {"cagr": 0.11565331415846636, "vol": 0.14624139549130902, "maxdd": -0.36336611022181575, "worst_12m": -0.2522428342878239, "best_12m": 0.709375679791169, "start": "2016-01-04", "end": "2026-10-16"}, "gold": {"cagr": 0.16684839054405654, "vol": 0.1585896750337113, "maxdd": -0.2443868149866928, "worst_12m": -0.11073398387781108, "best_12m": 0.8980891719745236, "start": "2016-01-04", "end": "2026-10-16"}, "debt": {"cagr": 0.06286018026382467, "vol": 0.0015853324297536522, "maxdd": -0.0015048876759884422, "worst_12m": 0.03252609178464616, "best_12m": 0.07658410105391944, "start": "2016-01-02", "end": "2026-10-18"}}, "monthly": {"equity": [-0.07072, 0.11701, 0.00493, 0.03963, 0.0196, 0.04536, 0.01709, -0.01963, 0.00365, -0.04832, -0.00511, 0.04478, 0.0394, 0.03488, 0.01237, 0.03405, -0.00635, 0.05972, -0.01232, -0.01131, 0.05464, -0.00724, 0.02555, 0.04699, -0.04293, -0.03446, 0.0595, 0.00074, -0.00056, 0.06351, 0.03087, -0.06366, -0.04962, 0.04639, 0.00147, -0.00181, -0.00096, 0.07676, 0.01103, 0.01493, -0.00764, -0.05403, -0.00819, 0.04247, 0.03234, 0.01606, 0.00548, -0.01533, -0.06196, -0.22927, 0.13313, -0.02688, 0.08029, 0.07761, 0.0255, -0.00909, 0.03869, 0.11086, 0.07725, -0.01992, 0.06879, 0.00647, -0.00102, 0.06236, 0.01403, 0.00331, 0.08757, 0.03013, 0.00552, -0.03902, 0.02226, -0.00085, -0.03086, 0.03866, -0.01821, -0.02998, -0.04598, 0.08706, 0.03956, -0.03656, 0.05053, 0.04295, -0.03254, -0.02323, -0.01933, 0.00084, 0.03913, 0.03229, 0.03413, 0.03309, -0.02211, 0.01871, -0.02662, 0.05285, 0.07887, 0.00255, 0.01244, 0.01525, 0.01255, 0.00436, 0.06502, 0.0384, 0.01199, 0.02597, -0.06152, -0.00281, -0.02005, -0.00556, -0.05532, 0.05941, 0.03336, 0.02199, 0.03072, -0.0253, -0.01146, 0.00529, 0.04886, 0.01859, -0.00398, -0.02905, -0.00502, -0.11164, 0.07327, -0.01555, 0.01509, 0.0206, -0.00919, -0.05956, 0.02089], "gold": [0.09309, -0.03216, 0.05981, -0.02631, 0.04978, 0.00684, 0.00563, 0.00468, -0.03039, -0.03421, -0.03064, 0.02577, 0.02716, -0.03305, 0.0106, -0.00837, -0.01587, -0.00229, 0.03174, 0.00515, -0.01091, -0.00269, -0.00124, 0.03125, 0.00788, 0.0057, 0.0106, 0.00119, -0.02345, -0.02309, 0.02051, -0.00072, 0.04967, -0.04882, 0.03835, 0.04739, 0.00525, -0.04822, 0.00258, 0.00815, 0.05629, 0.02258, 0.10252, -0.02447, 0.03315, -0.01914, 0.03243, 0.04122, 0.04182, 0.02248, 0.11411, -0.03712, 0.03952, 0.10631, -0.03818, -0.02558, 0.00317, -0.03339, 0.02124, -0.02514, -0.05627, -0.05168, 0.0634, 0.04927, -0.0486, 0.03455, -0.026, -0.02719, 0.04481, 0.00024, -0.00072, -0.00554, 0.05673, 0.01216, 0.01519, -0.01875, -0.00432, 0.00686, -0.00363, -0.01686, 0.00162, 0.04326, 0.03747, 0.04018, -0.02589, 0.0772, 0.00352, -0.00234, -0.0356, 0.02738, -0.00612, -0.02105, 0.0562, 0.02094, 0.0096, -0.00578, -0.01068, 0.07257, 0.07543, 0.00673, -0.01077, -0.03216, 0.03374, 0.04764, 0.05303, -0.0393, -0.00311, 0.07786, 0.02924, 0.04304, 0.06648, 0.00506, 0.00629, 0.02763, 0.0382, 0.12315, 0.04351, 0.04599, 0.05248, 0.19081, 0.00366, -0.0791, 0.01848, 0.04229, -0.09856, 0.00983, 0.08718, -0.045, -0.01143], "debt": [0.0061, 0.00754, 0.00677, 0.00668, 0.00633, 0.00625, 0.00597, 0.0057, 0.00579, 0.00568, 0.0055, 0.00571, 0.00514, 0.00582, 0.00543, 0.0056, 0.00544, 0.00564, 0.00551, 0.00533, 0.00546, 0.00526, 0.00553, 0.00559, 0.00513, 0.00693, 0.0057, 0.00581, 0.00623, 0.00627, 0.00607, 0.0059, 0.00636, 0.00633, 0.00634, 0.00614, 0.00535, 0.00674, 0.00584, 0.00623, 0.00552, 0.00579, 0.0051, 0.0046, 0.00493, 0.0044, 0.00437, 0.00437, 0.00415, 0.00604, 0.00437, 0.00427, 0.00314, 0.0027, 0.00289, 0.00273, 0.00282, 0.00267, 0.00245, 0.00244, 0.00257, 0.00285, 0.00264, 0.00269, 0.00277, 0.00291, 0.00295, 0.00246, 0.00264, 0.00312, 0.003, 0.00291, 0.00283, 0.00324, 0.00299, 0.00325, 0.00393, 0.00393, 0.00475, 0.00432, 0.00512, 0.00545, 0.00572, 0.00538, 0.00492, 0.00663, 0.00575, 0.00601, 0.00549, 0.00584, 0.00567, 0.0057, 0.00574, 0.00576, 0.00616, 0.00613, 0.00593, 0.00659, 0.0062, 0.00606, 0.00578, 0.00612, 0.00588, 0.00593, 0.00594, 0.00573, 0.00598, 0.00602, 0.00551, 0.0069, 0.00597, 0.00565, 0.00519, 0.00493, 0.00479, 0.0048, 0.00488, 0.00485, 0.00512, 0.00458, 0.00513, 0.00514, 0.00676, 0.00505, 0.00662, 0.00522, 0.00547, 0.00487, 0.00291]}, "months": ["2016-02-29", "2016-03-31", "2016-04-30", "2016-05-31", "2016-06-30", "2016-07-31", "2016-08-31", "2016-09-30", "2016-10-31", "2016-11-30", "2016-12-31", "2017-01-31", "2017-02-28", "2017-03-31", "2017-04-30", "2017-05-31", "2017-06-30", "2017-07-31", "2017-08-31", "2017-09-30", "2017-10-31", "2017-11-30", "2017-12-31", "2018-01-31", "2018-02-28", "2018-03-31", "2018-04-30", "2018-05-31", "2018-06-30", "2018-07-31", "2018-08-31", "2018-09-30", "2018-10-31", "2018-11-30", "2018-12-31", "2019-01-31", "2019-02-28", "2019-03-31", "2019-04-30", "2019-05-31", "2019-06-30", "2019-07-31", "2019-08-31", "2019-09-30", "2019-10-31", "2019-11-30", "2019-12-31", "2020-01-31", "2020-02-29", "2020-03-31", "2020-04-30", "2020-05-31", "2020-06-30", "2020-07-31", "2020-08-31", "2020-09-30", "2020-10-31", "2020-11-30", "2020-12-31", "2021-01-31", "2021-02-28", "2021-03-31", "2021-04-30", "2021-05-31", "2021-06-30", "2021-07-31", "2021-08-31", "2021-09-30", "2021-10-31", "2021-11-30", "2021-12-31", "2022-01-31", "2022-02-28", "2022-03-31", "2022-04-30", "2022-05-31", "2022-06-30", "2022-07-31", "2022-08-31", "2022-09-30", "2022-10-31", "2022-11-30", "2022-12-31", "2023-01-31", "2023-02-28", "2023-03-31", "2023-04-30", "2023-05-31", "2023-06-30", "2023-07-31", "2023-08-31", "2023-09-30", "2023-10-31", "2023-11-30", "2023-12-31", "2024-01-31", "2024-02-29", "2024-03-31", "2024-04-30", "2024-05-31", "2024-06-30", "2024-07-31", "2024-08-31", "2024-09-30", "2024-10-31", "2024-11-30", "2024-12-31", "2025-01-31", "2025-02-28", "2025-03-31", "2025-04-30", "2025-05-31", "2025-06-30", "2025-07-31", "2025-08-31", "2025-09-30", "2025-10-31", "2025-11-30", "2025-12-31", "2026-01-31", "2026-02-28", "2026-03-31", "2026-04-30", "2026-05-31", "2026-06-30", "2026-07-31", "2026-08-31", "2026-09-30", "2026-10-31"], "eq_curve": {"dates": ["2016-01-31", "2016-02-29", "2016-03-31", "2016-04-30", "2016-05-31", "2016-06-30", "2016-07-31", "2016-08-31", "2016-09-30", "2016-10-31", "2016-11-30", "2016-12-31", "2017-01-31", "2017-02-28", "2017-03-31", "2017-04-30", "2017-05-31", "2017-06-30", "2017-07-31", "2017-08-31", "2017-09-30", "2017-10-31", "2017-11-30", "2017-12-31", "2018-01-31", "2018-02-28", "2018-03-31", "2018-04-30", "2018-05-31", "2018-06-30", "2018-07-31", "2018-08-31", "2018-09-30", "2018-10-31", "2018-11-30", "2018-12-31", "2019-01-31", "2019-02-28", "2019-03-31", "2019-04-30", "2019-05-31", "2019-06-30", "2019-07-31", "2019-08-31", "2019-09-30", "2019-10-31", "2019-11-30", "2019-12-31", "2020-01-31", "2020-02-29", "2020-03-31", "2020-04-30", "2020-05-31", "2020-06-30", "2020-07-31", "2020-08-31", "2020-09-30", "2020-10-31", "2020-11-30", "2020-12-31", "2021-01-31", "2021-02-28", "2021-03-31", "2021-04-30", "2021-05-31", "2021-06-30", "2021-07-31", "2021-08-31", "2021-09-30", "2021-10-31", "2021-11-30", "2021-12-31", "2022-01-31", "2022-02-28", "2022-03-31", "2022-04-30", "2022-05-31", "2022-06-30", "2022-07-31", "2022-08-31", "2022-09-30", "2022-10-31", "2022-11-30", "2022-12-31", "2023-01-31", "2023-02-28", "2023-03-31", "2023-04-30", "2023-05-31", "2023-06-30", "2023-07-31", "2023-08-31", "2023-09-30", "2023-10-31", "2023-11-30", "2023-12-31", "2024-01-31", "2024-02-29", "2024-03-31", "2024-04-30", "2024-05-31", "2024-06-30", "2024-07-31", "2024-08-31", "2024-09-30", "2024-10-31", "2024-11-30", "2024-12-31", "2025-01-31", "2025-02-28", "2025-03-31", "2025-04-30", "2025-05-31", "2025-06-30", "2025-07-31", "2025-08-31", "2025-09-30", "2025-10-31", "2025-11-30", "2025-12-31", "2026-01-31", "2026-02-28", "2026-03-31", "2026-04-30", "2026-05-31", "2026-06-30", "2026-07-31", "2026-08-31", "2026-09-30", "2026-10-31"], "equity": [0.9469, 0.8799, 0.9829, 0.9877, 1.0269, 1.047, 1.0945, 1.1132, 1.0913, 1.0953, 1.0424, 1.0371, 1.0835, 1.1262, 1.1655, 1.1799, 1.2201, 1.2123, 1.2847, 1.2689, 1.2545, 1.3231, 1.3135, 1.3471, 1.4104, 1.3498, 1.3033, 1.3809, 1.3819, 1.3811, 1.4688, 1.5142, 1.4178, 1.3474, 1.4099, 1.412, 1.4094, 1.4081, 1.5162, 1.5329, 1.5558, 1.5439, 1.4605, 1.4485, 1.51, 1.5589, 1.5839, 1.5926, 1.5682, 1.471, 1.1337, 1.2847, 1.2501, 1.3505, 1.4553, 1.4924, 1.4789, 1.5361, 1.7064, 1.8382, 1.8016, 1.9255, 1.938, 1.936, 2.0567, 2.0856, 2.0925, 2.2757, 2.3443, 2.3572, 2.2652, 2.3157, 2.3137, 2.2423, 2.329, 2.2866, 2.218, 2.116, 2.3003, 2.3913, 2.3038, 2.4202, 2.5242, 2.4421, 2.3853, 2.3392, 2.3412, 2.4328, 2.5114, 2.5971, 2.683, 2.6237, 2.6728, 2.6016, 2.7391, 2.9552, 2.9627, 2.9996, 3.0453, 3.0835, 3.097, 3.2983, 3.425, 3.466, 3.5561, 3.3373, 3.3279, 3.2612, 3.2431, 3.0637, 3.2457, 3.354, 3.4277, 3.533, 3.4436, 3.4041, 3.4222, 3.5894, 3.6561, 3.6415, 3.5357, 3.518, 3.1252, 3.3542, 3.302, 3.3519, 3.4209, 3.3895, 3.1876, 3.2542], "dd": [-0.0663, -0.105, -0.0776, -0.0334, -0.0312, -0.0191, -0.0066, -0.0146, -0.0375, -0.0478, -0.1092, -0.115, -0.0851, -0.0279, -0.0127, -0.0167, -0.0173, -0.017, -0.0067, -0.0385, -0.0372, -0.0288, -0.0297, -0.0362, -0.0094, -0.065, -0.0955, -0.0844, -0.059, -0.0399, -0.0317, -0.0091, -0.0659, -0.1405, -0.1109, -0.1007, -0.0867, -0.0885, -0.0694, -0.0166, -0.0528, -0.0297, -0.0753, -0.102, -0.1047, -0.0728, -0.0113, -0.0203, -0.0306, -0.0907, -0.3634, -0.34, -0.284, -0.2041, -0.1536, -0.1145, -0.1176, -0.073, -0.052, -0.0303, -0.0679, -0.0475, -0.0614, -0.0649, -0.0511, -0.0094, -0.0167, -0.0089, -0.0139, -0.039, -0.0765, -0.0954, -0.0694, -0.1033, -0.1336, -0.0766, -0.1383, -0.1611, -0.1371, -0.0517, -0.0746, -0.0737, -0.0117, -0.0505, -0.061, -0.0771, -0.0966, -0.0729, -0.0382, -0.0124, -0.0144, -0.0308, -0.0306, -0.0621, -0.0565, -0.0146, -0.0377, -0.0195, -0.0285, -0.0303, -0.0321, -0.0297, -0.0131, -0.0385, -0.0148, -0.0736, -0.1051, -0.0953, -0.1243, -0.1491, -0.1523, -0.1468, -0.0804, -0.0555, -0.0462, -0.0576, -0.0495, -0.0393, -0.0213, -0.0166, -0.0458, -0.0457, -0.1482, -0.1348, -0.1092, -0.1176, -0.0885, -0.0771, -0.1312, -0.1472]}, "proxies": {"equity": "NIFTYBEES (Nifty 50 ETF, price return)", "gold": "GOLDBEES (gold ETF, price return)", "debt": "Axis Liquid Fund Direct Growth (AMFI NAV)"}};
+const $ = id => document.getElementById(id), inr = x => "Rs " + (x>=1e7 ? (x/1e7).toFixed(2)+" Cr" : x>=1e5 ? (x/1e5).toFixed(1)+" L" : Math.round(x).toLocaleString("en-IN"));
+function rng(seed){ let a=seed>>>0; return ()=>{ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+// ---- trader sizing
+function sizing(){
+  const cap=+$("tc").value, rp=+$("tr").value/100, px=+$("tp").value, sd=+$("ts").value/100;
+  $("tcV").textContent=inr(cap); $("trV").textContent=(rp*100).toFixed(1)+"% = "+inr(cap*rp); $("tpV").textContent="Rs "+px; $("tsV").textContent=(sd*100).toFixed(1)+"%";
+  const risk=cap*rp, sh=Math.floor(risk/(px*sd)), pos=sh*px;
+  $("kSh").textContent=sh.toLocaleString("en-IN"); $("kPos").textContent=inr(pos); $("kRisk").textContent=inr(sh*px*sd); $("kW").textContent=(pos/cap*100).toFixed(1)+"%";
+  $("kHeat").textContent=(rp/0.04*100).toFixed(0)+"%"; $("kMax").textContent=Math.floor(0.04/rp);
+  const stop=px*(1-sd), t1=px*(1+sd*1.5), t2=px*(1+sd*3), lo=stop*0.985, hi=t2*1.015, Y=v=>20+210*(1-(v-lo)/(hi-lo));
+  const band=(a,b,c)=>`<rect x="150" y="${Y(b)}" width="150" height="${Y(a)-Y(b)}" fill="${c}" opacity=".25"/>`;
+  $("trSvg").innerHTML = band(stop,px,"#c0392b")+band(px,t2,"#0a8f6a")+
+    [[stop,"Stop "+stop.toFixed(1),"#c0392b","loss = 1R"],[px,"Entry "+px.toFixed(1),"currentColor","next open"],[t1,"Target 1 "+t1.toFixed(1),"#0a8f6a","+1.5R"],[t2,"Target 2 "+t2.toFixed(1),"#0a8f6a","+3R"]].map(([v,l,c,s])=>
+    `<line x1="40" x2="400" y1="${Y(v)}" y2="${Y(v)}" stroke="${c}" stroke-width="2" ${l.startsWith("Entry")?"":"stroke-dasharray='6 4'"}><animate attributeName="x2" from="40" to="400" dur=".8s" fill="freeze"/></line><text x="44" y="${Y(v)-5}" font-size="12" fill="${c}" font-weight="700">${l}</text><text x="404" y="${Y(v)+4}" font-size="11" fill="${c}" text-anchor="end">${s}</text>`).join("");
+}
+["tc","tr","tp","ts"].forEach(i=>$(i).oninput=sizing); sizing();
+// ---- trader simulation
+function sim(){
+  const wr=+$("wr").value/100, aw=+$("aw").value, n=+$("nt").value; $("wrV").textContent=(wr*100).toFixed(0)+"%"; $("awV").textContent=aw.toFixed(1)+"R (loss = 1R)"; $("ntV").textContent=n;
+  const r=rng(Math.floor(Math.random()*1e9)), P=40, paths=[]; let pos=0, dds=[], streaks=[];
+  for(let p=0;p<P;p++){ let e=0, peak=0, dd=0, cur=0, mx=0; const a=[0]; for(let t=0;t<n;t++){ const win=r()<wr; e+= win?aw:-1; if(win) cur=0; else {cur++; mx=Math.max(mx,cur);} peak=Math.max(peak,e); dd=Math.min(dd,e-peak); a.push(e);} paths.push(a); if(e>0) pos++; dds.push(dd); streaks.push(mx); }
+  const med=a=>a.slice().sort((x,y)=>x-y)[Math.floor(a.length/2)];
+  $("sExp").textContent=(wr*aw-(1-wr)).toFixed(2); $("sPos").textContent=Math.round(pos/P*100)+"%"; $("sDD").textContent=med(dds).toFixed(1); $("sStreak").textContent=med(streaks);
+  const lo=Math.min(...paths.flat()), hi=Math.max(...paths.flat()), X=i=>36+(400-36)*i/n, Y=v=>14+232*(1-(v-lo)/((hi-lo)||1));
+  let s=`<line x1="36" x2="436" y1="${Y(0)}" y2="${Y(0)}" stroke="currentColor" opacity=".35" stroke-dasharray="4 4"/><text x="4" y="${Y(0)+4}" font-size="10" fill="currentColor">0R</text>`;
+  s+=paths.map((a,i)=>`<polyline fill="none" stroke="${a[n]>0?'#0a8f6a':'#c0392b'}" stroke-width="1.2" opacity=".55" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1" points="${a.map((v,t)=>X(t).toFixed(1)+","+Y(v).toFixed(1)).join(" ")}"><animate attributeName="stroke-dashoffset" from="1" to="0" dur="${(1.2+i*0.02).toFixed(2)}s" fill="freeze"/></polyline>`).join("");
+  s+=`<text x="36" y="258" font-size="10" fill="currentColor" opacity=".7">trade number (0 to ${n})</text>`; $("simSvg").innerHTML=s;
+}
+["wr","aw","nt"].forEach(i=>$(i).oninput=sim); $("simGo").onclick=sim; sim();
+// ---- investor fan
+function pct(arr,q){ const a=arr.slice().sort((x,y)=>x-y); return a[Math.min(a.length-1,Math.floor(q*a.length))]; }
+function fan(){
+  const iv=+$("iv").value, im=+$("im").value, iy=+$("iy").value; let we=+$("ie").value, wg=+$("ig").value; if(we+wg>100){ wg=100-we; $("ig").value=wg; }
+  const wd=100-we-wg, goal=+$("io").value; $("ivV").textContent=inr(iv); $("imV").textContent=inr(im)+" / month"; $("iyV").textContent=iy; $("ieV").textContent=we+"%"; $("igV").textContent=wg+"%"; $("idV").textContent=wd+"%"; $("ioV").textContent=inr(goal);
+  const months=iy*12, N=1500, B=6, r=rng(7), E=H.monthly.equity, G=H.monthly.gold, D=H.monthly.debt, L=E.length, w=[we/100,wg/100,wd/100];
+  const finals=new Array(N), byM=Array.from({length:months+1},()=>new Array(N));
+  for(let p=0;p<N;p++){ let v=iv; byM[0][p]=v; let m=0; while(m<months){ const s=Math.floor(r()*(L-B)); for(let b=0;b<B&&m<months;b++,m++){ const i=s+b; v=(v+im)*(1+w[0]*E[i]+w[1]*G[i]+w[2]*D[i]); byM[m+1][p]=v; } } finals[p]=v; }
+  const q=(m,x)=>pct(byM[m],x), pts=[]; for(let m=0;m<=months;m+=Math.max(1,Math.floor(months/60))) pts.push(m); if(pts[pts.length-1]!==months) pts.push(months);
+  const hi=q(months,0.95)*1.05, X=m=>46+(430-46)*m/months, Y=v=>12+236*(1-v/hi), area=(a,b)=>`M${pts.map(m=>X(m)+","+Y(q(m,b))).join(" L")} L${pts.slice().reverse().map(m=>X(m)+","+Y(q(m,a))).join(" L")} Z`;
+  let s=`<defs><clipPath id="rev"><rect id="revR" x="40" y="0" width="0" height="280"/></clipPath></defs>`;
+  for(let t=0;t<=3;t++){ const v=hi*t/3; s+=`<line x1="46" x2="430" y1="${Y(v)}" y2="${Y(v)}" stroke="currentColor" opacity=".12"/><text x="42" y="${Y(v)+4}" font-size="10" text-anchor="end" fill="currentColor" opacity=".7">${inr(v)}</text>`; }
+  s+=`<g clip-path="url(#rev)"><path d="${area(0.1,0.9)}" fill="#0a8f6a" opacity=".2"/><path d="${area(0.25,0.75)}" fill="#0a8f6a" opacity=".35"/><polyline fill="none" stroke="#0a8f6a" stroke-width="2.5" points="${pts.map(m=>X(m)+","+Y(q(m,0.5))).join(" ")}"/>
+    <line x1="46" x2="430" y1="${Y(goal)}" y2="${Y(goal)}" stroke="#d9480f" stroke-width="2" stroke-dasharray="6 4"/><text x="430" y="${Y(goal)-5}" font-size="11" text-anchor="end" fill="#d9480f" font-weight="700">goal ${inr(goal)}</text></g>`;
+  const inv=[...Array(months+1).keys()].map(m=>iv+im*m); s+=`<polyline fill="none" stroke="currentColor" opacity=".5" stroke-dasharray="3 3" points="${pts.map(m=>X(m)+","+Y(inv[m])).join(" ")}"/><text x="46" y="274" font-size="10" fill="currentColor" opacity=".7">dashed: money you put in. Years 0 to ${iy}</text>`;
+  $("fanSvg").innerHTML=s; const R=$("revR"); let t0=performance.now(); const tick=now=>{ const k=Math.min(1,(now-t0)/1600); R.setAttribute("width",String(400*k)); if(k<1) requestAnimationFrame(tick); }; requestAnimationFrame(tick);
+  $("fMed").textContent=inr(pct(finals,.5)); $("fLow").textContent=inr(pct(finals,.1)); $("fHigh").textContent=inr(pct(finals,.9)); $("fProb").textContent=Math.round(finals.filter(x=>x>=goal).length/N*100)+"%";
+}
+["iv","im","iy","ie","ig","io"].forEach(i=>$(i).oninput=fan); $("fanGo").onclick=fan;
+const st=H.stats; $("histNote").innerHTML=`<b>What the last ${H.months.length} months contained</b> (history, before tax and fund costs): equity ${(st.equity.cagr*100).toFixed(1)}% a year with a worst fall of ${(st.equity.maxdd*100).toFixed(0)}% (2020); gold ${(st.gold.cagr*100).toFixed(1)}% (an unusually strong decade for gold: do not extrapolate it); liquid debt ${(st.debt.cagr*100).toFixed(1)}%. Proxies: ${H.proxies.equity}; ${H.proxies.gold}; ${H.proxies.debt}. Only ${Math.round(H.months.length/12)} years of data: results are a scenario range, not a forecast.`;
+fan();
+// ---- drawdown of the mix
+function dd(){
+  const we=+$("ie").value/100, wg=+$("ig").value/100, wd=1-we-wg, E=H.monthly.equity, G=H.monthly.gold, D=H.monthly.debt; let v=1, peak=1, curve=[], ddc=[], worst=0, wi=0;
+  for(let i=0;i<E.length;i++){ v*=1+we*E[i]+wg*G[i]+wd*D[i]; peak=Math.max(peak,v); const d=v/peak-1; curve.push(v); ddc.push(d); if(d<worst){worst=d; wi=i;} }
+  let rec=0; for(let i=wi;i<curve.length;i++){ if(curve[i]>=Math.max(...curve.slice(0,wi+1))){ rec=i-wi; break; } if(i===curve.length-1) rec=-1; }
+  const yrs=E.length/12, cagr=Math.pow(v,1/yrs)-1, X=i=>40+(880-40)*i/(E.length-1), lo=Math.min(-0.05,worst*1.1), Y=x=>14+170*(x/lo);
+  let s=`<line x1="40" x2="880" y1="14" y2="14" stroke="currentColor" opacity=".3"/>`+[0.25,0.5,0.75,1].map(t=>`<line x1="40" x2="880" y1="${14+170*t}" y2="${14+170*t}" stroke="currentColor" opacity=".1"/><text x="36" y="${14+170*t+4}" font-size="10" text-anchor="end" fill="currentColor" opacity=".7">${(lo*t*100).toFixed(0)}%</text>`).join("");
+  s+=`<path d="M40,14 L${ddc.map((d,i)=>X(i)+","+Y(d)).join(" L")} L880,14 Z" fill="#c0392b" opacity=".3"/><polyline fill="none" stroke="#c0392b" stroke-width="2" points="${ddc.map((d,i)=>X(i)+","+Y(d)).join(" ")}"/>`;
+  s+=`<circle cx="${X(wi)}" cy="${Y(worst)}" r="5" fill="#c0392b"/><text x="${X(wi)+8}" y="${Y(worst)+4}" font-size="11" fill="currentColor" font-weight="700">worst: ${(worst*100).toFixed(0)}% (${H.months[wi].slice(0,7)})</text>`;
+  s+=`<text x="40" y="212" font-size="10" fill="currentColor" opacity=".7">${H.months[0].slice(0,4)} to ${H.months[H.months.length-1].slice(0,4)}, monthly steps</text>`;
+  $("ddSvg").innerHTML=s; $("ddMax").textContent=(worst*100).toFixed(0)+"%"; $("ddCagr").textContent=(cagr*100).toFixed(1)+"%"; $("ddRec").textContent=rec<0?"not yet recovered":rec;
+}
+["ie","ig"].forEach(i=>$(i).addEventListener("input",dd)); dd();
+</script></body></html>

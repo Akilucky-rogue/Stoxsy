@@ -24,6 +24,18 @@ def _start(asof: pd.Timestamp, kind: str, n: int) -> pd.Timestamp:
     return asof - pd.Timedelta(days=n) if kind == "days" else asof - pd.DateOffset(months=n)
 
 
+def trim_after_unit_change(series: pd.Series, threshold: float = MAX_DAILY_MOVE) -> tuple[pd.Series, Optional[pd.Timestamp]]:
+    """Cut a price / NAV series to start at its last single-day move above `threshold` (a unit change or bad print), so a line drawn from it never shows a false cliff.
+    Returns (trimmed series, the date it now starts at, or None if no such move)."""
+    s = series.dropna().sort_index()
+    j = s.pct_change().abs()
+    bad = j[j > threshold]
+    if bad.empty:
+        return s, None
+    cut = bad.index[-1]
+    return s[s.index >= cut], cut
+
+
 def scheme_returns_detailed(nav: pd.Series, asof: Optional[pd.Timestamp] = None) -> dict:
     """Every horizon, with an explicit status: {"status": "ok", cumulative, annualised, start, end} or
     {"status": "insufficient_history" | "stale_start" | "nav_discontinuity", "detail": why}. Nothing is extrapolated."""
