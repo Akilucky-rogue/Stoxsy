@@ -5,7 +5,7 @@
     python scripts/daily_after_close.py --only log_cards,alerts
 Steps run in order; a REQUIRED step that fails stops the run (nothing downstream may use stale inputs), an optional one is reported and the run continues. The prediction-logging step refuses
 to log after the next session's open (the ledger enforces it). Nothing here trades, promotes a model or changes an adjustment decision; network use is limited to the approved public archives
-(NSE, BSE, AMFI). Log: data/reports/daily/daily_<date>.log.
+(NSE, BSE, AMFI) and, for the optional intraday reconcile, read-only Kite market data. Log: data/reports/daily/daily_<date>.log.
 """
 from __future__ import annotations
 
@@ -27,6 +27,7 @@ STEPS = [
     ("nse_corp_actions", False, "NSE corporate-action records", [PY, *STREAM, "--source", "corporate_actions"]),
     ("rebuild_ohlcv", True, "rebuild the official `ohlcv` series from raw prices and the applied events (no decision changes)",
      [PY, "-c", "import sys; sys.path.insert(0, r'" + str(HERE.parent) + "'); from qsde.ingestion import corp_actions as c; print(c.rebuild_from_db())"]),
+    ("intraday_reconcile", False, "reconcile today's streamed minute bars against Kite's historical minute bars (skips if nothing was streamed)", [PY, str(HERE / "reconcile_intraday.py")]),
     ("nse_fo", False, "NSE F&O end-of-day archive", [PY, *STREAM, "--source", "nse_fo_bhavcopy"]),
     ("bse_cash", False, "BSE end-of-day prices (raw only)", [PY, *STREAM, "--source", "bse_bhavcopy"]),
     ("amfi_nav", False, "AMFI NAVs (today's file)", [PY, *STREAM, "--source", "amfi_navall"]),
