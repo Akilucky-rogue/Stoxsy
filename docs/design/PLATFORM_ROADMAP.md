@@ -1,0 +1,97 @@
+# Stoxsy platform roadmap: data first, then pipelines, then models, then product, then clients
+
+Status: DRAFT for owner approval, 2026-10-23. Principle for every phase: **raw first, point-in-time (`known_at`), validated before use, evidence-labelled, nothing preset, nothing promoted without the gate.**
+"ML and DL for all" means every asset class gets candidate models measured under the same honest harness. It does not mean every model is trusted: each earns RESEARCH, PAPER or APPROVED on evidence, and no engine is approved today.
+
+## 0. Where we stand (measured 2026-10-23)
+
+| Domain | Held today | Gap that blocks models or product |
+|---|---|---|
+| **Equity, cash** | NSE end-of-day prices 2016-01-01 to 2026-10-16: 5.1M rows, 4,005 symbols. BSE end-of-day: 9.7M rows. NSE corporate actions 24,356 and BSE 22,060 records. Live minute bars from Kite (verified 2026-10-23), reconciled after the close to Kite history. | BSE adjusted series (only after validation); historical index membership (survivorship); delivery %, bulk/block deals, institutional flows, India VIX, macro (tables exist, **0 rows**). |
+| **Futures and options** | NSE F&O archive 2016-2026: 35.2M contract rows, 2,667 sessions. Kite instrument master (41,026 NSE F&O contracts). Live ticks work. | Implied volatility is not in the archive (derive and label it); lot-size history; historical option-chain snapshots beyond EOD; one missing archive session (2021-03-30). |
+| **Mutual funds** | 23,858 schemes (4,612 direct-growth), 24.2M NAV rows 2012-2026, classification, returns, risk, peer context. | **Expense ratios (TER) history, portfolio holdings, AUM, exit loads, riskometer, benchmark total-return indices, fund-manager history.** Without these, "which fund" is returns-only. |
+| **Fundamentals** | `fundamentals` table exists, **0 rows**. | Quarterly and annual financials, shareholding pattern, balance sheet items, point-in-time (filing date, not period end). |
+| **News and events** | `news_sentiment` table exists, **0 rows**. Exchange corporate-action files only. | Exchange announcements feed, results calendar, a licensed headline source, then sentiment as a derived, labelled layer. |
+| **Models** | Defensive-card shadow model (risk label, no return forecast); harness with purged CV, DSR, PBO, null control; ledger, monitor, kill switch. ML directional ranker **rejected**. | Everything in phase 3. |
+
+## Phase 1: acquire the data (nothing downstream starts before its inputs pass a gate)
+
+Each source below is verified before building: official or licensed status, terms of use, format, cadence, point-in-time behaviour. A source that fails its gate is dropped, not worked around. **New external sources need your approval; this document is that request.** Items marked (verify) are not yet confirmed against the live site.
+
+| # | Dataset | Preferred source (official first) | How | Cadence | Unlocks | Acceptance gate |
+|---|---|---|---|---|---|---|
+| 1.1 | Mutual-fund **expense ratio** (base TER, additional expenses, GST, by plan) | SEBI requires every AMC to publish scheme-wise, date-wise TER daily on its site and on AMFI's site as a downloadable spreadsheet. Start with the AMFI listing, fall back to each AMC's TER page (verify current URLs; AMFI's new site is script-driven and has no stable direct link) | adapter per source, manual-download inbox as fallback (the pattern used for BSE actions) | daily, change-driven | fund cost screen, net-of-cost fund ranking, direct vs regular | every scheme in the master has a TER row for the latest date or an explained gap; TER within SEBI slab limits; history starts at first capture (we cannot back-fill what was not archived: say so) |
+| 1.2 | Mutual-fund **portfolio holdings** (security, ISIN, quantity, value, % of NAV) | Monthly (and half-yearly) disclosure files that each AMC must publish on its site and AMFI's (deadlines in SEBI's mutual-fund master circular, verify current). Kite's MF API lists funds, not underlying holdings | adapter per AMC family (about 45), spreadsheets parsed to ISIN, manual inbox fallback | monthly | overlap and concentration across funds, look-through equity/debt/gold split for the Investor plan, style drift | holdings sum to about 100% of NAV (±2%); ISINs resolve to our security master; every scheme with AUM above a floor has a recent file |
+| 1.3 | Fund **AUM, exit load, riskometer, benchmark, manager** | AMFI monthly AUM; scheme documents and AMC factsheets (verify) | file parse | monthly | size and flow filters, risk labels | cross-checked against AMFI category totals |
+| 1.4 | **Benchmark total-return indices** (Nifty 50 TRI etc.) | NSE index data (verify licence for use beyond personal research) | download | daily | fair fund-vs-benchmark comparison | tracks the price index plus dividends within a stated tolerance |
+| 1.5 | **Fundamentals** (income statement, balance sheet, cash flow, shareholding) | Results filed by listed companies with NSE and BSE in XBRL (NSE moved to an "Integrated Filing - Financials" page for periods from March 2025, verify access method). Not scraped third-party sites (their terms normally forbid it) | adapter reading the exchange filing, stored with **filing date as `known_at`** | quarterly, event-driven | value, quality, growth features, equity screens, fundamental risk flags | restated vs original kept separately; totals reconcile (assets = liabilities + equity); coverage report by market cap |
+| 1.6 | **Corporate announcements and results calendar** | NSE and BSE announcement feeds (official) | adapter, raw landing | intraday | event alerts, earnings-date features, news layer base | de-duplicated; every row has exchange timestamp and `known_at` |
+| 1.7 | **News headlines** | Start from the exchange announcements (1.6). A licensed vendor or RSS source is a separate, paid, owner-approved decision (terms of use decide what we may store and show) | adapter per approved source | continuous | sentiment features, event study | licence reviewed; duplicates and syndication collapsed; timestamps are publication time |
+| 1.8 | **Institutional flows, delivery %, bulk/block deals, India VIX, FII derivatives stats** | NSE and SEBI/NSDL public data (code and tables already exist; tables are empty) | existing adapters, run and validate | daily | flow and regime features | gap report; spot checks against the source |
+| 1.9 | **Macro** (policy rate, yields, inflation, USD/INR, crude) | RBI and government releases; a free series service (the earlier FRED key was exposed and must stay rotated) | adapter | daily to monthly | regime model, real-return view for the Investor plan | release-date handling (what was known when) |
+| 1.10 | **Index membership history** | NSE index reconstitution circulars (verify) | parse circulars | event | removes survivorship bias in equity research | rebuilt membership matches known constituents on spot dates |
+| 1.11 | **Futures extras**: lot-size history, derived implied volatility | lot sizes from circulars and instrument snapshots; IV derived from archive prices with a stated model | derive | daily | F&O models, defined-risk strategy checks | put-call parity and no-arbitrage checks; model labelled "derived" |
+| 1.12 | **MCX commodities** | Kite (segment already activated) | later, per your ordering | daily | commodity research | last, after the rest |
+
+Data you will notice is absent from this list: anything that requires scraping a site against its terms, or buying a feed. Those are listed as decisions for you, not assumed.
+
+**Phase 1 exit:** a data-inventory report with, for each dataset, coverage, gaps, `known_at` rule, validation result and the terms-of-use note; every gate in the table passed or the dataset marked "not available" honestly.
+
+## Phase 2: the data pipeline
+
+1. **Raw-first landing** for every new source (`data/landing/<source>/yyyy/mm/dd/…`, hash and `.meta.json`), then parse; re-parse never needs re-download.
+2. **Stream adapters** on the existing framework (adapter, sink, checkpoint), idempotent upserts, one migration per dataset, point-in-time columns (`known_at`, `valid_from`).
+3. **Security master** extended: ISIN-first identity across NSE, BSE, AMFI, fund holdings and fundamentals; renames and mergers handled once.
+4. **Validation layer** per dataset (the reports we already produce for NAV, F&O, BSE actions), a **data-quality page**, and alerts on staleness and failed gates (the alert engine exists).
+5. **Scheduler**: the daily after-close routine grows steps in dependency order; intraday streaming plus the reconcile; Windows Task Scheduler registration; a machine that does not sleep during the session (the 2026-10-23 stream silently stopped when the computer slept).
+6. **Backups and restore drill**, retention policy for raw files, disk budget.
+
+**Phase 2 exit:** one command runs the whole daily pipeline; a day's data can be rebuilt from raw; failures page you before they reach a model.
+
+## Phase 3: the ML and DL pipeline (all three asset classes, one harness)
+
+Shared: point-in-time feature store (no look-ahead, tests that fail on leakage), label factory (barrier labels, forward returns, rank targets), purged and combinatorial CV with embargo in sessions, true trial counting for deflated Sharpe, probability of backtest overfitting, cost stress, baselines on the identical paths, calibration, drift monitors, a registry with dataset and feature hashes, and the written go-live criteria (DSR at least 0.95 with the real trial count, PBO below 0.3, lower confidence bound above zero from at least 60 resolved paper ideas, beats baselines net of costs).
+
+| Asset class | Targets (what a model predicts or ranks) | Classical ML candidates | Deep-learning candidates | Honest limits |
+|---|---|---|---|---|
+| **Equity, cash** | 5/10/20-session sector-neutral rank; probability a barrier trade hits target before stop; regime state; realised-volatility forecast | gradient-boosted rankers, meta-labeller on rule signals, HMM regime, HAR/GARCH volatility | TCN/GRU sequence ranker, temporal fusion transformer with quantiles, tabular transformer | ranker already rejected once; about 4,000 symbols but few independent periods; DL must beat the tree baseline net of costs |
+| **Futures and options** | volatility risk premium (derived IV minus forecast realised), term-structure and basis signals, open-interest flow states, defined-risk structure payoff distribution | volatility forecasters, gradient-boosted classifiers on OI and basis features | LSTM-HAR volatility, sequence models on the chain surface | IV is derived, not published; **research and paper only; defined-risk structures only; no order placement** |
+| **Mutual funds** | forward risk-adjusted net-of-cost return rank within like-for-like peers; probability a fund lags its benchmark; style and overlap embeddings; drawdown risk | regularised linear and boosted models on TER, size, age, holdings concentration, factor loadings from NAV regressions | holdings-based embeddings, sequence models on NAV (candidate only) | fund performance persistence is weak in the literature: the baseline "lowest cost in the peer group" must be beaten; peers with under 8 funds are not scored |
+| **Cross-asset (Investor plan)** | regime and risk-capacity inputs, not return forecasts | volatility and correlation estimators, shrinkage covariance | none until evidence | Investor mode does not depend on return forecasts by design |
+
+**Phase 3 exit:** every candidate has a model card, CPCV/PBO report, cost table, baseline comparison and a verdict (RESEARCH, PAPER, REJECTED). Outputs are probabilities or ranks with intervals, never a bare direction.
+
+## Phase 4: product surfaces
+
+Investor: fund selection with cost, look-through holdings and overlap; plan unchanged in principle (range, never a point forecast). Trader: risk engine first (sizing, open-risk cap, daily and weekly limits, losing-streak rule, research-only idea cards), then the futures desk (defined risk only), then live compare for trader ideas. Alerts per mode. Every report carries charts and animations (standing rule).
+
+## Phase 5: clients, KYC, terms and privacy
+
+`docs/design/KYC_ONBOARDING.md`, `docs/legal/TERMS_OF_USE_DRAFT.md`, `docs/legal/PRIVACY_POLICY_DRAFT.md` (drafts). **Hard gate:** no outside person is onboarded, and no personalised recommendation is given to anyone but you, until counsel confirms the regulatory route (register as an investment adviser or research analyst, partner with a registered entity, or stay a personal-use tool). Building the screens does not cross the gate; opening the door does.
+
+## Phase 6: hardening and launch gates
+
+Security review and penetration test, secrets handling and rotation, audit-log completeness, backup restore, load and chaos tests on the streaming and alert paths, accessibility pass, incident runbook, data-protection impact assessment, SEBI cyber-resilience checklist if applicable.
+
+## Order and dependencies
+
+```
+Phase 1 data (gated per dataset) -> Phase 2 pipeline -> Phase 3 models -> Phase 4 surfaces -> Phase 5 clients -> Phase 6 launch gates
+        Trader risk engine (Phase 4) can start in parallel: it needs no new data
+        Phase 5 drafts exist now; Phase 5 build waits for the legal route decision
+```
+
+## Starting now (Phase 1, in this order)
+
+1. 1.8 run the existing adapters for flows, delivery, bulk deals, VIX (no new source): fastest value.
+2. 1.1 expense ratios: verify the AMFI and AMC listings, land raw files, parse, validate.
+3. 1.2 fund holdings for the 20 largest fund houses first, then the rest.
+4. 1.5 and 1.6 exchange results and announcements, after reading each exchange's terms.
+5. 1.3, 1.4, 1.9, 1.10, 1.11, then 1.7 (news vendor decision), then 1.12.
+
+## Decisions needed from you
+
+1. Approve the sources in Phase 1 (or strike any).
+2. A paid news or fundamentals vendor: yes or no (default: no, official filings only).
+3. The legal route for Phase 5 (and who the counsel is).
+4. Whether the daily pipeline runs on this PC (must not sleep) or on a small always-on machine or cloud VM.
