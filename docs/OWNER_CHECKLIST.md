@@ -2,6 +2,11 @@
 
 Everything else is automated or done. Items are in the order that unblocks the most.
 
+## Status (2026-10-23)
+
+Done: credentials rotated (owner), branch pushed, `main` protected with CI required (all three CI jobs pass), BSE corporate-action CSV downloaded and loaded, Kite key and secret entered.
+Open: Kite login (item 3), the 59 Bucket A decisions (item 4), the 371 BSE near-miss events (item 5), the daily routine (item 6).
+
 ## One-time
 
 1. **Rotate the exposed credentials** (provider consoles; nothing here can do it for you): FMP, Finnhub, FRED, Alpha Vantage, Telegram bot, Choice, Kite API secret, Google OAuth client secret.
@@ -21,7 +26,7 @@ Everything else is automated or done. Items are in the order that unblocks the m
 
 ## Files only you can fetch
 
-5. **BSE corporate actions**: download the export (CSV) from BSE's Corporate Actions page and save it in `D:\Stoxsy\data\inbox\bse_corporate_actions\`. Run
+5. **BSE corporate actions** (loaded; next is review of the 371 near-miss events, packets to come): to refresh later, download the export (CSV) from BSE's Corporate Actions page and save it in `D:\Stoxsy\data\inbox\bse_corporate_actions\`. Run
    `python backend/scripts/load_bse_corporate_actions.py --inbox --dry-run`, check `column_mapping` and `sample` against the real file, then re-run with `--mapping-ok`
    (see `docs/runbooks/bse_corporate_actions.md`). Until then BSE-only names stay out of the universe, signal and cards.
 

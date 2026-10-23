@@ -548,6 +548,22 @@ files; corporate-actions source evaluation (`docs/CORPORATE_ACTIONS_EVALUATION.m
 * **Operations:** `scripts/daily_after_close.py` runs the daily routine in order (not yet run end to end on a live day); CI workflow added (`.github/workflows/ci.yml`, not yet run on GitHub); `docs/OWNER_CHECKLIST.md` lists what only the
   owner can do. gitleaks re-run after the changes: history (58 commits), reports, signals, features and raw landing clean; the only working-tree hit is the local gitignored `.env` JWT secret. Key rotation is the owner's and is pending, so nothing is pushed.
 
+### Sixteenth review (2026-10-23): push, CI, BSE corporate-action evidence
+
+* **Rotation reported done by the owner** (provider side, not verifiable from here; the workspace `.env` still held placeholders until the owner entered the Kite key and secret). gitleaks re-run: history (58 commits), working tree,
+  reports, signals, features and 3.9 GB of raw landing files clean; the only hit is the local gitignored `.env` JWT secret. Nothing sensitive is tracked. `feat/stoxsy-v2` pushed to the PUBLIC repository (45 commits ahead of `main`).
+  `main` is protected: pull request required, no force-push or deletion, and the three CI jobs (gitleaks on full history, frontend types / tests / build, backend tests on an empty TimescaleDB seeded from `infra/init.sql` then the
+  migrations) are required checks. Both CI faults found on the first real runs were mine and are fixed (base-schema bootstrap; checksum file name). Tests that need the loaded datasets are marked `real_data` and run locally only.
+* **BSE corporate actions loaded** from the owner's download of BSE's Corporate Actions page (22,065 rows, 22,060 distinct actions, 0 unreadable; raw file landed with SHA-256). The page's ten columns matched the parser exactly (the
+  mapping review gate worked as designed). First reconciliation (v1) rejected 666 actions, including 425 of 861 bonuses: investigation showed the reconciler was wrong, not the data. Two defects fixed (v2): (1) several actions on one
+  ex-date (a bonus AND a split, e.g. BAJFINANCE 2025-06-16, BAJAJFINSV 2022-09-13) move the price once by the PRODUCT of their factors and are now tested together (91 same-day groups); (2) `rejected` is now reserved for prices that
+  contradict the listing (observed gap more than 25% from the listed factor); a gap that matches but fails persistence / untraded-session bounds, or sits 5-25% off, is `needs_review`. Also typed: consolidations and sub-divisions
+  listed without terms, InvIT / REIT distributions, suspensions, meetings and book closures (not price-affecting).
+* **Result (v2)**, price-factor actions (bonus / split / consolidation, 1,608): **1,001 confirmed** (all hard bounds pass), 371 needs_review with the gap 5-25% off the listed factor (the BSE analogue of Bucket A), 158 gap matches but
+  persistence or untraded-session check failed, 55 terms not readable (factor must come from the company announcement), 41 no BSE bars near the ex-date, **23 rejected** (prices contradict the listing). Dividends: 18,006 confirmed
+  (amount readable, yield <= 25%, scrip traded after the ex-date: a sanity check, not a price test), 118 needs_review. Rights (568), demergers / schemes (242) and buy-backs (376) always need review. Nothing is adjusted.
+  Still required before any BSE adjusted series: event-level review of the 371 near-miss events (same packet process as Bucket A), a validated BSE adjusted-price materialisation, and owner approval.
+
 ## Out of scope here
 
 Kite backfill/live (needs a session and the owner's go-ahead for any network call), a verified corporate-actions
