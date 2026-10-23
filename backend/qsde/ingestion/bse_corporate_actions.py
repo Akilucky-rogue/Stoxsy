@@ -23,7 +23,7 @@ import pandas as pd
 
 from qsde.ingestion.corp_actions_source import parse_purpose
 
-VERSION = "bse_ca_reconcile_v1"
+VERSION = "bse_ca_reconcile_v2"
 MAX_DIV_YIELD = 0.25
 ALIASES = {
     "scrip_code": ["securitycode", "scripcode", "scrip code", "security code", "code"],
@@ -136,6 +136,16 @@ def classify_purpose(purpose: str) -> dict:
         kinds = {part[0] for part in p["parts"]}
         t = "consolidation" if p["category"] == "CONSOLIDATION" else ("bonus" if kinds == {"bonus"} else "split" if kinds == {"split"} else "bonus")
         return {"action_type": t, "factor": float(p["factor"]), "amount": None, "ratio_text": "; ".join(part[2] for part in p["parts"])}
+    if re.search(r"consolidation", s, re.I):
+        return {"action_type": "consolidation", "factor": None, "amount": None, "ratio_text": None}            # listed without terms: the factor is not in this file
+    if re.search(r"sub[\s-]?division|stock\s+split", s, re.I):
+        return {"action_type": "split", "factor": None, "amount": None, "ratio_text": None}
+    if re.search(r"invit|reit|return of capital|income distribution", s, re.I) and not re.search(r"dividend", s, re.I):
+        return {"action_type": "distribution", "factor": None, "amount": None, "ratio_text": None}
+    if re.search(r"resolution plan|suspension|delist", s, re.I):
+        return {"action_type": "suspension", "factor": None, "amount": None, "ratio_text": None}
+    if re.search(r"\be\.?\s?g\.?\s?m\b|extra[\s-]?ordinary general|annual general|\bagm\b|book closure|e-voting|postal ballot|^general$|^-$", s, re.I):
+        return {"action_type": "administrative", "factor": None, "amount": None, "ratio_text": None}
     if re.search(r"dividend", s, re.I):
         m = re.search(r"(?:rs\.?|re\.?|inr)[\s\-:]*([0-9]+(?:\.[0-9]+)?)", s, re.I)
         return {"action_type": "dividend", "factor": None, "amount": float(m.group(1)) if m else None, "ratio_text": None}
@@ -167,13 +177,33 @@ def reconcile(actions: pd.DataFrame, bars: pd.DataFrame, calendar=None) -> pd.Da
     px = bars.assign(symbol=bars["scrip_code"].astype(str))[["symbol", "date", "open", "close"]] if len(bars) else pd.DataFrame(columns=["symbol", "date", "open", "close"])
     split_like = actions[actions["action_type"].isin(["bonus", "split", "consolidation"]) & actions["factor"].notna()]
     if len(split_like):
-        ev = v3(split_like.assign(listed_symbol=split_like["scrip_code"].astype(str), listed_ex_date=split_like["ex_date"])[["listed_symbol", "listed_ex_date", "purpose"]], px, None, calendar)
-        ev = ev.reset_index(drop=True)
-        for aid, (_, e) in zip(split_like["id"], ev.iterrows()):
-            c = e["classification"]
-            cls = {"v3_candidate": "confirmed", "v3_rejected": "rejected"}.get(c, "needs_review")
-            out.append({"id": aid, "classification": cls, "reason": str(e["reason"]), "listed_factor": e["listed_factor"], "observed_ratio": e["observed_ratio"], "factor_error": e["factor_error"],
-                        "gap_date": e["gap_date"], "shift_sessions": e["shift_sessions"], "untraded_sessions": e["untraded_sessions"], "persistence_ratio": e["persistence_ratio"]})
+        # several actions can share one ex-date (a bonus AND a split): the price moves once, by the PRODUCT of the factors, so they are tested together
+        grp = split_like.groupby(["scrip_code", "ex_date"], sort=False)
+        keys = []
+        for (code, ex_d), g in grp:
+            keys.append({"listed_symbol": str(code), "listed_ex_date": ex_d, "purpose": "; ".join(g["purpose"]), "ids": list(g["id"]), "n": len(g)})
+        kd = pd.DataFrame(keys)
+        ev = v3(kd[["listed_symbol", "listed_ex_date", "purpose"]], px, None, calendar).reset_index(drop=True)
+        for (_, k), (_, e) in zip(kd.iterrows(), ev.iterrows()):
+            c, fe, obs = e["classification"], e["factor_error"], e["observed_ratio"]
+            f = e["listed_factor"]
+            mild = f is not None and f == f and 0.8 < float(f) < 1.25
+            tol = 0.03 if mild else 0.05
+            if c == "v3_candidate":
+                cls, why = "confirmed", str(e["reason"])
+            elif c == "v3_rejected" and obs == obs and obs is not None and fe == fe and abs(float(fe)) > 0.25:
+                cls, why = "rejected", f"observed gap x{float(obs):.3f} differs from the listed x{float(f):.3f} by {abs(float(fe)):.0%} (more than 25%): the prices did not do what the listing says"
+            elif c == "v3_rejected" and obs == obs and obs is not None and fe == fe and abs(float(fe)) <= tol:
+                cls, why = "needs_review", "the gap matches the listed factor, but " + str(e["reason"])
+            elif c == "v3_rejected" and obs == obs and obs is not None and fe == fe:
+                cls, why = "needs_review", f"observed gap x{float(obs):.3f} is {abs(float(fe)):.0%} off the listed x{float(f):.3f} (between the {tol:.0%} bound and 25%): event-level review. {e['reason']}"
+            else:
+                cls, why = "needs_review", str(e["reason"])
+            if k["n"] > 1:
+                why = f"{k['n']} actions share this ex-date; tested together (listed product x{float(f):.4f}). " + why if f is not None and f == f else why
+            for aid in k["ids"]:
+                out.append({"id": aid, "classification": cls, "reason": why, "listed_factor": f, "observed_ratio": obs, "factor_error": fe, "gap_date": e["gap_date"],
+                            "shift_sessions": e["shift_sessions"], "untraded_sessions": e["untraded_sessions"], "persistence_ratio": e["persistence_ratio"]})
     by = {s: g.sort_values("date") for s, g in px.groupby("symbol")}
     for r in actions[~actions["id"].isin([o["id"] for o in out])].itertuples():
         base = {"id": r.id, "listed_factor": None, "observed_ratio": None, "factor_error": None, "gap_date": None, "shift_sessions": None, "untraded_sessions": None, "persistence_ratio": None}
@@ -195,6 +225,12 @@ def reconcile(actions: pd.DataFrame, bars: pd.DataFrame, calendar=None) -> pd.Da
             out.append({**base, "classification": "needs_review", "reason": "rights issue: terms recorded, no price factor is invented; needs event-level review"})
         elif r.action_type == "demerger_or_scheme":
             out.append({**base, "classification": "needs_review", "reason": "demerger / scheme of arrangement: needs event-level review"})
+        elif r.action_type in ("split", "consolidation", "bonus"):
+            out.append({**base, "classification": "needs_review", "reason": f"{r.action_type} listed without readable terms ({r.purpose[:50]!r}): the factor must come from the company announcement"})
+        elif r.action_type in ("distribution", "suspension", "administrative"):
+            out.append({**base, "classification": "needs_review", "reason": {"distribution": "trust distribution (InvIT / REIT): no price factor and no amount in the text; recorded",
+                                                                           "suspension": "trading suspension / resolution plan: recorded (affects untraded sessions, not prices)",
+                                                                           "administrative": "meeting / book closure / voting: not a price-affecting action"}[r.action_type]})
         elif r.action_type == "buyback":
             out.append({**base, "classification": "needs_review", "reason": "buy-back: no price adjustment applies; recorded for completeness"})
         else:

@@ -100,6 +100,20 @@ def reconcile_all(only_unreconciled: bool = True) -> dict:
     return {"reconciled": int(len(r)), **r["classification"].value_counts().to_dict()}
 
 
+def reclassify_all() -> dict:
+    """Recompute the DERIVED columns (action_type, ratio_text, factor, amount) from the stored purpose text with the current classifier. The raw purpose and the content hash are untouched."""
+    from qsde.db.connection import get_sync_conn, read_sql
+    from qsde.ingestion import bse_corporate_actions as B
+
+    a = read_sql("SELECT id, purpose, action_type FROM bse_corporate_actions")
+    info = a["purpose"].map(B.classify_purpose)
+    rows = [(i["action_type"], i["ratio_text"], i["factor"], i["amount"], int(x)) for i, x in zip(info, a["id"])]
+    changed = int(sum(1 for i, old in zip(info, a["action_type"]) if i["action_type"] != old))
+    with get_sync_conn() as conn:
+        psycopg2.extras.execute_batch(conn.cursor(), "UPDATE bse_corporate_actions SET action_type = %s, ratio_text = %s, factor = %s, amount = %s WHERE id = %s", rows, page_size=1000)
+    return {"reclassified": len(rows), "action_type_changed": changed}
+
+
 def report() -> str:
     from qsde.db.connection import read_sql
 
@@ -121,6 +135,7 @@ def main() -> int:
     ap.add_argument("--file")
     ap.add_argument("--inbox", action="store_true")
     ap.add_argument("--reconcile-only", action="store_true")
+    ap.add_argument("--reclassify", action="store_true", help="re-derive action types / factors from the stored purpose text with the current classifier, then reconcile everything again")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--mapping-ok", action="store_true", help="I have checked the column mapping and sample of a dry run against the real file")
     a = ap.parse_args()
@@ -135,6 +150,9 @@ def main() -> int:
             return 2
     if a.dry_run:
         return 0
+    if a.reclassify and not a.dry_run:
+        print(json.dumps(reclassify_all()))
+        a.reconcile_only = True
     if files or a.reconcile_only:
         print(json.dumps(reconcile_all(only_unreconciled=not a.reconcile_only), default=str))
         print(report())

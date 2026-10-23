@@ -47,7 +47,7 @@ def test_purpose_text_is_classified_and_factors_follow_the_nse_convention():
     r = c("Rights issue of Equity Shares in the ratio of 1:5 @ Premium Rs.40/-")
     assert r["action_type"] == "rights" and r["ratio_text"] == "1:5" and r["factor"] is None
     assert c("Scheme of Arrangement / Demerger")["action_type"] == "demerger_or_scheme"
-    assert c("Buy Back of Shares")["action_type"] == "buyback" and c("Annual General Meeting")["action_type"] == "other"
+    assert c("Buy Back of Shares")["action_type"] == "buyback" and c("Annual General Meeting")["action_type"] == "administrative"
     assert B.content_hash({"scrip_code": 1, "ex_date": "2024-03-15", "purpose": "Bonus  issue 1:1"}) == B.content_hash({"scrip_code": 1, "ex_date": pd.Timestamp("2024-03-15"), "purpose": "bonus issue 1:1"})
 
 
@@ -91,3 +91,35 @@ def test_the_column_mapping_is_exposed_so_a_person_can_check_it_against_the_real
     assert ex.mapping["scrip_code"] == "Security Code" and ex.mapping["purpose"] == "Purpose" and ex.mapping["ex_date"] == "Ex Date"
     assert ex.unmatched == ["Weird Extra"] and "record_date" not in ex.mapping
     assert ex.frame["raw_row"].iloc[0]["Weird Extra"] == "zzz"
+
+
+def test_same_day_actions_are_tested_together_and_verdicts_distinguish_contradiction_from_doubt():
+    acts = pd.DataFrame({"id": [1, 2, 3, 4, 5, 6], "scrip_code": [600001, 600001, 600002, 600003, 600004, 600004],
+                         "ex_date": pd.to_datetime(["2024-03-15"] * 6),
+                         "purpose": ["Bonus issue 1:1", "Stock Split From Rs.5/- to Rs.1/-", "Bonus issue 1:1", "Bonus issue 1:1", "Bonus issue 1:1", "Stock Split From Rs.10/- to Rs.2/-"],
+                         "action_type": ["bonus", "split", "bonus", "bonus", "bonus", "split"], "factor": [0.5, 0.2, 0.5, 0.5, 0.5, 0.2], "amount": [None] * 6})
+    px = pd.concat([bars(600001, "2024-03-15", 0.1),                  # bonus 1:1 and split 5->1 on one day: the price falls to 0.1x, the PRODUCT of the factors
+                    bars(600002, "2024-03-15", 1.0, gap=False),     # listed bonus, no gap at all: the prices contradict the listing
+                    bars(600003, "2024-03-15", 0.4),                # gap 0.4 vs 0.5: 20% off, outside the bound but not contradictory: a person decides
+                    bars(600004, "2024-03-15", 0.1)])               # same pair of actions again: 0.5 x 0.2 = 0.1
+    res = B.reconcile(acts, px, calendar=pd.bdate_range("2024-01-01", "2024-06-30")).set_index("id")
+    assert res.loc[1, "classification"] == res.loc[2, "classification"] == "confirmed" and "2 actions share this ex-date" in res.loc[1, "reason"]
+    assert res.loc[3, "classification"] == "rejected" and "more than 25%" in res.loc[3, "reason"]
+    assert res.loc[4, "classification"] == "needs_review" and "off the listed" in res.loc[4, "reason"]
+    assert res.loc[5, "classification"] == res.loc[6, "classification"] == "confirmed"
+
+
+def test_actions_without_readable_terms_and_non_price_rows_are_typed_and_deferred():
+    c = B.classify_purpose
+    assert c("Consolidation of Shares")["action_type"] == "consolidation" and c("Consolidation of Shares")["factor"] is None
+    assert c("Sub Division of Equity shares")["action_type"] == "split"
+    assert [c(x)["action_type"] for x in ("Income Distribution (InvIT)", "InvIT - Return of Capital", "Resolution Plan -Suspension", "E.G.M.", "Annual Book Closure")] ==         ["distribution", "distribution", "suspension", "administrative", "administrative"]
+    acts = pd.DataFrame({"id": [1, 2, 3], "scrip_code": [1, 2, 3], "ex_date": pd.to_datetime(["2024-03-15"] * 3), "purpose": ["Consolidation of Shares", "E.G.M.", "Income Distribution REITs"],
+                         "action_type": ["consolidation", "administrative", "distribution"], "factor": [None] * 3, "amount": [None] * 3})
+    res = B.reconcile(acts, pd.DataFrame(columns=["scrip_code", "date", "open", "close"]), calendar=None).set_index("id")
+    assert set(res["classification"]) == {"needs_review"} and "without readable terms" in res.loc[1, "reason"] and "not a price-affecting" in res.loc[2, "reason"]
+
+
+def test_agm_is_matched_as_a_word_and_not_inside_other_words():
+    assert B.classify_purpose("AGM")["action_type"] == "administrative" and B.classify_purpose("Annual General Meeting")["action_type"] == "administrative"
+    assert B.classify_purpose("Magma Fincorp Bonus issue 1:1")["action_type"] == "bonus"
