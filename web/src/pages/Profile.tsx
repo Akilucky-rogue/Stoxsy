@@ -157,7 +157,7 @@ export function Profile() {
       {p && (
         <>
           <section className="grid tiles" aria-label="Profile summary">
-            <Tile label="Mode" value={p.mode === "trader" ? "Trader" : "Investor"} sub={`looking at the ${p.lens_pot} pot`} />
+            <Tile label="Mode" value={p.mode === null ? "Not chosen" : p.mode === "trader" ? "Trader" : "Investor"} sub={p.lens_pot ? `looking at the ${p.lens_pot} pot` : "pick Investor or Trader in the top bar"} />
             <Tile label="Investment pot" value={inr(p.investment_capital)} sub="money not needed for 5+ years" />
             <Tile label="Trading pot" value={inr(p.trading_capital)} sub={p.trading_share_of_investable == null ? "no capital recorded" : `${pct(p.trading_share_of_investable, 1)} of investable`} tone={p.trading_share_of_investable != null && p.trading_share_of_investable > p.rules.pots.trading_max_share_of_investable ? "bad" : undefined} />
             <Tile label="Emergency fund" value={inr(p.emergency_fund)} sub={p.emergency_fund == null ? "not recorded: plans will say so" : "kept outside both pots"} />

@@ -50,7 +50,8 @@ function ModeSwitch({ canWrite }: { canWrite: boolean }) {
   if (!p.data) return null;
   return (
     <div title={canWrite ? "Switch the lens. Your investment and trading pots stay separate." : "Viewers cannot change the mode."} style={{ display: "inline-flex", alignItems: "center", gap: 6, opacity: canWrite ? 1 : 0.6 }}>
-      <Segmented label="Mode" value={p.data.mode} options={MODE_OPTIONS} onChange={(m) => { if (canWrite && m !== p.data?.mode) upd.mutate({ mode: m }); }} />
+      <Segmented label="Mode" value={p.data.mode ?? ("" as Mode)} options={MODE_OPTIONS} onChange={(m) => { if (canWrite && m !== p.data?.mode) upd.mutate({ mode: m }); }} />
+      {p.data.mode === null && <span className="muted" style={{ fontSize: "0.8rem" }}>choose a mode</span>}
       {upd.isError && <span role="alert" className="muted" style={{ color: "var(--down)", fontSize: "0.8rem" }}>mode not saved</span>}
     </div>
   );
@@ -88,7 +89,7 @@ export function Shell() {
       <aside className="sidebar" aria-label="Primary">
         <div className="brand"><Logo /><span className="txt">Stoxsy</span></div>
         <nav className="nav">
-          <div className="group">{profile.data ? `${profile.data.mode === "trader" ? "Trader" : "Investor"} mode` : "Overview"}</div>
+          <div className="group">{profile.data?.mode ? `${profile.data.mode === "trader" ? "Trader" : "Investor"} mode` : "Overview"}</div>
           <NavLink to="/plan"><Icon name="target" /><span className="txt">Investor plan</span></NavLink>
           <NavLink to="/profile"><Icon name="users" /><span className="txt">Profile &amp; capital</span></NavLink>
           <NavLink to="/" end><Icon name="home" /><span className="txt">Dashboard</span></NavLink>

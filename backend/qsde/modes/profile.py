@@ -48,7 +48,7 @@ class Plan:
 
 
 def blank(policy_version: str) -> dict:
-    return {"mode": "investor", "risk_profile": None, "capacity_score": None, "tolerance_score": None, "investment_capital": None,
+    return {"mode": None, "risk_profile": None, "capacity_score": None, "tolerance_score": None, "investment_capital": None,
             "trading_capital": None, "emergency_fund": None, "limits": {}, "policy_version": policy_version,
             "income_stability": None, "dependents": None, "drawdown_reaction": None}
 

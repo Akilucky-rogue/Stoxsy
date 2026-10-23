@@ -37,8 +37,8 @@ export function Portfolio() {
 
   return (
     <>
-      <PageHead title="My portfolio" sub="Import your holdings to see allocation, concentration, P&L and how much the portfolio has fallen from its peak." right={<><Segmented label="Capital pot" value={pot ?? "investment"} onChange={setPotPick} options={POTS} /><Evidence kind="diagnostic" /></>} />
-      <div className="notice">Each import belongs to one pot, chosen once and never moved. {profile.data ? `You are in ${profile.data.mode === "trader" ? "Trader" : "Investor"} mode, which looks at the ${profile.data.lens_pot} pot by default; the buttons above let you view the other one.` : ""}</div>
+      <PageHead title="My portfolio" sub="Import your holdings to see allocation, concentration, P&L and how much the portfolio has fallen from its peak." right={<><Segmented label="Capital pot" value={pot ?? ("" as Pot)} onChange={setPotPick} options={POTS} /><Evidence kind="diagnostic" /></>} />
+      <div className="notice">Each import belongs to one pot, chosen once and never moved. {profile.data?.mode ? `You are in ${profile.data.mode === "trader" ? "Trader" : "Investor"} mode, which looks at the ${profile.data.lens_pot} pot by default; the buttons above let you view the other one.` : "No mode chosen yet: pick a pot above to look at it."}</div>
       <div className="notice">
         Your holdings stay in your own account: they are visible only to you, nothing is sent anywhere, and nothing here can place an order. P&amp;L is unrealised and uses your file&apos;s average cost.
         The history is <strong>pro-forma</strong> (today&apos;s quantities held constant), not your actual past value.
@@ -82,6 +82,7 @@ export function Portfolio() {
 
       {q.isLoading && <Skeleton rows={6} />}
       {q.isError && <ErrorState error={q.error} onRetry={() => q.refetch()} />}
+      {pot == null && <Empty>Choose a pot above (or a mode in the top bar) to see your holdings.</Empty>}
       {q.isSuccess && !s && <Empty>No holdings imported in the {pot} pot yet. Import a file above, or look at the other pot.</Empty>}
       {s && (
         <>

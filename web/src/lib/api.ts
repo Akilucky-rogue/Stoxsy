@@ -219,7 +219,7 @@ export interface AlertList { n_matching: number; offset: number; rows: AlertRow[
 export interface AlertSummary { open: { critical: number; warning: number; info: number }; acknowledged: number; last_run: string | null; stale: boolean }
 
 export interface Profile {
-  user_id: string; mode: Mode; lens_pot: Pot; risk_profile: string | null; income_stability: string | null; dependents: number | null; drawdown_reaction: string | null; investment_capital: number | null; trading_capital: number | null; emergency_fund: number | null;
+  user_id: string; mode: Mode | null; lens_pot: Pot | null; risk_profile: string | null; income_stability: string | null; dependents: number | null; drawdown_reaction: string | null; investment_capital: number | null; trading_capital: number | null; emergency_fund: number | null;
   trading_share_of_investable: number | null; effective_limits: Record<string, number>; limit_defaults: Record<string, number>; limit_ceilings: Record<string, number>;
   loosened_limits: string[]; engine_approved: boolean; warnings: string[]; policy_version: string; disclaimer: string;
   rules: { trader: { losing_streak: { stops: number; half_size_next_trades: number; multiplier: number }; time_stop_sessions: number[]; averaging_down: boolean }; pots: { trading_max_share_of_investable: number }; guardrails: string[] };

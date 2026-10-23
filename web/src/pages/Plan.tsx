@@ -46,12 +46,12 @@ function Questions({ p }: { p: Profile }) {
 function GoalsEditor({ plan }: { plan: InvestorPlan | undefined }) {
   const add = useAddGoal();
   const arch = useArchiveGoal();
-  const [f, setF] = useState({ name: "", kind: "goal", target: "", date: "", current: "0", sip: "0", test: false });
+  const [f, setF] = useState({ name: "", kind: "", target: "", date: "", current: "", sip: "", test: false });
   const vals = { t: num(f.target), c: num(f.current), s: num(f.sip) };
-  const ok = f.name.trim() !== "" && vals.t > 0 && Number.isFinite(vals.c) && Number.isFinite(vals.s) && /^\d{4}-\d{2}-\d{2}$/.test(f.date);
+  const ok = f.name.trim() !== "" && f.kind !== "" && vals.t > 0 && Number.isFinite(vals.c) && Number.isFinite(vals.s) && /^\d{4}-\d{2}-\d{2}$/.test(f.date);
   const submit = () => {
     const body: GoalIn = { name: f.name.trim(), kind: f.kind as "goal" | "emergency", target_amount: vals.t, target_date: f.date, current_amount: vals.c, monthly_sip: vals.s, is_test: f.test };
-    add.mutate(body, { onSuccess: () => setF({ name: "", kind: "goal", target: "", date: "", current: "0", sip: "0", test: false }) });
+    add.mutate(body, { onSuccess: () => setF({ name: "", kind: "", target: "", date: "", current: "", sip: "", test: false }) });
   };
   return (
     <div className="card">
@@ -68,7 +68,7 @@ function GoalsEditor({ plan }: { plan: InvestorPlan | undefined }) {
       <h3>Add a goal</h3>
       <div className="grid three">
         <div className="field"><label htmlFor="gn">Name</label><input id="gn" className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></div>
-        <div className="field"><label htmlFor="gk">Type</label><select id="gk" className="input" value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}><option value="goal">Goal</option><option value="emergency">Emergency fund</option></select></div>
+        <div className="field"><label htmlFor="gk">Type</label><select id="gk" className="input" value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}><option value="">Choose…</option><option value="goal">Goal</option><option value="emergency">Emergency fund</option></select></div>
         <div className="field"><label htmlFor="gt">Target amount (₹)</label><input id="gt" className="input" inputMode="decimal" value={f.target} onChange={(e) => setF({ ...f, target: e.target.value })} /></div>
         <div className="field"><label htmlFor="gd">Target date</label><input id="gd" className="input" type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></div>
         <div className="field"><label htmlFor="gc">Saved for it today (₹)</label><input id="gc" className="input" inputMode="decimal" value={f.current} onChange={(e) => setF({ ...f, current: e.target.value })} /></div>
@@ -84,7 +84,7 @@ function GoalsEditor({ plan }: { plan: InvestorPlan | undefined }) {
 function BalancesEditor({ plan }: { plan: InvestorPlan | undefined }) {
   const add = useAddBalance();
   const arch = useArchiveBalance();
-  const [f, setF] = useState({ cls: "debt", label: "", amount: "", asOf: new Date().toISOString().slice(0, 10) });
+  const [f, setF] = useState({ cls: "", label: "", amount: "", asOf: "" });
   const amt = num(f.amount);
   return (
     <div className="card">
@@ -96,11 +96,12 @@ function BalancesEditor({ plan }: { plan: InvestorPlan | undefined }) {
       )}
       <div className="grid three" style={{ marginTop: 10 }}>
         <div className="field"><label htmlFor="bl">What is it?</label><input id="bl" className="input" value={f.label} onChange={(e) => setF({ ...f, label: e.target.value })} placeholder="e.g. liquid fund, PPF" /></div>
-        <div className="field"><label htmlFor="bc">Counts as</label><select id="bc" className="input" value={f.cls} onChange={(e) => setF({ ...f, cls: e.target.value })}><option value="equity">Equity</option><option value="gold">Gold</option><option value="debt">Debt (incl. cash-like)</option></select></div>
+        <div className="field"><label htmlFor="bc">Counts as</label><select id="bc" className="input" value={f.cls} onChange={(e) => setF({ ...f, cls: e.target.value })}><option value="">Choose…</option><option value="equity">Equity</option><option value="gold">Gold</option><option value="debt">Debt (incl. cash-like)</option></select></div>
         <div className="field"><label htmlFor="ba">Amount (₹)</label><input id="ba" className="input" inputMode="decimal" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></div>
+        <div className="field"><label htmlFor="bd">Value as of</label><input id="bd" className="input" type="date" value={f.asOf} onChange={(e) => setF({ ...f, asOf: e.target.value })} /></div>
       </div>
-      <button className="btn primary" disabled={f.label.trim() === "" || !(amt >= 0) || Number.isNaN(amt) || add.isPending}
-        onClick={() => add.mutate({ asset_class: f.cls as never, label: f.label.trim(), amount: amt, as_of: f.asOf }, { onSuccess: () => setF({ ...f, label: "", amount: "" }) })}>{add.isPending ? "Adding…" : "Add balance"}</button>
+      <button className="btn primary" disabled={f.label.trim() === "" || f.cls === "" || f.asOf === "" || !(amt >= 0) || Number.isNaN(amt) || add.isPending}
+        onClick={() => add.mutate({ asset_class: f.cls as never, label: f.label.trim(), amount: amt, as_of: f.asOf }, { onSuccess: () => setF({ cls: "", label: "", amount: "", asOf: "" }) })}>{add.isPending ? "Adding…" : "Add balance"}</button>
       {add.isError && <p role="alert" style={{ color: "var(--down)" }}>{add.error instanceof Error ? add.error.message : "Not added"}</p>}
     </div>
   );

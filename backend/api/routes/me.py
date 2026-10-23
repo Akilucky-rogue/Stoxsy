@@ -35,8 +35,8 @@ class ProfilePut(BaseModel):
 
 class ProfileOut(BaseModel):
     user_id: str
-    mode: str
-    lens_pot: str
+    mode: Optional[str]                 # None until the user chooses: nothing is preset
+    lens_pot: Optional[str]
     risk_profile: Optional[str]
     income_stability: Optional[str] = None
     dependents: Optional[int] = None
@@ -72,7 +72,7 @@ def _view(user_id: str, row: dict, warnings: list) -> ProfileOut:
     notes = list(warnings) + [w for w in chk["warnings"] if "override" not in w and w not in warnings]
     if chk["errors"]:                      # an earlier override-approved state stays visible
         notes.append("trading pot is above the guard (an audited override is on record)")
-    return ProfileOut(user_id=user_id, mode=row["mode"], lens_pot=pol.pot_for_mode(row["mode"]), risk_profile=row["risk_profile"], income_stability=row.get("income_stability"),
+    return ProfileOut(user_id=user_id, mode=row["mode"], lens_pot=pol.pot_for_mode(row["mode"]) if row["mode"] else None, risk_profile=row["risk_profile"], income_stability=row.get("income_stability"),
                       dependents=row.get("dependents"), drawdown_reaction=row.get("drawdown_reaction"),
                       investment_capital=row["investment_capital"], trading_capital=row["trading_capital"], emergency_fund=row["emergency_fund"],
                       trading_share_of_investable=(chk["trading_share"] if inv + trd > 0 else None), effective_limits=eff, limit_defaults=pol.defaults(policy),

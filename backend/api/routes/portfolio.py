@@ -163,7 +163,10 @@ def portfolio_summary(import_id: Optional[int] = None, pot: Optional[str] = Quer
     if import_id is None:
         if pot is None:                       # the lens: the pot that belongs to the current mode
             with get_sync_conn() as c:
-                pot = mode_policy.pot_for_mode(mode_profile.load(c, p.id)["mode"])
+                chosen = mode_profile.load(c, p.id)["mode"]
+            if chosen is None:
+                raise HTTPException(status_code=422, detail="choose a mode (Investor or Trader) or a pot to look at: nothing is preset")
+            pot = mode_policy.pot_for_mode(chosen)
         cond = "pot IS NULL" if pot == "unassigned" else "pot = :pot"
         imp = read_sql(f"SELECT id, imported_at, pot FROM portfolio_imports WHERE user_id = :u AND {cond} ORDER BY imported_at DESC LIMIT 1",
                        params={"u": p.id, "pot": pot})

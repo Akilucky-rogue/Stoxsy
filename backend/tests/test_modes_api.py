@@ -37,7 +37,7 @@ def audit(uid):
 def test_first_read_is_a_blank_investor_profile_with_no_assumed_split(who):
     c, uid, _ = who
     j = c.get("/api/me/profile").json()
-    assert j["mode"] == "investor" and j["lens_pot"] == "investment"
+    assert j["mode"] is None and j["lens_pot"] is None                                   # nothing is preset: the user chooses
     assert j["investment_capital"] is None and j["trading_capital"] is None and j["emergency_fund"] is None
     assert j["effective_limits"]["risk_per_trade_pct"] == 0.25 and j["engine_approved"] is False and j["loosened_limits"] == []
 
@@ -157,6 +157,15 @@ def test_profiles_are_per_user(who):
     app.dependency_overrides[require_auth] = lambda: Principal(id="test-modes-other2", email="o@example.com", role="trader", authenticated=True)
     try:
         j = c.get("/api/me/profile").json()
-        assert j["mode"] == "investor" and j["investment_capital"] is None
+        assert j["mode"] is None and j["investment_capital"] is None
     finally:
         pass
+
+
+def test_nothing_is_preset_saving_other_fields_never_chooses_a_mode_for_you(who):
+    c, uid, _ = who
+    assert c.put("/api/me/profile", json={"investment_capital": 500000}).json()["mode"] is None
+    assert c.put("/api/me/profile", json={"dependents": 2}).json()["mode"] is None
+    r = c.get("/api/portfolio/summary?benchmark=none")                                       # no pot given and no mode chosen: asks instead of guessing
+    assert r.status_code == 422 and "nothing is preset" in r.json()["detail"]
+    assert c.put("/api/me/profile", json={"mode": "trader"}).json()["lens_pot"] == "trading"

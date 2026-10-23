@@ -141,7 +141,7 @@ def approval_ok(note: Optional[str], is_admin: bool) -> bool:
     return bool(is_admin and note and len(note.strip()) >= NOTE_MIN_CHARS)
 
 
-def pot_for_mode(mode: str) -> str:
+def pot_for_mode(mode: Optional[str]) -> str:
     if mode not in MODES:
         raise PolicyError(f"unknown mode '{mode}'")
     return "trading" if mode == "trader" else "investment"

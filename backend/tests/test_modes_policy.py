@@ -113,7 +113,7 @@ def test_an_unknown_emergency_fund_is_flagged_not_assumed():
 # ── mode change touches only the mode ────────────────────────────────
 
 def test_mode_change_plan_contains_only_the_mode():
-    c = cur(investment_capital=900_000.0, trading_capital=30_000.0, emergency_fund=100_000.0, limits={"daily_loss_pct": 1.0})
+    c = cur(mode="investor", investment_capital=900_000.0, trading_capital=30_000.0, emergency_fund=100_000.0, limits={"daily_loss_pct": 1.0})
     plan = prof.plan_update(c, prof.Update(mode="trader"), is_admin=True)
     assert plan.changes == {"mode": "trader"} and [a for a, _ in plan.audits] == ["mode.change"]
     assert prof.plan_update(c, prof.Update(mode="investor"), is_admin=True).changes == {}      # no-op is not a change
