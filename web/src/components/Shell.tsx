@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../lib/auth";
 import { REGIME_LABEL, regimeTone, shortDate } from "../lib/format";
-import { useAlertSummary, useDefensive, useSystem } from "../lib/queries";
+import { useAlertSummary, useDefensive, useProfile, useSystem, useUpdateProfile } from "../lib/queries";
 import { applyPref, nextPref, readPref, type ThemePref } from "../lib/theme";
-import { Chip, Icon, Logo, type Tone } from "./ui";
+import type { Mode } from "../lib/api";
+import { Chip, Icon, Logo, Segmented, type Tone } from "./ui";
 
 function useCollapsed() {
   const [c, setC] = useState(() => {
@@ -40,6 +41,21 @@ function AlertBell() {
   );
 }
 
+const MODE_OPTIONS: { value: Mode; label: string }[] = [{ value: "investor", label: "Investor" }, { value: "trader", label: "Trader" }];
+
+/** Mode is a lens and a stored preference. It never moves money between pots (the server enforces that). */
+function ModeSwitch({ canWrite }: { canWrite: boolean }) {
+  const p = useProfile();
+  const upd = useUpdateProfile();
+  if (!p.data) return null;
+  return (
+    <div title={canWrite ? "Switch the lens. Your investment and trading pots stay separate." : "Viewers cannot change the mode."} style={{ display: "inline-flex", alignItems: "center", gap: 6, opacity: canWrite ? 1 : 0.6 }}>
+      <Segmented label="Mode" value={p.data.mode} options={MODE_OPTIONS} onChange={(m) => { if (canWrite && m !== p.data?.mode) upd.mutate({ mode: m }); }} />
+      {upd.isError && <span role="alert" className="muted" style={{ color: "var(--down)", fontSize: "0.8rem" }}>mode not saved</span>}
+    </div>
+  );
+}
+
 function StatusStrip() {
   const def = useDefensive({ limit: 1 });
   const sys = useSystem();
@@ -64,13 +80,16 @@ export function Shell() {
   const loc = useLocation();
   useEffect(() => setDrawer(false), [loc.pathname]);
   const admin = me?.role === "admin";
+  const canWrite = status === "open" || me?.role === "admin" || me?.role === "trader";
+  const profile = useProfile();
 
   return (
     <div className={`app${collapsed ? " collapsed" : ""}${drawer ? " drawer-open" : ""}`}>
       <aside className="sidebar" aria-label="Primary">
         <div className="brand"><Logo /><span className="txt">Stoxsy</span></div>
         <nav className="nav">
-          <div className="group">Overview</div>
+          <div className="group">{profile.data ? `${profile.data.mode === "trader" ? "Trader" : "Investor"} mode` : "Overview"}</div>
+          <NavLink to="/profile"><Icon name="users" /><span className="txt">Profile &amp; capital</span></NavLink>
           <NavLink to="/" end><Icon name="home" /><span className="txt">Dashboard</span></NavLink>
           <NavLink to="/portfolio"><Icon name="wallet" /><span className="txt">My portfolio</span></NavLink>
           <NavLink to="/decision"><Icon name="target" /><span className="txt">Decision cards</span></NavLink>
@@ -97,6 +116,7 @@ export function Shell() {
       <div className="main">
         <header className="topbar">
           <button className="icon-btn menu-btn" aria-label="Open menu" onClick={() => setDrawer(true)}><Icon name="menu" /></button>
+          <ModeSwitch canWrite={canWrite} />
           <StatusStrip />
           <div className="spacer" />
           <AlertBell />

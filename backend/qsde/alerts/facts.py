@@ -86,10 +86,13 @@ def portfolio(user_id: str, cfg: dict) -> Optional[dict]:
     from qsde.ml import data as mldata
     from qsde.portfolio import analytics
 
-    imp = read_sql("SELECT id FROM portfolio_imports WHERE user_id = :u ORDER BY imported_at DESC LIMIT 1", params={"u": user_id})
+    # Concentration is a risk across everything held, so this fact combines the LATEST import of each pot (investment, trading, unassigned).
+    # Combining is for the risk read only: nothing is relabelled and each pot keeps its own import.
+    imp = read_sql("SELECT DISTINCT ON (pot) id FROM portfolio_imports WHERE user_id = :u ORDER BY pot, imported_at DESC", params={"u": user_id})
     if imp.empty:
         return None
-    h = read_sql("SELECT symbol, quantity::float8 AS quantity, avg_cost::float8 AS avg_cost FROM portfolio_holdings WHERE import_id = :i", params={"i": int(imp["id"].iloc[0])})
+    h = read_sql("""SELECT symbol, sum(quantity)::float8 AS quantity, (sum(quantity * avg_cost) / sum(quantity))::float8 AS avg_cost
+                    FROM portfolio_holdings WHERE import_id = ANY(:ids) GROUP BY symbol""", params={"ids": [int(i) for i in imp["id"]]})
     c = cfg["portfolio"]
     px = mldata.load_prices(h["symbol"].tolist(), start=str((pd.Timestamp.today() - pd.Timedelta(days=max(400, int(c["correlation_lookback_sessions"] * 1.6)))).date()))[["symbol", "date", "close"]]
     if px.empty:

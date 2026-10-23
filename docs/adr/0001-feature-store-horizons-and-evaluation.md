@@ -564,6 +564,14 @@ files; corporate-actions source evaluation (`docs/CORPORATE_ACTIONS_EVALUATION.m
   (amount readable, yield <= 25%, scrip traded after the ex-date: a sanity check, not a price test), 118 needs_review. Rights (568), demergers / schemes (242) and buy-backs (376) always need review. Nothing is adjusted.
   Still required before any BSE adjusted series: event-level review of the 371 near-miss events (same packet process as Bucket A), a validated BSE adjusted-price materialisation, and owner approval.
 
+### Seventeenth review (2026-10-23): Trader and Investor modes, step 1 (profile, pots, audit)
+
+* **Decision record:** the owner's two design reviews are recorded in `docs/design/TRADER_INVESTOR_MODES.md` section 9. Where they differed (risk per trade 0.5% vs 0.25%; open risk 4% vs 3%) the stricter value is the default and the looser is a ceiling needing an audited admin approval; 1% per trade is never enabled. Numbers live in `infra/data/mode_policy.json` (versioned, no personal amounts; amounts exist only in the user's DB profile).
+* **Built (migration 050):** `user_profiles` (mode, capital, limit deviations), `portfolio_imports.pot` (required on new imports; a database trigger makes it immutable once set; legacy rows stay unassigned and can be assigned once), append-only `mode_audit` (mode, capital, limit, approval, import and pot-assignment events; its own table because `audit_log.user_id` is a UUID and cannot hold the local principal). `GET/PUT /api/me/profile`, `GET /api/me/audit`; writes need admin or trader; a mode change updates only the mode column. Trading pot above 5% of investable capital needs an admin override note.
+* **Bug prevented:** "latest import per user" would have let a trading import hide the investment holdings; summary, replace detection and the portfolio alert fact now work per pot (the alert fact combines the latest import of each pot for the concentration read only, relabelling nothing).
+* **Not built, deliberately:** an audited transfer between pots (a position cannot change pot until that is designed); no engine is approved, so trader limits are policy and display until step 3 enforces them in idea generation.
+* **Tests:** 15 pure policy/profile tests, 11 database/API tests (mode switch leaves pots and imports unchanged, imports per pot do not hide each other, pot immutable even by direct SQL, ceilings, admin-only approval, override audited, viewer read-only, audit append-only), 4 UI tests.
+
 ## Out of scope here
 
 Kite backfill/live (needs a session and the owner's go-ahead for any network call), a verified corporate-actions

@@ -129,7 +129,22 @@ Every report has a standalone HTML version (inline SVG, no external dependency, 
 after an adjustment, a fan of outcomes, a drawdown), and honest labels (sample size, evidence label, "scenario not forecast"). Markdown versions stay for the repository. First examples: the Bucket A decision tool and the
 mode explainer.
 
-## 9. Decisions for the owner
+## 9. Decision record (owner reviews of 2026-10-23)
+
+The six open questions were answered by two owner reviews. Where they differed, the stricter value is the default and the looser one is a ceiling that needs an audited admin approval. The numbers live in `infra/data/mode_policy.json` (versioned, no personal amounts).
+
+| # | Decision | Resolution |
+|---|---|---|
+| 1 | Capital partition | Two pots, investment and trading. Emergency fund is a constraint outside both. No default split is assumed; amounts live only in the user's profile. Guard: trading pot at most 5% of investable capital (investment + trading), above that only with an audited admin override. A holding never changes pot (database trigger); an audited transfer is not offered yet. |
+| 2 | Investor mixes | Starting defaults, not recommendations: 25/7.5/67.5, 40/7.5/52.5, 55/10/35, 70/10/20, 82/5/13 (equity/gold/debt, each sums to 100). Gated by emergency fund, liquidity needs, goal date and the tolerance check (equity is lowered until the worst historical fall is tolerable). Bands: act if drift is 5 points absolute OR 20% relative; new SIP money goes to under-weights first; tax lots are unknown and flagged. Glide path configurable, effect shown before applying. "No action needed" is a valid result. |
+| 3 | Trader limits | Risk per trade 0.25% (ceiling 0.5% with an admin note; 1% never). Open risk 3% (4% only after an engine is approved). Daily 1.5%, weekly 4% (halve size next week), 3 stops then half size for 5 trades, 8 positions, correlation 0.55, liquidity cap 1% of 20-session median traded value, time stop at the registered horizon, no averaging down. Enforced in code. |
+| 4 | F&O | Defined-risk only, research/paper only until an engine passes the gate and data and risk calculations are validated. No naked short options. No order placement from the UI. |
+| 5 | Goals | Three TEST goals supplied for testing only (emergency top-up, long-term wealth, medium-term). They are test fixtures, never seeded into any real profile. The owner enters real goals privately. |
+| 6 | Accounts | One person, both modes, separated by the pots. Keyed by user_id so more accounts can be added later. Roles: admin, trader (owner-equivalent writes), viewer (read-only). |
+
+Open item that cannot be inferred: the owner's real goals (amount, date, current savings, monthly contribution, priority) and the real pot amounts.
+
+## 10. Original questions (kept for the record)
 
 1. Capital partition: how much is investment capital and how much is trading capital? (Sets the defaults for both modes.)
 2. Investor target mixes above and the 5-point / 20% rebalance band: accept, or change.

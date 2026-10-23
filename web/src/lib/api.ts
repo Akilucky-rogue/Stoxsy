@@ -67,7 +67,7 @@ async function detail(r: Response): Promise<string> {
   try {
     const j = await r.json();
     if (typeof j.detail === "string") return j.detail;
-    if (Array.isArray(j.detail)) return j.detail.map((d: { msg?: string }) => d.msg).filter(Boolean).join("; ") || r.statusText;
+    if (Array.isArray(j.detail)) return j.detail.map((d: string | { msg?: string }) => (typeof d === "string" ? d : d.msg)).filter(Boolean).join("; ") || r.statusText;
   } catch {
     /* not JSON */
   }
@@ -82,6 +82,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export const post = <T>(path: string, body?: unknown) => api<T>(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) });
+export const put = <T>(path: string, body: unknown) => api<T>(path, { method: "PUT", body: JSON.stringify(body) });
 export const patch = <T>(path: string, body: unknown) => api<T>(path, { method: "PATCH", body: JSON.stringify(body) });
 
 // ── response shapes (mirror api/routes/*.py) ───────────────────────
@@ -168,13 +169,15 @@ export interface PortfolioHistory {
   benchmark?: { total_return: number; ann_volatility: number; max_drawdown: number; beta: number | null; correlation: number | null; series: { date: string[]; value: number[] } };
 }
 export interface PortfolioSummary {
-  import_id: number; imported_at: string; as_of: string | null; holdings: HoldingRow[]; benchmark_label: string | null; notes: string[]; disclaimer: string; history: PortfolioHistory | null;
+  import_id: number; pot: Pot | null; imported_at: string; as_of: string | null; holdings: HoldingRow[]; benchmark_label: string | null; notes: string[]; disclaimer: string; history: PortfolioHistory | null;
   totals: { value: number; cost: number; pnl: number; pnl_pct: number | null; n_holdings: number; n_unpriced: number; n_stale: number; winners: number; losers: number };
   concentration: { n_positions: number; top1: number | null; top3: number | null; top5: number | null; top10: number | null; hhi: number; effective_n: number | null; limit: number; above_limit: { symbol: string; weight: number }[] };
   defensive: { available: boolean; scored_share: number; buckets: Record<string, { share: number; names: string[] }> };
 }
 export interface ImportIssue { row: number; symbol: string; severity: string; reason: string }
-export interface ImportResult { import_id: number; n_rows: number; n_accepted: number; n_rejected: number; sha256: string; issues: ImportIssue[]; replaced_previous: boolean }
+export type Pot = "investment" | "trading";
+export type Mode = "investor" | "trader";
+export interface ImportResult { import_id: number; pot: Pot; n_rows: number; n_accepted: number; n_rejected: number; sha256: string; issues: ImportIssue[]; replaced_previous: boolean }
 
 export interface LiveModel { model_version: string; state: "research" | "paper" | "approved"; description: string | null; predictions: number; resolved: number; pending: number; first_as_of: string | null; last_as_of: string | null; horizons: string[] }
 export interface LiveModels { models: LiveModel[]; ledger_rules: string[]; disclaimer: string }
@@ -213,3 +216,15 @@ export interface AlertRow {
 }
 export interface AlertList { n_matching: number; offset: number; rows: AlertRow[]; last_run: string | null }
 export interface AlertSummary { open: { critical: number; warning: number; info: number }; acknowledged: number; last_run: string | null; stale: boolean }
+
+export interface Profile {
+  user_id: string; mode: Mode; lens_pot: Pot; risk_profile: string | null; investment_capital: number | null; trading_capital: number | null; emergency_fund: number | null;
+  trading_share_of_investable: number | null; effective_limits: Record<string, number>; limit_defaults: Record<string, number>; limit_ceilings: Record<string, number>;
+  loosened_limits: string[]; engine_approved: boolean; warnings: string[]; policy_version: string; disclaimer: string;
+  rules: { trader: { losing_streak: { stops: number; half_size_next_trades: number; multiplier: number }; time_stop_sessions: number[]; averaging_down: boolean }; pots: { trading_max_share_of_investable: number }; guardrails: string[] };
+}
+export interface ProfilePut {
+  mode?: Mode; investment_capital?: number | null; trading_capital?: number | null; emergency_fund?: number | null; limits?: Record<string, number>;
+  approval_note?: string; trading_override_note?: string;
+}
+export interface ModeAuditRow { ts: string; action: string; actor_role: string | null; payload: Record<string, unknown> }

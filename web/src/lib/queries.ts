@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, post, ApiError, type ImportResult, type PortfolioSummary, type AdminUser, type DecisionBook, type AlertList, type AlertSummary, type LiveModels, type LiveSummary, type LivePredictionList, type FundList, type FundFacets, type FundDetail, type AuditRow, type DefensiveLatest, type ReportBody, type ReportItem, type SystemStatus } from "./api";
+import { api, post, put, ApiError, type ModeAuditRow, type Pot, type Profile, type ProfilePut, type ImportResult, type PortfolioSummary, type AdminUser, type DecisionBook, type AlertList, type AlertSummary, type LiveModels, type LiveSummary, type LivePredictionList, type FundList, type FundFacets, type FundDetail, type AuditRow, type DefensiveLatest, type ReportBody, type ReportItem, type SystemStatus } from "./api";
 
 const stale = 60_000;
 
@@ -51,17 +51,29 @@ export const useFundFacets = () => useQuery({ queryKey: ["fund-facets"], queryFn
 export const useFundDetail = (code: number | null, window: string) =>
   useQuery({ queryKey: ["fund-detail", code, window], queryFn: () => api<FundDetail>(`/api/funds/schemes/${code}?window=${window}`), enabled: code != null, staleTime: 60_000 });
 
-export const usePortfolio = (benchmark: string, lookbackDays: number) =>
+export const useProfile = () => useQuery({ queryKey: ["profile"], queryFn: () => api<Profile>("/api/me/profile"), staleTime: stale });
+export const useModeAudit = () => useQuery({ queryKey: ["mode-audit"], queryFn: () => api<ModeAuditRow[]>("/api/me/audit?limit=30"), staleTime: 30_000 });
+export const useUpdateProfile = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (b: ProfilePut) => put<Profile>("/api/me/profile", b),
+    onSuccess: (p) => { qc.setQueryData(["profile"], p); void qc.invalidateQueries({ queryKey: ["mode-audit"] }); void qc.invalidateQueries({ queryKey: ["portfolio"] }); },
+  });
+};
+
+/** `pot` null = wait until the profile says which pot the current mode looks at. */
+export const usePortfolio = (pot: Pot | null, benchmark: string, lookbackDays: number) =>
   useQuery({
-    queryKey: ["portfolio", benchmark, lookbackDays],
-    queryFn: () => api<PortfolioSummary | null>(`/api/portfolio/summary?benchmark=${benchmark}&lookback_days=${lookbackDays}`).catch((e) => { if (e instanceof ApiError && e.status === 404) return null; throw e; }),
+    queryKey: ["portfolio", pot, benchmark, lookbackDays],
+    enabled: pot != null,
+    queryFn: () => api<PortfolioSummary | null>(`/api/portfolio/summary?pot=${pot}&benchmark=${benchmark}&lookback_days=${lookbackDays}`).catch((e) => { if (e instanceof ApiError && e.status === 404) return null; throw e; }),
     staleTime: stale, retry: false,
   });
 
 export const useImportHoldings = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (b: { csv_text: string; filename?: string }) => post<ImportResult>("/api/portfolio/import", b),
+    mutationFn: (b: { pot: Pot; csv_text: string; filename?: string }) => post<ImportResult>("/api/portfolio/import", b),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ["portfolio"] }); },
   });
 };

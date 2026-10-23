@@ -1,0 +1,52 @@
+{
+  "version": "mode_policy_v1",
+  "note": "Defaults, ceilings and rules for Trader and Investor mode. Contains NO personal amounts (those live only in the user's profile in the database). Tightening a limit is always allowed; loosening it beyond its default needs an admin approval note and is audited; a ceiling can only be changed by editing this file (a versioned, reviewed change). Sources: owner design reviews of 2026-10-23.",
+  "decision_record": {
+    "capital_partition": "Two strictly separate pots: investment (money not needed for 5+ years) and trading (money that can be lost without touching goals). The emergency fund is a constraint, not a pot. A position never changes pot except by an explicit audited transfer, which is not offered yet. No default split is assumed.",
+    "trader_limits": "Conflict between the two owner reviews (0.5% vs 0.25% per trade; 4% vs 3% open risk) resolved to the stricter value as the default; the looser value is a ceiling needing an admin approval note. 1% per trade is never enabled.",
+    "investor_mixes": "Starting defaults, not recommendations; every mix is gated by the owner's tolerance check, emergency fund, liquidity needs and goal date.",
+    "f_and_o": "Defined-risk structures only, research/paper only, until an engine passes the promotion gate and the data and risk calculations are validated. No naked short options. No order placement from the UI.",
+    "accounts": "One person uses both modes, separated by the pots. Schema keyed by user_id so more accounts can be added later."
+  },
+  "pots": {
+    "names": ["investment", "trading"],
+    "trading_max_share_of_investable": 0.05,
+    "investable_definition": "investment_capital + trading_capital (the emergency fund is excluded)",
+    "override": "A trading pot above the share needs an admin override note; it is audited."
+  },
+  "trader_limits": {
+    "risk_per_trade_pct":   {"default": 0.25, "ceiling": 0.5,  "never_above": 1.0, "unit": "% of trading capital, at the stop, including estimated costs"},
+    "open_risk_pct":        {"default": 3.0,  "ceiling": 3.0,  "ceiling_if_engine_approved": 4.0, "unit": "% of trading capital, sum of risk at stop of all open ideas"},
+    "daily_loss_pct":       {"default": 1.5,  "ceiling": 1.5,  "unit": "% of trading capital; reaching it stops new ideas for the day"},
+    "weekly_loss_pct":      {"default": 4.0,  "ceiling": 4.0,  "unit": "% of trading capital; reaching it halves sizing next week"},
+    "max_positions":        {"default": 8,    "ceiling": 8,    "unit": "open ideas"},
+    "max_pair_correlation": {"default": 0.55, "ceiling": 0.55, "unit": "pairwise correlation of daily returns, 60 sessions"},
+    "liquidity_cap_pct":    {"default": 1.0,  "ceiling": 1.0,  "unit": "% of average daily traded value (20 sessions median), never a single day"}
+  },
+  "trader_rules_fixed": {
+    "losing_streak": {"stops": 3, "half_size_next_trades": 5, "multiplier": 0.5},
+    "time_stop_sessions": [5, 20],
+    "averaging_down": false,
+    "f_and_o": {"defined_risk_only": true, "naked_short_options": false, "research_or_paper_only_until_engine_approved": true},
+    "live_order_placement": false
+  },
+  "investor": {
+    "rebalance_band": {"absolute_points": 5, "relative_fraction": 0.2, "rule": "act if |drift| >= absolute_points OR |drift| / target >= relative_fraction; new SIP money goes to under-weights before any sale"},
+    "glide_path": {"points_per_year": 2, "last_years": 5, "configurable": true, "show_effect_before_applying": true},
+    "projection": {"method": "block_bootstrap", "block_months": 6, "paths": 1500, "percentiles": [10, 50, 90]},
+    "risk_profiles": {
+      "conservative":            {"equity": 25, "gold": 7.5, "debt": 67.5},
+      "moderately_conservative": {"equity": 40, "gold": 7.5, "debt": 52.5},
+      "balanced":                {"equity": 55, "gold": 10,  "debt": 35},
+      "growth":                  {"equity": 70, "gold": 10,  "debt": 20},
+      "aggressive":              {"equity": 82, "gold": 5,   "debt": 13}
+    },
+    "risk_profile_rule": "the lower of capacity and tolerance; the goal calculator never raises equity to rescue an off-track goal (it shows trade-offs instead)"
+  },
+  "guardrails": [
+    "Trader mode never shows a conviction or direction claim without an evidence label and the resolved sample size.",
+    "Investor mode never shows a single-point return forecast; always a range, always labelled a scenario.",
+    "Both modes distinguish RESEARCH, PAPER and APPROVED. No engine is approved today; the ML directional ranker stays rejected.",
+    "Every recommendation is reproducible from its data snapshot, model version, risk profile and capital partition."
+  ]
+}

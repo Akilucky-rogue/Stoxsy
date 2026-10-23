@@ -5,7 +5,7 @@ for display), viewers cannot import, and nothing here can place or modify an ord
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional
 
 import pandas as pd
 import psycopg2.extras
@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from api.auth_deps import Principal, require_auth, require_role
 from api.routes import cockpit
 from qsde.db.connection import get_sync_conn, read_sql
+from qsde.modes import policy as mode_policy, profile as mode_profile
 from qsde.portfolio import analytics, holdings
 
 router = APIRouter()
@@ -24,7 +25,11 @@ DISCLAIMER = ("Research and decision support, not investment advice. P&L is unre
               "not your actual past value.")
 
 
+Pot = Literal["investment", "trading"]
+
+
 class ImportIn(BaseModel):
+    pot: Pot                      # required: every import belongs to exactly one capital pot; a position never changes pot after this
     csv_text: str = Field(min_length=1, max_length=1_200_000)
     filename: Optional[str] = Field(default=None, max_length=200)
     label: Optional[str] = Field(default=None, max_length=80)
@@ -43,6 +48,7 @@ class ImportOut(BaseModel):
     n_accepted: int
     n_rejected: int
     sha256: str
+    pot: str
     issues: list[Issue]
     replaced_previous: bool = False
 
@@ -54,6 +60,7 @@ class ImportRow(BaseModel):
     n_accepted: int
     n_rejected: int
     imported_at: str
+    pot: Optional[str] = None
 
 
 class HoldingRow(BaseModel):
@@ -72,6 +79,7 @@ class HoldingRow(BaseModel):
 
 class PortfolioSummary(BaseModel):
     import_id: int
+    pot: Optional[str] = None
     imported_at: str
     as_of: Optional[str]
     totals: dict
@@ -100,40 +108,73 @@ def import_holdings(body: ImportIn, p: Principal = Depends(require_role("admin",
         raise HTTPException(status_code=422, detail=str(e))
     with get_sync_conn() as c:
         cur = c.cursor()
-        cur.execute("SELECT count(*) FROM portfolio_imports WHERE user_id = %s", (p.id,))
+        cur.execute("SELECT count(*) FROM portfolio_imports WHERE user_id = %s AND pot = %s", (p.id, body.pot))
         had = cur.fetchone()["count"] > 0
-        cur.execute("INSERT INTO portfolio_imports (user_id, label, filename, sha256, n_rows_file, n_accepted, n_rejected, issues) "
-                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-                    (p.id, body.label, body.filename, parsed.sha256, parsed.n_rows, len(parsed.holdings), parsed.n_rejected, psycopg2.extras.Json(parsed.issues)))
+        cur.execute("INSERT INTO portfolio_imports (user_id, pot, label, filename, sha256, n_rows_file, n_accepted, n_rejected, issues) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+                    (p.id, body.pot, body.label, body.filename, parsed.sha256, parsed.n_rows, len(parsed.holdings), parsed.n_rejected, psycopg2.extras.Json(parsed.issues)))
         imp = cur.fetchone()["id"]
         psycopg2.extras.execute_values(cur, "INSERT INTO portfolio_holdings (import_id, symbol, isin, quantity, avg_cost) VALUES %s",
                                        [(imp, h["symbol"], h["isin"], h["quantity"], h["avg_cost"]) for h in parsed.holdings])
+        mode_profile.record(c, p.id, p.role, "portfolio.import", {"import_id": imp, "pot": body.pot, "accepted": len(parsed.holdings), "rejected": parsed.n_rejected, "sha256": parsed.sha256})
         if p.authenticated:
             from qsde.auth import service
             service.audit("portfolio.import", user_id=p.id, email=p.email, entity_type="portfolio_import", entity_id=imp,
                           payload={"accepted": len(parsed.holdings), "rejected": parsed.n_rejected, "sha256": parsed.sha256}, conn=c)
-    return ImportOut(import_id=imp, n_rows=parsed.n_rows, n_accepted=len(parsed.holdings), n_rejected=parsed.n_rejected, sha256=parsed.sha256,
+    return ImportOut(import_id=imp, n_rows=parsed.n_rows, n_accepted=len(parsed.holdings), n_rejected=parsed.n_rejected, sha256=parsed.sha256, pot=body.pot,
                      issues=[Issue(**i) for i in parsed.issues], replaced_previous=had)
 
 
 @router.get("/portfolio/imports", response_model=list[ImportRow])
 def list_imports(p: Principal = Depends(require_auth)):
-    d = read_sql("SELECT id, filename, label, n_accepted, n_rejected, imported_at FROM portfolio_imports WHERE user_id = :u ORDER BY imported_at DESC LIMIT 50", params={"u": p.id})
+    d = read_sql("SELECT id, filename, label, n_accepted, n_rejected, imported_at, pot FROM portfolio_imports WHERE user_id = :u ORDER BY imported_at DESC LIMIT 50", params={"u": p.id})
     return [ImportRow(id=int(r.id), filename=r.filename, label=r.label, n_accepted=int(r.n_accepted), n_rejected=int(r.n_rejected),
-                      imported_at=pd.Timestamp(r.imported_at).isoformat()) for r in d.itertuples()]
+                      imported_at=pd.Timestamp(r.imported_at).isoformat(),
+                      pot=None if pd.isna(r.pot) else str(r.pot)) for r in d.itertuples()]
+
+
+class AssignIn(BaseModel):
+    pot: Pot
+
+
+@router.post("/portfolio/imports/{import_id}/assign-pot")
+def assign_pot(import_id: int, body: AssignIn, p: Principal = Depends(require_role("admin", "trader"))):
+    """One-time assignment for an import that predates pots. After this the pot is immutable (database trigger); moving a position between
+    pots needs an explicit audited transfer, which is not offered."""
+    with get_sync_conn() as c:
+        cur = c.cursor()
+        cur.execute("SELECT pot FROM portfolio_imports WHERE id = %s AND user_id = %s FOR UPDATE", (import_id, p.id))
+        row = cur.fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="import not found")
+        if row["pot"] is not None:
+            raise HTTPException(status_code=409, detail=f"this import is already in the {row['pot']} pot and cannot be moved")
+        cur.execute("UPDATE portfolio_imports SET pot = %s WHERE id = %s", (body.pot, import_id))
+        mode_profile.record(c, p.id, p.role, "portfolio.assign_pot", {"import_id": import_id, "pot": body.pot})
+    return {"import_id": import_id, "pot": body.pot}
 
 
 @router.get("/portfolio/summary", response_model=PortfolioSummary)
-def portfolio_summary(import_id: Optional[int] = None, benchmark: str = Query("NIFTYBEES", pattern="^(NIFTYBEES|JUNIORBEES|BANKBEES|none)$"),
+def portfolio_summary(import_id: Optional[int] = None, pot: Optional[str] = Query(None, pattern="^(investment|trading|unassigned)$"),
+                      benchmark: str = Query("NIFTYBEES", pattern="^(NIFTYBEES|JUNIORBEES|BANKBEES|none)$"),
                       lookback_days: int = Query(365, ge=60, le=1825), p: Principal = Depends(require_auth)):
     from qsde.ml import data as mldata
 
     if import_id is None:
-        imp = read_sql("SELECT id, imported_at FROM portfolio_imports WHERE user_id = :u ORDER BY imported_at DESC LIMIT 1", params={"u": p.id})
+        if pot is None:                       # the lens: the pot that belongs to the current mode
+            with get_sync_conn() as c:
+                pot = mode_policy.pot_for_mode(mode_profile.load(c, p.id)["mode"])
+        cond = "pot IS NULL" if pot == "unassigned" else "pot = :pot"
+        imp = read_sql(f"SELECT id, imported_at, pot FROM portfolio_imports WHERE user_id = :u AND {cond} ORDER BY imported_at DESC LIMIT 1",
+                       params={"u": p.id, "pot": pot})
+        if imp.empty:
+            other = read_sql("SELECT pot, count(*) AS n FROM portfolio_imports WHERE user_id = :u GROUP BY pot", params={"u": p.id})
+            hint = "; ".join(f"{('unassigned' if pd.isna(r.pot) else r.pot)} pot has {int(r.n)} import(s)" for r in other.itertuples())
+            raise HTTPException(status_code=404, detail=f"no holdings imported yet in the {pot} pot" + (f" ({hint})" if hint else ""))
     else:
-        imp = read_sql("SELECT id, imported_at FROM portfolio_imports WHERE user_id = :u AND id = :i", params={"u": p.id, "i": import_id})
-    if imp.empty:
-        raise HTTPException(status_code=404, detail="no holdings imported yet" if import_id is None else "import not found")
+        imp = read_sql("SELECT id, imported_at, pot FROM portfolio_imports WHERE user_id = :u AND id = :i", params={"u": p.id, "i": import_id})
+        if imp.empty:
+            raise HTTPException(status_code=404, detail="import not found")
     iid = int(imp["id"].iloc[0])
     h = read_sql("SELECT symbol, quantity::float8 AS quantity, avg_cost::float8 AS avg_cost FROM portfolio_holdings WHERE import_id = :i", params={"i": iid})
     notes: list = []
@@ -170,6 +211,6 @@ def portfolio_summary(import_id: Optional[int] = None, benchmark: str = Query("N
                        value=None if pd.isna(r.value) else float(r.value), weight=None if pd.isna(r.weight) else float(r.weight),
                        pnl=None if pd.isna(r.pnl) else float(r.pnl), pnl_pct=None if pd.isna(r.pnl_pct) else float(r.pnl_pct), stale=bool(r.stale),
                        defensive_bucket=int(bucket[r.symbol]) if r.symbol in bucket else None) for r in df.itertuples()]
-    return PortfolioSummary(import_id=iid, imported_at=pd.Timestamp(imp["imported_at"].iloc[0]).isoformat(), as_of=str(pd.Timestamp(as_of).date()), totals=tot, holdings=rows,
+    return PortfolioSummary(import_id=iid, pot=None if pd.isna(imp["pot"].iloc[0]) else str(imp["pot"].iloc[0]), imported_at=pd.Timestamp(imp["imported_at"].iloc[0]).isoformat(), as_of=str(pd.Timestamp(as_of).date()), totals=tot, holdings=rows,
                             concentration=analytics.concentration(df.set_index("symbol")["weight"]), defensive=prof, history=hist,
                             benchmark_label=BENCHMARKS.get(benchmark), notes=notes)

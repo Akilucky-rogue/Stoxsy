@@ -2,20 +2,27 @@ import { useRef, useState } from "react";
 import { LineChart } from "../components/LineChart";
 import { BUCKET_LABEL, Chip, Empty, ErrorState, Evidence, PageHead, Segmented, Skeleton, Tile } from "../components/ui";
 import { dash, num, pct, shortDate, signedPct } from "../lib/format";
-import { useImportHoldings, usePortfolio } from "../lib/queries";
+import type { Pot } from "../lib/api";
+import { useImportHoldings, usePortfolio, useProfile } from "../lib/queries";
 
 const inr = (x: number | null | undefined) => (x == null ? dash : `₹${Math.round(x).toLocaleString("en-IN")}`);
 const sinr = (x: number) => `${x < 0 ? "-" : "+"}₹${Math.abs(Math.round(x)).toLocaleString("en-IN")}`;
 const LOOKBACKS = [{ value: 180, label: "6 months" }, { value: 365, label: "1 year" }, { value: 730, label: "2 years" }];
 const BENCH = [{ value: "NIFTYBEES", label: "Nifty 50" }, { value: "JUNIORBEES", label: "Next 50" }, { value: "BANKBEES", label: "Bank Nifty" }, { value: "none", label: "None" }];
 
+const POTS: { value: Pot; label: string }[] = [{ value: "investment", label: "Investment pot" }, { value: "trading", label: "Trading pot" }];
+
 export function Portfolio() {
+  const profile = useProfile();
+  const [potPick, setPotPick] = useState<Pot | null>(null);
+  const [importPot, setImportPot] = useState<Pot | "">("");
+  const pot: Pot | null = potPick ?? profile.data?.lens_pot ?? null;      // the lens follows the mode until you pick a pot yourself
   const [bench, setBench] = useState("NIFTYBEES");
   const [days, setDays] = useState(365);
   const [text, setText] = useState("");
   const [fname, setFname] = useState<string | undefined>();
   const fileRef = useRef<HTMLInputElement>(null);
-  const q = usePortfolio(bench, days);
+  const q = usePortfolio(pot, bench, days);
   const imp = useImportHoldings();
   const s = q.data;
   const h = s?.history;
@@ -26,22 +33,31 @@ export function Portfolio() {
     setFname(f.name);
     setText(await f.text());
   };
-  const submit = () => imp.mutate({ csv_text: text, filename: fname }, { onSuccess: () => { setText(""); setFname(undefined); if (fileRef.current) fileRef.current.value = ""; } });
+  const submit = () => importPot !== "" && imp.mutate({ pot: importPot, csv_text: text, filename: fname }, { onSuccess: () => { setText(""); setFname(undefined); if (fileRef.current) fileRef.current.value = ""; } });
 
   return (
     <>
-      <PageHead title="My portfolio" sub="Import your holdings to see allocation, concentration, P&L and how much the portfolio has fallen from its peak." right={<Evidence kind="diagnostic" />} />
+      <PageHead title="My portfolio" sub="Import your holdings to see allocation, concentration, P&L and how much the portfolio has fallen from its peak." right={<><Segmented label="Capital pot" value={pot ?? "investment"} onChange={setPotPick} options={POTS} /><Evidence kind="diagnostic" /></>} />
+      <div className="notice">Each import belongs to one pot, chosen once and never moved. {profile.data ? `You are in ${profile.data.mode === "trader" ? "Trader" : "Investor"} mode, which looks at the ${profile.data.lens_pot} pot by default; the buttons above let you view the other one.` : ""}</div>
       <div className="notice">
         Your holdings stay in your own account: they are visible only to you, nothing is sent anywhere, and nothing here can place an order. P&amp;L is unrealised and uses your file&apos;s average cost.
         The history is <strong>pro-forma</strong> (today&apos;s quantities held constant), not your actual past value.
       </div>
 
       <div className="card">
-        <header><h2>{s ? "Replace holdings" : "Import holdings"}</h2></header>
+        <header><h2>{s ? `Replace the ${pot} holdings` : "Import holdings"}</h2></header>
         <p className="muted" style={{ marginTop: 0, fontSize: "0.9rem" }}>
           CSV from Kite (<code>Instrument, Qty., Avg. cost</code>), Zerodha console (<code>Symbol, ISIN, Quantity Available, Average Price</code>) or a simple <code>symbol, quantity, avg_cost</code> file.
           NSE-listed equities and ETFs are supported; mutual funds, bonds and BSE-only names are reported and skipped.
         </p>
+        <div className="field">
+          <label htmlFor="ip">Which pot do these holdings belong to? (cannot be changed afterwards)</label>
+          <select id="ip" className="input" value={importPot} onChange={(e) => setImportPot(e.target.value as Pot | "")}>
+            <option value="">Choose a pot…</option>
+            <option value="investment">Investment pot: long-term money</option>
+            <option value="trading">Trading pot: money for trades</option>
+          </select>
+        </div>
         <div className="field">
           <label htmlFor="hf">Holdings file</label>
           <input id="hf" ref={fileRef} className="input" type="file" accept=".csv,text/csv,text/plain" onChange={(e) => void onFile(e.target.files?.[0])} />
@@ -50,7 +66,7 @@ export function Portfolio() {
           <label htmlFor="ht">…or paste CSV text</label>
           <textarea id="ht" className="input" rows={4} value={text} onChange={(e) => setText(e.target.value)} placeholder={"symbol,quantity,avg_cost\nTCS,10,3500"} style={{ fontFamily: "var(--font-mono)" }} />
         </div>
-        <button className="btn primary" disabled={!text.trim() || imp.isPending} onClick={submit}>{imp.isPending ? "Importing…" : "Import"}</button>
+        <button className="btn primary" disabled={!text.trim() || importPot === "" || imp.isPending} onClick={submit}>{imp.isPending ? "Importing…" : "Import"}</button>
         {imp.isError && <p role="alert" style={{ color: "var(--down)" }}>{imp.error instanceof Error ? imp.error.message : "Import failed"}</p>}
         {imp.data && (
           <div role="status" style={{ marginTop: 12 }}>
@@ -66,7 +82,7 @@ export function Portfolio() {
 
       {q.isLoading && <Skeleton rows={6} />}
       {q.isError && <ErrorState error={q.error} onRetry={() => q.refetch()} />}
-      {q.isSuccess && !s && <Empty>No holdings imported yet. Import a file above to see your portfolio.</Empty>}
+      {q.isSuccess && !s && <Empty>No holdings imported in the {pot} pot yet. Import a file above, or look at the other pot.</Empty>}
       {s && (
         <>
           <section className="grid tiles" aria-label="Portfolio summary">
@@ -109,7 +125,7 @@ export function Portfolio() {
           </div>
 
           <div className="card">
-            <header><h2>Holdings</h2><Chip>{`import #${s.import_id} · ${shortDate(s.imported_at)}`}</Chip></header>
+            <header><h2>Holdings</h2><Chip>{`${s.pot ?? "unassigned"} pot · import #${s.import_id} · ${shortDate(s.imported_at)}`}</Chip></header>
             <div className="table-wrap" style={{ maxHeight: 520 }}>
               <table>
                 <thead><tr><th>Symbol</th><th className="num">Qty</th><th className="num">Avg cost</th><th className="num">Last</th><th className="num">Value</th><th className="num">Weight</th><th className="num">P&amp;L</th><th>Defensive bucket</th></tr></thead>

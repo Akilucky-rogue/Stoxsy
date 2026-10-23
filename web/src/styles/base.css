@@ -51,6 +51,7 @@ button, input, select { font: inherit; color: inherit; }
 .grid { display: grid; gap: var(--gutter); }
 .grid.tiles { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
 .grid.two { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+.grid.three { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
 .tile { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); }
 .tile .label { font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
 .tile .value { font-size: 1.6rem; font-weight: 650; margin-top: 4px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }

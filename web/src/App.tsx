@@ -11,6 +11,7 @@ import { Defensive } from "./pages/Defensive";
 import { Funds } from "./pages/Funds";
 import { LiveCompare } from "./pages/LiveCompare";
 import { Portfolio } from "./pages/Portfolio";
+import { Profile } from "./pages/Profile";
 import { ReportView, Research } from "./pages/Research";
 import { System } from "./pages/System";
 
@@ -31,6 +32,7 @@ export default function App() {
       <Route path="/change-password" element={<ChangePassword />} />
       <Route element={<Guard><Shell /></Guard>}>
         <Route index element={<Dashboard />} />
+        <Route path="profile" element={<Profile />} />
         <Route path="portfolio" element={<Portfolio />} />
         <Route path="decision" element={<Decision />} />
         <Route path="defensive" element={<Defensive />} />
