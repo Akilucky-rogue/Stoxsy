@@ -58,6 +58,7 @@ dependencies = [
 
     # ── Broker / Live Data ──
     "kiteconnect>=5.0",
+    "websockets>=12.0",
 ]
 
 [project.optional-dependencies]

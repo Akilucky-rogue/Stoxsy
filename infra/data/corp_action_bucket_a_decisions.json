@@ -565,5 +565,13 @@
       "sha256": "b53dd5f2c69a1af4cb9ebca7e6f27af40e7374b0ed7f716f1c618157d4422fc8",
       "rule": "accept all packet recommendations, SONAMLTD held"
     }
-  ]
+  ],
+  "rebuild_policy": {
+    "decided_by": "owner",
+    "decided_at": "2026-10-23",
+    "option": "B",
+    "held": "keep_listed_factor_flagged_unreviewed",
+    "rejected": "remove_adjustment",
+    "note": "Held (needs_more_evidence) events keep the listed NSE factor in the rebuilt ohlcv, flagged applied-but-unreviewed (worst case price error about 10%, median about 6%) instead of showing a fake cliff (median 48%). Only the 4 rejected events lose their adjustment. The rebuild is still a single versioned run, prior series retained, and needs owner approval of the before/after report."
+  }
 }

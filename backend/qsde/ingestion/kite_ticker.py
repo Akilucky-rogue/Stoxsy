@@ -5,10 +5,9 @@ Connects to wss://ws.kite.trade using the active access_token, subscribes
 to a set of instrument tokens, and republishes each tick into the
 process-wide TickFanout for downstream consumers (aggregator, SSE, etc.).
 
-The kiteconnect SDK's KiteTicker uses Twisted under the hood. We run it
-in `threaded=True` mode so the FastAPI event loop is unaffected -- ticks
-arrive on a Twisted reactor thread and we just hand them to our own
-thread-safe fanout.
+Transport: `qsde.ingestion.kite_ws.KiteWebSocket` (the `websockets` library in a background thread). The SDK's own KiteTicker transport is refused by
+Kite's server on current Python (HTTP 400 on the upgrade), so only the transport was replaced; packets are parsed by the SDK's parser. Ticks arrive on the
+socket thread and are handed to our thread-safe fanout.
 
 Modes supported:
   * MODE_LTP   -- only last-traded-price. Cheapest.
@@ -30,6 +29,7 @@ from typing import Optional
 
 from qsde.config import settings
 from qsde.db.connection import read_sql
+from qsde.ingestion.kite_ws import KiteWebSocket
 from qsde.ingestion.tick_fanout import get_fanout
 
 log = logging.getLogger(__name__)
@@ -51,11 +51,6 @@ class KiteLiveStreamer:
         access_token: Optional[str] = None,
         mode: str = "quote",
     ) -> None:
-        try:
-            from kiteconnect import KiteTicker
-        except ImportError as e:
-            raise RuntimeError("kiteconnect SDK not installed.") from e
-
         if not settings.kite_api_key:
             raise RuntimeError("KITE_API_KEY not set.")
         if access_token is None:
@@ -65,14 +60,13 @@ class KiteLiveStreamer:
                 "No active Kite access_token in DB. Re-login via /api/kite/login_url."
             )
 
-        self._KiteTicker = KiteTicker
         # Use a mutable set under a lock so add_symbols() can race-safely
         # add tokens to a live socket.
         self._tokens_lock = threading.Lock()
         self._instrument_tokens: list[int] = list(instrument_tokens)
         self._connected = False  # flipped True in _on_connect
         self._mode_name = mode.lower()
-        self._kws = KiteTicker(settings.kite_api_key, access_token)
+        self._kws = KiteWebSocket(settings.kite_api_key, access_token)    # see kite_ws: the SDK transport is refused by Kite's server
         self._fanout = get_fanout()
         self._stop_event = threading.Event()
         # instrument_token -> tradingsymbol map, populated lazily.
@@ -189,7 +183,7 @@ class KiteLiveStreamer:
 
     def start(self) -> None:
         """Start the WS in a background Twisted reactor thread."""
-        log.info("Starting KiteTicker (threaded)...")
+        log.info("Starting Kite WebSocket (threaded)...")
         self._kws.connect(threaded=True)
 
     def stop(self) -> None:
