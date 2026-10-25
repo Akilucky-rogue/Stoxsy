@@ -143,7 +143,7 @@ def rule_bse_corporate_actions(facts: dict, cfg: dict) -> list:
     if b["files"] == 0:
         return [alert("bse_ca_source", "info", "No BSE corporate-action export has been ingested",
                       "BSE-only names stay out of the universe, the defensive signal and decision cards until BSE actions are ingested, reconciled and a BSE adjusted series is validated. "
-                      "BSE's API rejects automated clients: download the export from BSE's Corporate Actions page and save it in D:\Stoxsy\data\inbox\bse_corporate_actions, then run scripts/load_bse_corporate_actions.py --inbox.",
+                      "BSE's API rejects automated clients: download the export from BSE's Corporate Actions page and save it in the inbox folder data/inbox/bse_corporate_actions, then run scripts/load_bse_corporate_actions.py --inbox.",
                       "bse_ca:none", entity_type="source", entity_id="bse_corporate_actions")]
     return []
 
