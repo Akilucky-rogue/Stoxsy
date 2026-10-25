@@ -13,7 +13,7 @@ import argparse
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from qsde.config.paths import data_path
 
@@ -28,9 +28,12 @@ STEPS = [
     ("nse_corp_actions", False, "NSE corporate-action records", [PY, *STREAM, "--source", "corporate_actions"]),
     ("rebuild_ohlcv", True, "rebuild the official `ohlcv` series from raw prices and the applied events (no decision changes)",
      [PY, "-c", "import sys; sys.path.insert(0, r'" + str(HERE.parent) + "'); from qsde.ingestion import corp_actions as c; print(c.rebuild_from_db())"]),
+    ("universe", True, "rebuild the point-in-time universe (top 500 by 60-day traded value); the signal stops at the last date it covers, so a stale universe means a stale signal",
+     [PY, "-c", "import sys; sys.path.insert(0, r'" + str(HERE.parent) + "'); from qsde.universe import pit; print(pit.build_from_db())"]),
     ("intraday_reconcile", False, "reconcile today's streamed minute bars against Kite's historical minute bars (skips if nothing was streamed)", [PY, str(HERE / "reconcile_intraday.py")]),
     ("nse_deals", False, "NSE bulk and block deals (rolling files: only landing every day builds history)", [PY, *STREAM, "--source", "nse_deals"]),
-    ("nse_fo", False, "NSE F&O end-of-day archive", [PY, *STREAM, "--source", "nse_fo_bhavcopy"]),
+    ("nse_fo", False, "NSE F&O end-of-day archive (looks back 10 days, so a missed day is filled; already-landed sessions are skipped)",
+     [PY, *STREAM, "--source", "nse_fo_bhavcopy", "--backfill-from", str(date.today() - timedelta(days=10))]),
     ("bse_cash", False, "BSE end-of-day prices (raw only)", [PY, *STREAM, "--source", "bse_bhavcopy"]),
     ("amfi_nav", False, "AMFI NAVs (today's file)", [PY, *STREAM, "--source", "amfi_navall"]),
     ("signal", True, "defensive signal for the latest session", [PY, str(HERE / "defensive_eval.py"), "--latest"]),

@@ -144,6 +144,33 @@ def split_by_existing(prepared: pd.DataFrame, existing: dict[str, str]) -> tuple
     return prepared[~seen], int(seen.sum())
 
 
+STAMPS = ("prediction_time", "known_at")
+
+
+def restamped_hash(row: dict, stored: dict) -> str:
+    """The hash this row would have had if it had been stamped when the stored one was: only the two stamp times are swapped for the stored values."""
+    return content_hash({**row, **{k: stored[k] for k in STAMPS}})
+
+
+def _forgive_restamps(p: pd.DataFrame, existing: dict) -> pd.DataFrame:
+    """A same-day re-run of the logger stamps new times and so hashes differently, although the prediction itself is identical. Such rows are treated as identical re-logs (the FIRST stamp is
+    kept in the table); a row whose content really differs still reaches `split_by_existing` and is refused."""
+    mism = p[p["prediction_id"].isin(existing.keys()) & (p["prediction_id"].map(existing) != p["content_hash"])]
+    if mism.empty:
+        return p
+    from qsde.db.connection import read_sql
+
+    st = read_sql(f"SELECT prediction_id, {', '.join(HASHED)} FROM prediction_log WHERE prediction_id = ANY(:ids)", params={"ids": mism["prediction_id"].tolist()})
+    st["prediction_id"] = st["prediction_id"].str.strip()
+    stored = {r["prediction_id"]: r for r in st.to_dict("records")}
+    p = p.copy()
+    for i, r in mism.to_dict("index").items():
+        s = stored.get(r["prediction_id"])
+        if s is not None and restamped_hash(r, s) == existing[r["prediction_id"]]:
+            p.loc[i, "content_hash"] = existing[r["prediction_id"]]
+    return p
+
+
 # ── database ─────────────────────────────────────────────────────────
 
 def append_predictions(df: pd.DataFrame, now: Optional[pd.Timestamp] = None, enforce_pre_entry: bool = True) -> dict:
@@ -154,7 +181,9 @@ def append_predictions(df: pd.DataFrame, now: Optional[pd.Timestamp] = None, enf
     p = prepare(df, now=now, enforce_pre_entry=enforce_pre_entry)
     ex = read_sql("SELECT prediction_id, content_hash FROM prediction_log WHERE prediction_id = ANY(:ids)",
                   params={"ids": p["prediction_id"].tolist()})
-    new, dup = split_by_existing(p, dict(zip(ex["prediction_id"].str.strip(), ex["content_hash"].str.strip())))
+    existing = dict(zip(ex["prediction_id"].str.strip(), ex["content_hash"].str.strip()))
+    p = _forgive_restamps(p, existing)
+    new, dup = split_by_existing(p, existing)
     if len(new):
         cols = list(TABLE_COLS)
         sql = f"INSERT INTO prediction_log ({', '.join(cols)}) VALUES ({', '.join('%(' + c + ')s' for c in cols)}) ON CONFLICT DO NOTHING"
