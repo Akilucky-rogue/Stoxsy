@@ -257,7 +257,7 @@ def main() -> int:
     big.sort_values("change", key=abs, ascending=False).head(2000).to_csv(OUT / "nav_outliers.csv", index=False)
     zero_neg = int(read_sql("SELECT count(*) n FROM mf_nav WHERE nav <= 0").iloc[0]["n"])
     one_nav = int(read_sql("SELECT count(*) n FROM (SELECT scheme_code FROM mf_nav GROUP BY 1 HAVING count(*) = 1) t").iloc[0]["n"])
-    etf_off = pd.DataFrame(json.loads(Path(r"D:\Stoxsy\stoxsy\infra\data\non_equity_official_etf_v1.json").read_text())["instruments"])
+    etf_off = pd.DataFrame(json.loads(Path(__file__).resolve().parents[2] / "infra" / "data" / "non_equity_official_etf_v1.json".read_text())["instruments"])
     amfi_isins = set(sm["isin_growth_or_payout"].dropna()) | set(sm["isin_reinvest"].dropna())
     bse_funds = read_sql("SELECT scrip_code, isin FROM bse_listing_master WHERE instrument_type = 'fund_etf' AND isin IS NOT NULL")
     L += ["## 7. NAV sanity and cross-checks", "",

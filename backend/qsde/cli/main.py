@@ -10,6 +10,10 @@
     stoxsy alerts [run]                 open alerts, or re-evaluate them
     stoxsy backup [--out DIR]           compressed database dump (pg_dump)
     stoxsy restore --dump FILE --yes    restore a dump into the configured database (destructive: needs --yes)
+    stoxsy import holdings|tradebook|lots|mf --user U --account A [--file F | --inbox] [--dry-run] [--mapping-ok]   broker files; dry run first
+    stoxsy triage list|set|release --user U --account A   which pot each holding belongs to (set once, never assumed)
+    stoxsy restrict add|list|release --user U              your own restricted list (audited, nothing preset)
+    stoxsy lots --user U [--account A]                     tax lots with holding-period class and reconciliation status
 
 It operates the system; the web UI is where charts and decisions are read. Nothing here places an order.
 """
@@ -333,6 +337,9 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--dump", required=True)
     r.add_argument("--yes", action="store_true")
     r.set_defaults(fn=cmd_restore)
+    from qsde.cli import portfolio_cmds
+
+    portfolio_cmds.register(sub)
     return p
 
 

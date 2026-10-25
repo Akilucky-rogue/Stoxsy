@@ -268,7 +268,7 @@ export interface InvestorPlan {
 export interface TraderMeters {
   capital: number; open_risk: number; open_risk_pct: number; open_risk_limit_pct: number; daily_pnl: number; daily_pnl_pct: number; daily_loss_limit_pct: number; daily_limit_used: number;
   weekly_pnl: number; weekly_pnl_pct: number; weekly_loss_limit_pct: number; weekly_limit_used: number; positions: number; max_positions: number; size_multiplier: number;
-  size_multiplier_reasons: string[]; streak: { stops_in_row: number; reduced_trades_left: number }; invested: number; free_cash: number; unprotected?: string[];
+  size_multiplier_reasons: string[]; streak: { stops_in_row: number; reduced_trades_left: number }; invested: number; free_cash: number; unprotected?: string[]; untriaged?: string[];
 }
 export type BookAction = "SET_STOP_NOW" | "EXIT_STOP_BREACHED" | "EXIT_TIME_STOP" | "RAISE_STOP_TO_COST" | "HOLD_AS_PLANNED" | "NO_PRICE";
 export interface BookRow {
@@ -286,10 +286,26 @@ export interface TraderCandidate extends TraderDecision { symbol: string; breako
 export interface TraderOpen { symbol: string; qty: number; entry: number; stop: number; last: number; risk_rupees: number; unrealised: number }
 export interface TraderDesk {
   disclaimer: string; engine_approved: boolean; trading_capital: number | null; meters: TraderMeters; limits: Record<string, number>; open: TraderOpen[]; mode: string | null;
-  candidates: TraderCandidate[]; needs: string[]; headline: string; book: BookRow[]; unprotected: string[];
+  candidates: TraderCandidate[]; needs: string[]; headline: string; book: BookRow[]; unprotected: string[]; untriaged?: string[];
 }
 export interface TraderIdea {
   id: number; created_at: string; symbol: string; setup: string; horizon_id: string; evidence: string; entry: number; stop: number; target: number | null; qty: number; risk_rupees: number;
   time_stop: string; status: "open" | "closed"; opened_at: string; closed_at: string | null; exit_price: number | null; exit_reason: string | null; pnl_rupees: number | null; r_multiple: number | null; notes: string | null;
 }
 export interface TraderPerformance { n_closed: number; hit_rate?: number; expectancy_r?: number; median_r?: number; total_pnl_rupees?: number; by_exit?: Record<string, number>; min_for_judgement: number; note: string; disclaimer: string }
+
+// ── Tax lots and per-security pot triage ───────────────────────────
+export type TaxClass = "SHORT_TERM" | "NEAR_LONG_TERM" | "LONG_TERM" | "UNKNOWN_DATE" | "NOT_CLASSIFIED";
+export interface TaxLot {
+  account: string; asset: "equity" | "mf"; symbol: string | null; isin: string | null; folio: string | null; scheme_name: string | null; plan_type: string | null; option_type: string | null;
+  pot: "investment" | "trading" | null; buy_date: string | null; quantity: number; unit_cost: number | null; last_price: number | null; price_date: string | null; value: number | null;
+  unrealised: number | null; unrealised_pct: number | null; tax_class: TaxClass; long_term_from: string | null; days_to_long_term: number | null; tax_reason: string;
+  status: string; status_text: string; origin: string; date_basis: string; note: string | null;
+}
+export interface LotSecurity { account: string; asset: string; symbol: string | null; isin: string | null; folio?: string | null; status: string; source: string | null; gap_qty: number | null; notes: string[]; n_lots: number }
+export interface LotReport {
+  as_of: string; policy: { version: string; status: string; not_computed: string[]; not_classified: string[] }; accounts: { account: string; computed_at: string }[];
+  lots: TaxLot[]; securities: LotSecurity[]; classes: Record<string, number>; statuses: Record<string, number>; near_long_term: TaxLot[]; notes: string[];
+}
+export interface TriageHolding { symbol: string; quantity: number; avg_cost: number; pot: "investment" | "trading" | null }
+export interface TriageList { accounts: { account: string; holdings: TriageHolding[] }[]; unassigned: string[]; rule: string }

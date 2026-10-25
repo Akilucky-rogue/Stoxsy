@@ -9,6 +9,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from qsde.config.paths import data_path
 from qsde.stream.adapters import nse
 from qsde.stream.adapters.nse import (HttpError, HttpFetcher, NseBhavcopyAdapter, NseCorporateActionsAdapter,
                                       NseSymbolChangeAdapter)
@@ -152,7 +153,7 @@ class TestCorporateActions:
 
 
 class TestSymbolChanges:
-    FULL = Path(r"D:\Stoxsy\data\nse\symbolchange.csv")
+    FULL = data_path("nse", "symbolchange.csv")
 
     def test_short_file_is_rejected_as_a_broken_fetch(self):
         a = NseSymbolChangeAdapter(FakeFetcher({}), now=lambda: NOW)

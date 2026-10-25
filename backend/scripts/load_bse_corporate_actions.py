@@ -1,6 +1,6 @@
 """Ingest a BSE Corporate Actions export (downloaded by the owner from BSE's Corporate Actions page) with the evidence-first pipeline. Applies NOTHING.
 
-    python scripts/load_bse_corporate_actions.py --inbox            # every new file in D:\\Stoxsy\\data\\inbox\\bse_corporate_actions
+    python scripts/load_bse_corporate_actions.py --inbox            # every new file in <data>/inbox/bse_corporate_actions
     python scripts/load_bse_corporate_actions.py --file export.csv  # one file
     python scripts/load_bse_corporate_actions.py --reconcile-only   # re-run the reconciliation over what is already loaded
 Steps per file: land the raw bytes (SHA-256, retrieval time, known_at) -> parse and validate (bad rows are reported, never dropped silently) -> insert actions (idempotent on a content hash)

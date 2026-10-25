@@ -16,7 +16,7 @@ from api.auth_deps import Principal, require_auth, require_role
 from api.routes import cockpit
 from qsde.db.connection import get_sync_conn, read_sql
 from qsde.modes import policy as pol, profile as prof
-from qsde.trader import risk as R, setups, store
+from qsde.trader import restricted as restricted_list, risk as R, setups, store
 
 router = APIRouter()
 HORIZONS = ("swing_5d", "position_20d")
@@ -68,7 +68,7 @@ def desk(limit: int = 8, p: Principal = Depends(require_auth)):
     st, _ = store.build_state(read_sql, p.id, cap, now)
     out = {"disclaimer": DISCLAIMER, "engine_approved": pol.engine_approved(), "trading_capital": cap or None, "meters": R.meters(st, l), "limits": l.__dict__,
            "open": [{"symbol": o.symbol, "qty": o.qty, "entry": o.entry, "stop": o.stop, "last": o.last_price, "risk_rupees": o.risk_rupees, "unrealised": o.qty * (o.last_price - o.entry)} for o in st.open_positions],
-           "mode": pr.get("mode"), "candidates": [], "needs": [], "book": st.book, "unprotected": sorted(st.unprotected)}
+           "mode": pr.get("mode"), "candidates": [], "needs": [], "book": st.book, "unprotected": sorted(st.unprotected), "untriaged": sorted(st.untriaged)}
     if not cap:
         out["needs"].append("trading_capital")
         out["headline"] = "Set your trading pot on the Profile page to see sized ideas: nothing is assumed."
@@ -79,6 +79,10 @@ def desk(limit: int = 8, p: Principal = Depends(require_auth)):
         out["candidates"].append({"symbol": r.symbol, "breakout_pct": r.breakout_pct, "volume_x_median": r.volume_x_median, "risk_bucket": None if "risk_bucket" not in c.columns or pd.isna(r.risk_bucket) else int(r.risk_bucket),
                                   "allowed": d["allowed"], "card": d["card"], "reasons": d["reasons"], "notes": d["notes"]})
     n_ok = sum(1 for x in out["candidates"] if x["allowed"])
+    if st.untriaged:
+        out["headline"] = (f"Existing book first: {len(st.untriaged)} holding(s) are not assigned to a pot yet ({', '.join(sorted(st.untriaged))}). "
+                           "New ideas stay locked until each is assigned to the investment or trading pot.")
+        return out
     if st.unprotected:
         out["headline"] = (f"Existing book first: {len(st.unprotected)} imported trading-pot position(s) have no stop ({', '.join(sorted(st.unprotected))}). "
                            "New ideas stay locked until each has one.")
@@ -103,56 +107,41 @@ def set_stop(symbol: str, b: TriageIn, p: Principal = Depends(require_role("admi
     from qsde.trader import legacy
 
     sym = symbol.upper()
-    imp = legacy.latest_trading_import(read_sql, p.id)
-    if imp is None:
+    imps = legacy.latest_trading_imports(read_sql, p.id)
+    if not imps:
         raise HTTPException(status_code=404, detail="no trading-pot import: import holdings into the trading pot first")
-    h = read_sql("SELECT 1 FROM portfolio_holdings WHERE import_id = :i AND symbol = :s", params={"i": imp, "s": sym})
+    h = read_sql("SELECT import_id FROM portfolio_holdings WHERE import_id = ANY(:i) AND symbol = :s", params={"i": imps, "s": sym})
     if h.empty:
         raise HTTPException(status_code=404, detail=f"{sym} is not in your latest trading-pot import")
+    holding_imports = [int(x) for x in h["import_id"]]
     with get_sync_conn() as c:
-        c.cursor().execute("INSERT INTO legacy_triage (import_id, symbol, user_id, stop_price, horizon_id, set_by_role) VALUES (%s,%s,%s,%s,%s,%s) "
-                           "ON CONFLICT (import_id, symbol) DO UPDATE SET stop_price = EXCLUDED.stop_price, horizon_id = EXCLUDED.horizon_id, set_by_role = EXCLUDED.set_by_role, set_at = NOW()",
-                           (imp, sym, p.id, b.stop_price, b.horizon_id, p.role))
-        prof.record(c, p.id, p.role, "trader.triage", {"symbol": sym, "import_id": imp, "stop_price": b.stop_price, "horizon_id": b.horizon_id})
+        for imp in holding_imports:                                   # the same symbol held in two broker accounts gets the one stop in both
+            c.cursor().execute("INSERT INTO legacy_triage (import_id, symbol, user_id, stop_price, horizon_id, set_by_role) VALUES (%s,%s,%s,%s,%s,%s) "
+                               "ON CONFLICT (import_id, symbol) DO UPDATE SET stop_price = EXCLUDED.stop_price, horizon_id = EXCLUDED.horizon_id, set_by_role = EXCLUDED.set_by_role, set_at = NOW()",
+                               (imp, sym, p.id, b.stop_price, b.horizon_id, p.role))
+            prof.record(c, p.id, p.role, "trader.triage", {"symbol": sym, "import_id": imp, "stop_price": b.stop_price, "horizon_id": b.horizon_id})
     return {"symbol": sym, "stop_price": b.stop_price}
 
 
 @router.get("/trader/restricted")
 def restricted(p: Principal = Depends(require_auth)):
-    d = read_sql("SELECT id, symbol, reason, restricted_until, added_by_role, added_at, released_at FROM compliance_restricted_list WHERE user_id = :u ORDER BY added_at DESC", params={"u": p.id})
-    today = date.today()
-    out = []
-    for r in d.to_dict("records"):
-        until = None if pd.isna(r["restricted_until"]) else r["restricted_until"]
-        released = not pd.isna(r["released_at"])
-        out.append({"id": int(r["id"]), "symbol": r["symbol"], "reason": r["reason"], "restricted_until": None if until is None else str(until), "added_at": r["added_at"].isoformat(),
-                    "released_at": r["released_at"].isoformat() if released else None, "active": (not released) and (until is None or until >= today)})
-    return {"entries": out, "note": "Your own list: nothing is preset. Which securities are restricted, and until when, is for you and your compliance officer to decide."}
+    return {"entries": restricted_list.list_entries(read_sql, p.id),
+            "note": "Your own list: nothing is preset. Which securities are restricted, and until when, is for you and your compliance officer to decide."}
 
 
 @router.post("/trader/restricted")
 def add_restricted(b: RestrictIn, p: Principal = Depends(require_role("admin", "trader"))):
-    sym = b.symbol.upper()
     with get_sync_conn() as c:
-        cur = c.cursor()
-        cur.execute("INSERT INTO compliance_restricted_list (user_id, symbol, reason, restricted_until, added_by_role) VALUES (%s,%s,%s,%s,%s) RETURNING id", (p.id, sym, b.reason.strip(), b.restricted_until, p.role))
-        rid = cur.fetchone()["id"]
-        prof.record(c, p.id, p.role, "trader.restricted.add", {"symbol": sym, "reason": b.reason.strip(), "until": None if b.restricted_until is None else str(b.restricted_until)})
-    return {"id": rid, "symbol": sym}
+        return restricted_list.add(c, p.id, p.role, b.symbol, b.reason, b.restricted_until)
 
 
 @router.delete("/trader/restricted/{symbol}")
 def release_restricted(symbol: str, p: Principal = Depends(require_role("admin", "trader"))):
-    sym = symbol.upper()
-    with get_sync_conn() as c:
-        cur = c.cursor()
-        cur.execute("UPDATE compliance_restricted_list SET released_at = NOW() WHERE user_id = %s AND symbol = %s AND released_at IS NULL", (p.id, sym))
-        n = cur.rowcount
-        if n:
-            prof.record(c, p.id, p.role, "trader.restricted.release", {"symbol": sym, "entries": n})
-    if not n:
-        raise HTTPException(status_code=404, detail=f"{sym} has no active restriction")
-    return {"symbol": sym, "released": n}
+    try:
+        with get_sync_conn() as c:
+            return restricted_list.release(c, p.id, p.role, symbol)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.post("/trader/propose")

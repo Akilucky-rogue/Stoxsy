@@ -49,23 +49,34 @@ def manage(*, entry: float, stop: Optional[float], last: float, time_stop: Optio
     return {"action": "HOLD_AS_PLANNED", "why": "inside its stop, before its time stop"}
 
 
-def latest_trading_import(read_sql, user_id: str) -> Optional[int]:
-    d = read_sql("SELECT id FROM portfolio_imports WHERE user_id = :u AND pot = 'trading' ORDER BY imported_at DESC LIMIT 1", params={"u": user_id})
-    return None if d.empty else int(d["id"].iloc[0])
+def latest_trading_imports(read_sql, user_id: str) -> list:
+    """The latest trading-pot import of each broker account (an import without an account label counts as its own group): two accounts both count, a newer import replaces only its own account's older one."""
+    d = read_sql("SELECT DISTINCT ON (coalesce(broker_account, '')) id FROM portfolio_imports WHERE user_id = :u AND pot = 'trading' "
+                 "ORDER BY coalesce(broker_account, ''), imported_at DESC, id DESC", params={"u": user_id})
+    return [int(x) for x in d["id"]]
+
+
+def untriaged(read_sql, user_id: str) -> list:
+    """Symbols held in a broker account's latest snapshot that the owner has not yet assigned to the investment or trading pot. They are not in either pot, so nothing can say how they are managed:
+    new ideas stay locked until each is assigned."""
+    d = read_sql("WITH latest AS (SELECT DISTINCT ON (broker_account) id FROM portfolio_imports WHERE user_id = :u AND broker_account IS NOT NULL AND pot IS NULL "
+                 "ORDER BY broker_account, imported_at DESC, id DESC) SELECT DISTINCT h.symbol FROM portfolio_holdings h JOIN latest l ON l.id = h.import_id ORDER BY 1", params={"u": user_id})
+    return d["symbol"].tolist()
 
 
 def positions(read_sql, user_id: str, load_prices, since: date, gap_fraction=None) -> list:
-    """One dict per holding of the latest trading-pot import: quantity, average cost, last and previous close, recorded stop (or the emergency stop it is counted at), risk, protection, command."""
-    imp = latest_trading_import(read_sql, user_id)
-    if imp is None:
+    """One dict per holding of the latest trading-pot import(s): quantity, average cost, last and previous close, recorded stop (or the emergency stop it is counted at), risk, protection, command."""
+    imps = latest_trading_imports(read_sql, user_id)
+    if not imps:
         return []
-    h = read_sql("SELECT h.symbol, h.quantity::float8 AS qty, h.avg_cost::float8 AS avg_cost, t.stop_price::float8 AS stop, t.horizon_id FROM portfolio_holdings h "
-                 "LEFT JOIN legacy_triage t ON t.import_id = h.import_id AND t.symbol = h.symbol WHERE h.import_id = :i ORDER BY h.symbol", params={"i": imp})
+    h = read_sql("SELECT h.import_id, h.symbol, h.quantity::float8 AS qty, h.avg_cost::float8 AS avg_cost, t.stop_price::float8 AS stop, t.horizon_id FROM portfolio_holdings h "
+                 "LEFT JOIN legacy_triage t ON t.import_id = h.import_id AND t.symbol = h.symbol WHERE h.import_id = ANY(:i) ORDER BY h.symbol, h.import_id", params={"i": imps})
     if h.empty:
         return []
-    px = load_prices(read_sql, h["symbol"].tolist(), since)
+    px = load_prices(read_sql, h["symbol"].unique().tolist(), since)
     out = []
     for r in h.itertuples():
+        imp = int(r.import_id)
         s = px[px["symbol"] == r.symbol]
         if s.empty:
             out.append({"import_id": imp, "symbol": r.symbol, "qty": r.qty, "avg_cost": r.avg_cost, "last": None, "prev_close": None, "stop": r.stop, "emergency_stop": None, "counted_stop": None,

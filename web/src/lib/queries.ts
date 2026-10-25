@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, del, patch, post, put, ApiError, type Balance, type Goal, type GoalIn, type InvestorPlan, type ModeAuditRow, type Pot, type Profile, type ProfilePut, type ImportResult, type PortfolioSummary, type AdminUser, type DecisionBook, type AlertList, type AlertSummary, type LiveModels, type LiveSummary, type LivePredictionList, type FundList, type FundFacets, type FundDetail, type AuditRow, type DefensiveLatest, type ReportBody, type ReportItem, type SystemStatus, type TraderCard, type TraderDesk, type TraderIdea, type TraderPerformance } from "./api";
+import { api, del, patch, post, put, ApiError, type Balance, type Goal, type GoalIn, type InvestorPlan, type ModeAuditRow, type Pot, type Profile, type ProfilePut, type ImportResult, type PortfolioSummary, type AdminUser, type DecisionBook, type AlertList, type AlertSummary, type LiveModels, type LiveSummary, type LivePredictionList, type FundList, type FundFacets, type FundDetail, type AuditRow, type DefensiveLatest, type ReportBody, type ReportItem, type SystemStatus, type TraderCard, type TraderDesk, type TraderIdea, type TraderPerformance, type LotReport, type TriageList } from "./api";
 
 const stale = 60_000;
 
@@ -133,4 +133,14 @@ export const useCloseIdea = () => {
 export const useSetStop = () => {
   const qc = useQueryClient();
   return useMutation({ mutationFn: (x: { symbol: string; stop_price: number }) => put<{ symbol: string; stop_price: number }>(`/api/trader/triage/${encodeURIComponent(x.symbol)}`, { stop_price: x.stop_price }), onSuccess: () => invalidateTrader(qc) });
+};
+
+export const useLots = () => useQuery({ queryKey: ["lots"], queryFn: () => api<LotReport>("/api/portfolio/lots"), staleTime: stale, retry: false });
+export const useTriage = () => useQuery({ queryKey: ["triage"], queryFn: () => api<TriageList>("/api/portfolio/triage"), staleTime: stale, retry: false });
+export const useSetTriage = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (x: { account: string; assignments: Record<string, "investment" | "trading"> }) => put<{ assigned: Record<string, string> }>("/api/portfolio/triage", x),
+    onSuccess: () => { for (const k of ["lots", "triage", "trader", "portfolio", "plan"]) qc.invalidateQueries({ queryKey: [k] }); },
+  });
 };

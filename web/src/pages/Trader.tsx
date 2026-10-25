@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { Chip, Empty, ErrorState, Evidence, PageHead, Skeleton, Tile, type Tone } from "../components/ui";
 import type { BookAction, BookRow, TraderCandidate, TraderIdea, TraderMeters, TraderOpen } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -173,6 +174,11 @@ export function Trader() {
         <>
           <div className="card" role="note"><strong>{d.headline}</strong>{d.mode !== "trader" && <span className="muted"> You are looking at the trader desk in {d.mode ?? "no"} mode: mode is only a lens, the trading pot is still the only money used here.</span>}
             <div className="muted" style={{ fontSize: "0.86rem", marginTop: 4 }}>{d.disclaimer}</div></div>
+          {(d.untriaged?.length ?? 0) > 0 && (
+            <div className="card" role="alert" style={{ borderColor: "var(--warn)" }}>
+              <strong>{d.untriaged!.length} holding{d.untriaged!.length === 1 ? " is" : "s are"} not assigned to a pot ({d.untriaged!.join(", ")}).</strong> New ideas stay locked until each is assigned to the investment or trading pot.{" "}
+              <Link to="/lots">Assign them on the Tax lots page</Link>.
+            </div>)}
           <h2>Your limits today</h2>
           <Meters m={d.meters} />
           {d.meters.size_multiplier < 1 && <div className="card" role="alert" style={{ marginTop: 12 }}><strong>Sizes are reduced ({d.meters.size_multiplier}x):</strong> {d.meters.size_multiplier_reasons.join("; ")}.</div>}

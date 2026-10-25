@@ -106,8 +106,9 @@ def build_state(read_sql, user_id: str, capital: float, now: Optional[pd.Timesta
     for g in legacy:
         if not g["protected"]:
             unprotected.append(g["symbol"])
+    untriaged = LG.untriaged(read_sql, user_id)
     st = R.State(capital=float(capital or 0.0), open_positions=opens, realised_today=realised_today, realised_week=realised_week, week_start_value_change=wk_change, trades=trades,
-                 previous_week_pnl=prev_week_realised + prev_wk_unreal, price_sessions_behind=sessions_behind(read_sql, now), unprotected=unprotected, restricted=restricted, book=book)
+                 previous_week_pnl=prev_week_realised + prev_wk_unreal, price_sessions_behind=sessions_behind(read_sql, now), unprotected=unprotected, untriaged=untriaged, restricted=restricted, book=book)
     return st, px
 
 

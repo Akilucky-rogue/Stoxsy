@@ -16,7 +16,7 @@ from api.auth_deps import Principal, require_auth, require_role
 from api.routes import cockpit
 from qsde.db.connection import get_sync_conn, read_sql
 from qsde.modes import policy as mode_policy, profile as mode_profile
-from qsde.portfolio import analytics, holdings
+from qsde.portfolio import analytics, holdings, lot_report, lot_store
 
 router = APIRouter()
 BENCHMARKS = {"NIFTYBEES": "Nifty 50 ETF (price return; a tradable proxy for the index)", "JUNIORBEES": "Nifty Next 50 ETF (price return, proxy)",
@@ -180,6 +180,8 @@ def portfolio_summary(import_id: Optional[int] = None, pot: Optional[str] = Quer
             raise HTTPException(status_code=404, detail="import not found")
     iid = int(imp["id"].iloc[0])
     h = read_sql("SELECT symbol, quantity::float8 AS quantity, avg_cost::float8 AS avg_cost FROM portfolio_holdings WHERE import_id = :i", params={"i": iid})
+    if h.empty:
+        raise HTTPException(status_code=404, detail="the latest import for this pot holds nothing (every position was sold or assigned to the other pot)")
     notes: list = []
     start = str((pd.Timestamp.today() - pd.Timedelta(days=lookback_days + 30)).date())
     syms = h["symbol"].tolist() + ([] if benchmark == "none" else [benchmark])
@@ -217,3 +219,56 @@ def portfolio_summary(import_id: Optional[int] = None, pot: Optional[str] = Quer
     return PortfolioSummary(import_id=iid, pot=None if pd.isna(imp["pot"].iloc[0]) else str(imp["pot"].iloc[0]), imported_at=pd.Timestamp(imp["imported_at"].iloc[0]).isoformat(), as_of=str(pd.Timestamp(as_of).date()), totals=tot, holdings=rows,
                             concentration=analytics.concentration(df.set_index("symbol")["weight"]), defensive=prof, history=hist,
                             benchmark_label=BENCHMARKS.get(benchmark), notes=notes)
+
+
+# ── broker accounts: tax lots and per-security pot triage ───────────────────────────────────────────────────────────────────────────────────────────────
+# Files are brought in with the `stoxsy import` command (they carry client details that should not pass through a browser); the web app reads the result and records the pot decisions.
+
+class TriageSet(BaseModel):
+    account: str = Field(min_length=2, max_length=40)
+    assignments: dict[str, Pot]            # symbol -> pot; each is set once and can never change while the position is held
+
+
+@router.get("/portfolio/lots")
+def tax_lots(account: Optional[str] = Query(None, max_length=40), p: Principal = Depends(require_auth)):
+    """Open tax lots from the latest rebuild of each broker account: pot, holding-period class, date it turns long-term, unrealised gain, reconciliation status. No tax amount is computed."""
+    return lot_report.build(read_sql, p.id, account.strip().lower() if account else None)
+
+
+@router.get("/portfolio/triage")
+def triage_list(account: Optional[str] = Query(None, max_length=40), p: Principal = Depends(require_auth)):
+    """Holdings of each broker account's latest snapshot with the pot the owner assigned, or none yet. New trade ideas stay locked while any holding is unassigned."""
+    accts = [account.strip().lower()] if account else [r.broker_account for r in read_sql("SELECT DISTINCT broker_account FROM lot_loads WHERE user_id = :u AND kind = 'holdings' ORDER BY 1", params={"u": p.id}).itertuples()]
+    out = []
+    with get_sync_conn() as c:
+        cur = c.cursor()
+        for a in accts:
+            got = lot_store.latest_holdings(cur, p.id, a)
+            if got is None:
+                continue
+            pots = lot_store.active_pots(cur, p.id, a)
+            out.append({"account": a, "holdings": [{"symbol": s, "quantity": h["quantity"], "avg_cost": h["avg_cost"], "pot": pots.get(s)} for s, h in sorted(got[1].items())]})
+    pending = sorted({h["symbol"] for a in out for h in a["holdings"] if h["pot"] is None})
+    return {"accounts": out, "unassigned": pending,
+            "rule": "Every holding belongs to the investment pot or the trading pot, and a holding never changes pot while you hold it. New trade ideas stay locked until all are assigned."}
+
+
+@router.put("/portfolio/triage")
+def triage_set(b: TriageSet, p: Principal = Depends(require_role("admin", "trader"))):
+    account = b.account.strip().lower()
+    wanted = {k.strip().upper(): v for k, v in b.assignments.items()}
+    try:
+        with get_sync_conn() as c:
+            cur = c.cursor()
+            got = lot_store.latest_holdings(cur, p.id, account)
+            if got is None:
+                raise HTTPException(status_code=404, detail=f"no holdings snapshot for {account}: import a holdings file first")
+            unknown = sorted(set(wanted) - set(got[1]))
+            if unknown:
+                raise HTTPException(status_code=422, detail="not in the latest snapshot: " + ", ".join(unknown))
+            r = lot_store.set_triage(cur, p.id, p.role, account, wanted)
+            made = lot_store.materialize_pots(cur, p.id, p.role, account)
+            lot_store.rebuild_lots(cur, p.id, account)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return {**r, "pots": made}

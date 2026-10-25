@@ -25,6 +25,8 @@ dependencies = [
     "numpy>=1.26",
     "yfinance>=0.2.40",
     "pyarrow>=16.0",
+    "openpyxl>=3.1",  # broker back-office reports come as .xlsx
+    "python-dateutil>=2.9",  # calendar-month holding periods (relativedelta)
 
     # ── Database ──
     "psycopg2-binary>=2.9",

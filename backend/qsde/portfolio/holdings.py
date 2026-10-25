@@ -17,7 +17,7 @@ MAX_BYTES = 1_000_000
 MAX_ROWS = 2000
 
 SYMBOL_COLS = ["instrument", "symbol", "tradingsymbol", "scripname", "scrip", "stock", "security", "securityname"]
-QTY_COLS = ["qty", "quantity", "shares", "holdingqty", "totalqty", "quantityavailable"]
+QTY_COLS = ["qty", "quantity", "shares", "holdingqty", "totalqty", "quantityavailable", "holdingquantity", "netqty", "netquantity", "currentqty", "balanceqty", "quantityfreepledged"]
 COST_COLS = ["avgcost", "averageprice", "avgprice", "buyaverage", "averagecost", "avgcostprice", "buyprice", "avgbuyprice", "averagebuyprice"]
 ISIN_COLS = ["isin"]
 SUFFIX = re.compile(r"-(?:BE|EQ|BZ|SM|ST|N1|N2|IL)$")
@@ -58,18 +58,21 @@ def _pick(norm_headers: dict, candidates: list) -> Optional[str]:
     return None
 
 
-def parse_holdings(text: str, known_symbols: set, isin_to_symbol: Optional[dict] = None, renamed: Optional[dict] = None) -> Parsed:
-    """known_symbols: NSE symbols with price history. isin_to_symbol: fallback resolution. renamed: {old_symbol: new_symbol}."""
+def parse_holdings(text: str, known_symbols: set, isin_to_symbol: Optional[dict] = None, renamed: Optional[dict] = None, delimiter: Optional[str] = None) -> Parsed:
+    """known_symbols: NSE symbols with price history. isin_to_symbol: fallback resolution. renamed: {old_symbol: new_symbol}. delimiter: skip sniffing (text already normalised)."""
     out = Parsed()
     raw = text.encode("utf-8", errors="replace")
     out.sha256 = hashlib.sha256(raw).hexdigest()
     if len(raw) > MAX_BYTES:
         raise ValueError(f"file is larger than {MAX_BYTES // 1000} KB")
     text = text.lstrip("﻿")
-    try:
-        dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t")
-    except csv.Error:
-        dialect = csv.excel
+    if delimiter:
+        dialect = type("FixedDelimiter", (csv.excel,), {"delimiter": delimiter})
+    else:
+        try:
+            dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t")
+        except csv.Error:
+            dialect = csv.excel
     rows = list(csv.reader(io.StringIO(text), dialect))
     rows = [r for r in rows if any(c.strip() for c in r)]
     if len(rows) < 2:

@@ -10,6 +10,7 @@ import { Decision } from "./pages/Decision";
 import { Defensive } from "./pages/Defensive";
 import { Funds } from "./pages/Funds";
 import { LiveCompare } from "./pages/LiveCompare";
+import { Lots } from "./pages/Lots";
 import { Plan } from "./pages/Plan";
 import { Portfolio } from "./pages/Portfolio";
 import { Profile } from "./pages/Profile";
@@ -38,6 +39,7 @@ export default function App() {
         <Route path="trader" element={<Trader />} />
         <Route path="profile" element={<Profile />} />
         <Route path="portfolio" element={<Portfolio />} />
+        <Route path="lots" element={<Lots />} />
         <Route path="decision" element={<Decision />} />
         <Route path="defensive" element={<Defensive />} />
         <Route path="alerts" element={<Alerts />} />
