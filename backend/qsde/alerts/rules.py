@@ -206,6 +206,15 @@ def rule_kite(facts: dict, cfg: dict) -> list:
     return []
 
 
+def rule_calendar(facts: dict, cfg: dict) -> list:
+    c = facts.get("calendar")
+    if not c or c["state"] == "ok":
+        return []
+    sev = "critical" if c["state"] in ("missing", "expired") else "warning"
+    return [alert("exchange_calendar", sev, "Exchange holiday calendar needs attention", c["message"] + ". Time stops and expiry dates are exact only inside the loaded list; past it they assume weekday sessions.",
+                  "calendar:horizon", entity_type="calendar", entity_id="nse", payload=c)]
+
+
 def rule_portfolio(facts: dict, cfg: dict) -> list:
     p, c = facts.get("portfolio"), cfg["portfolio"]
     if not p:
@@ -338,5 +347,5 @@ def rule_ops(facts: dict, cfg: dict) -> list:
     return out
 
 
-GLOBAL_RULES = (rule_data_staleness, rule_source_health, rule_corporate_actions, rule_price_series, rule_bucket_a, rule_bse_corporate_actions, rule_models, rule_kite, rule_ops)
+GLOBAL_RULES = (rule_data_staleness, rule_source_health, rule_corporate_actions, rule_price_series, rule_bucket_a, rule_bse_corporate_actions, rule_models, rule_kite, rule_ops, rule_calendar)
 USER_RULES = (rule_portfolio, rule_trader)

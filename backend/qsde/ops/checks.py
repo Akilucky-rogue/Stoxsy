@@ -118,6 +118,13 @@ def check_kite() -> Check:
     return Check("fail" if left <= 0 else "warn" if left < 2 else "ok", "Kite session", f"token valid for {left:.1f} h" if left > 0 else "token expired: log in again")
 
 
+def check_calendar() -> Check:
+    from qsde import exchange_calendar
+
+    st = exchange_calendar.load().status(pd.Timestamp.now(tz="Asia/Kolkata").date())
+    return Check("ok" if st["state"] == "ok" else "fail" if st["state"] in ("missing", "expired") else "warn", "exchange calendar", st["message"])
+
+
 def check_alerts() -> Check:
     from qsde.db.connection import read_sql
 
@@ -134,7 +141,7 @@ def run_all() -> list:
             out += fn()
         except Exception as e:                                       # noqa: BLE001
             out.append(Check("fail", name, f"could not run: {type(e).__name__}: {str(e)[:160]}"))
-    out += [_safe("Kite session", check_kite), _safe("alerts", check_alerts)]
+    out += [_safe("Kite session", check_kite), _safe("exchange calendar", check_calendar), _safe("alerts", check_alerts)]
     return out
 
 

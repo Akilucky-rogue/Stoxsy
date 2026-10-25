@@ -141,7 +141,12 @@ def test_breakout_baseline_detects_a_breakout_and_ignores_a_stale_or_quiet_one()
 def test_week_start_is_monday_and_sessions_skip_weekends():
     from datetime import date
     assert store.week_start(date(2026, 10, 28)) == date(2026, 10, 26) and store.week_start(date(2026, 10, 25)) == date(2026, 10, 19)
-    assert store.add_sessions(date(2026, 10, 23), 1) == date(2026, 10, 26) and store.add_sessions(date(2026, 10, 23), 5) == date(2026, 10, 30)
+    from qsde import exchange_calendar as X
+
+    cal = X.Calendar()                                                                  # nothing loaded: weekdays, and it says so
+    assert store.add_sessions(date(2026, 10, 23), 1, cal) == (date(2026, 10, 26), True) and store.add_sessions(date(2026, 10, 23), 5, cal)[0] == date(2026, 10, 30)
+    loaded = X.from_rows([("CM", date(2026, 11, 10), False)])
+    assert store.add_sessions(date(2026, 11, 6), 3, loaded) == (date(2026, 11, 12), False)      # 9, (10 holiday) 11, 12
 
 
 def test_alert_facts_for_the_desk_are_json_safe_and_describe_the_open_book(who):

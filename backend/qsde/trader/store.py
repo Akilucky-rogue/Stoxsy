@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 import psycopg2.extras
 
+from qsde import exchange_calendar
 from qsde.alerts import rules as alert_rules
 from qsde.modes import policy as pol
 from qsde.risk import costs
@@ -89,6 +90,9 @@ def build_state(read_sql, user_id: str, capital: float, now: Optional[pd.Timesta
             base = float(r.entry) if od >= pws else (last_close_on_or_before(px, r.symbol, pws - timedelta(days=1)) or float(r.entry))
             if end is not None:
                 prev_wk_unreal += int(r.qty) * (end - base)
+    rd = read_sql("SELECT symbol, reason FROM compliance_restricted_list WHERE user_id = :u AND released_at IS NULL AND (restricted_until IS NULL OR restricted_until >= CAST(:t AS DATE))",
+                  params={"u": user_id, "t": str(today)})
+    restricted = {r.symbol: r.reason for r in rd.itertuples()}
     legacy = LG.positions(read_sql, user_id, load_prices, pws - timedelta(days=10), gap_fraction=gap_allowance_fraction)
     unprotected = []
     for g in legacy:                                   # existing book first: imported trading-pot holdings take part in every limit
@@ -103,7 +107,7 @@ def build_state(read_sql, user_id: str, capital: float, now: Optional[pd.Timesta
         if not g["protected"]:
             unprotected.append(g["symbol"])
     st = R.State(capital=float(capital or 0.0), open_positions=opens, realised_today=realised_today, realised_week=realised_week, week_start_value_change=wk_change, trades=trades,
-                 previous_week_pnl=prev_week_realised + prev_wk_unreal, price_sessions_behind=sessions_behind(read_sql, now), unprotected=unprotected, book=book)
+                 previous_week_pnl=prev_week_realised + prev_wk_unreal, price_sessions_behind=sessions_behind(read_sql, now), unprotected=unprotected, restricted=restricted, book=book)
     return st, px
 
 
@@ -141,13 +145,11 @@ def horizon_params(horizon_id: str) -> dict:
     return {"sessions": h.label_horizon_days, "stop_mult": h.barrier.sl_mult, "target_mult": h.barrier.pt_mult, "vol_span": h.barrier.vol_span, "legacy": h.legacy}
 
 
-def add_sessions(start: date, n: int) -> date:
-    d = start
-    while n > 0:
-        d += timedelta(days=1)
-        if d.weekday() < 5:
-            n -= 1
-    return d
+def add_sessions(start: date, n: int, calendar=None) -> tuple:
+    """(date, estimated): n regular NSE sessions after `start`. With no calendar passed the stored official list is used; if none is loaded the answer is weekdays and estimated."""
+    from qsde import exchange_calendar
+
+    return (calendar if calendar is not None else exchange_calendar.load(read_sql=None)).add_sessions(start, n)
 
 
 def propose(read_sql, user_id: str, profile: dict, *, symbol: str, horizon_id: str, setup: str, entry: Optional[float] = None, stop: Optional[float] = None, target: Optional[float] = None,
@@ -164,6 +166,7 @@ def propose(read_sql, user_id: str, profile: dict, *, symbol: str, horizon_id: s
         return {**base, "allowed": False, "card": None, "reasons": [f"no price history for {symbol}"], "notes": []}
     last = float(px_sym["close"].iloc[-1])
     hp = horizon_params(horizon_id)
+    time_stop, ts_est = add_sessions(now.tz_convert(IST).date(), hp["sessions"], exchange_calendar.load(read_sql))
     sig = float(px_sym["close"].pct_change().tail(hp["vol_span"]).ewm(span=hp["vol_span"]).std().iloc[-1]) if len(px_sym) > 30 else 0.0
     e = float(entry) if entry else last
     s = float(stop) if stop else e * (1 - hp["stop_mult"] * sig)
@@ -182,8 +185,8 @@ def propose(read_sql, user_id: str, profile: dict, *, symbol: str, horizon_id: s
                               else "PAPER: tracked on paper; not approved."),
             "entry": round(e, 2), "entry_rule": "buy at or just below the planned entry at the next session's open; skip the idea if it opens more than half a stop-distance above the entry",
             "stop": round(s, 2), "stop_pct": round((e - s) / e, 4), "stop_in_daily_moves": round((e - s) / e / sig, 2) if sig else None,
-            "target": round(t, 2), "target_r": round((t - e) / risk_per_share, 2) if risk_per_share > 0 else None, "time_stop": str(add_sessions(now.tz_convert(IST).date(), hp["sessions"])),
-            "till_when": f"exit by the time stop ({hp['sessions']} sessions) if neither the stop nor the target is hit",
+            "target": round(t, 2), "target_r": round((t - e) / risk_per_share, 2) if risk_per_share > 0 else None, "time_stop": str(time_stop), "time_stop_estimated": ts_est,
+            "till_when": f"exit by the time stop ({hp['sessions']} sessions) if neither the stop nor the target is hit" + (" (estimate: weekdays only, past the loaded NSE holiday list)" if ts_est else " (official NSE holidays)"),
             "qty": z.qty, "position_value": round(z.position_value, 2), "risk_rupees": round(z.risk_rupees, 2), "risk_pct_of_trading_capital": round(z.risk_pct * 100, 3),
             "expected_cost_rupees": round(z.qty * cost, 2), "loss_per_unit": round(z.loss_per_unit, 2), "sizing": {"binding_limit": z.binding, "multiplier": z.multiplier, **z.detail},
             "invalidated_if": [f"the price closes below {s:.2f}", "the open gaps below the stop (the loss is then larger than planned)", f"the idea is still open after {hp['sessions']} sessions"],

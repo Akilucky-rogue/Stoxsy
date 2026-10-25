@@ -32,6 +32,7 @@ STEPS = [
      [PY, "-c", "import sys; sys.path.insert(0, r'" + str(HERE.parent) + "'); from qsde.universe import pit; print(pit.build_from_db())"]),
     ("intraday_reconcile", False, "reconcile today's streamed minute bars against Kite's historical minute bars (skips if nothing was streamed)", [PY, str(HERE / "reconcile_intraday.py")]),
     ("nse_deals", False, "NSE bulk and block deals (rolling files: only landing every day builds history)", [PY, *STREAM, "--source", "nse_deals"]),
+    ("nse_holidays", False, "NSE trading-holiday calendar (the published list covers one year; an unchanged file changes nothing)", [PY, *STREAM, "--source", "nse_holidays"]),
     ("nse_fo", False, "NSE F&O end-of-day archive (looks back 10 days, so a missed day is filled; already-landed sessions are skipped)",
      [PY, *STREAM, "--source", "nse_fo_bhavcopy", "--backfill-from", str(date.today() - timedelta(days=10))]),
     ("bse_cash", False, "BSE end-of-day prices (raw only)", [PY, *STREAM, "--source", "bse_bhavcopy"]),

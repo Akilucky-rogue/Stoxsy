@@ -81,6 +81,12 @@ def ops() -> list:
     return heartbeat.read_all()
 
 
+def calendar() -> dict:
+    from qsde import exchange_calendar
+
+    return exchange_calendar.load().status(pd.Timestamp.now(tz="Asia/Kolkata").date())
+
+
 def kite() -> dict:
     d = read_sql("SELECT count(*) AS n, max(expires_at) AS exp FROM kite_tokens WHERE is_active")
     n = int(d["n"].iloc[0])

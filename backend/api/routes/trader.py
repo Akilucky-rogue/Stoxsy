@@ -38,6 +38,12 @@ class TriageIn(BaseModel):
     horizon_id: Optional[Literal["swing_5d", "position_20d"]] = None
 
 
+class RestrictIn(BaseModel):
+    symbol: str = Field(min_length=1, max_length=20)
+    reason: str = Field(min_length=3, max_length=300)
+    restricted_until: Optional[date] = None
+
+
 class CloseIn(BaseModel):
     price: float = Field(gt=0)
     reason: Literal["stop", "target", "time", "manual"]
@@ -109,6 +115,44 @@ def set_stop(symbol: str, b: TriageIn, p: Principal = Depends(require_role("admi
                            (imp, sym, p.id, b.stop_price, b.horizon_id, p.role))
         prof.record(c, p.id, p.role, "trader.triage", {"symbol": sym, "import_id": imp, "stop_price": b.stop_price, "horizon_id": b.horizon_id})
     return {"symbol": sym, "stop_price": b.stop_price}
+
+
+@router.get("/trader/restricted")
+def restricted(p: Principal = Depends(require_auth)):
+    d = read_sql("SELECT id, symbol, reason, restricted_until, added_by_role, added_at, released_at FROM compliance_restricted_list WHERE user_id = :u ORDER BY added_at DESC", params={"u": p.id})
+    today = date.today()
+    out = []
+    for r in d.to_dict("records"):
+        until = None if pd.isna(r["restricted_until"]) else r["restricted_until"]
+        released = not pd.isna(r["released_at"])
+        out.append({"id": int(r["id"]), "symbol": r["symbol"], "reason": r["reason"], "restricted_until": None if until is None else str(until), "added_at": r["added_at"].isoformat(),
+                    "released_at": r["released_at"].isoformat() if released else None, "active": (not released) and (until is None or until >= today)})
+    return {"entries": out, "note": "Your own list: nothing is preset. Which securities are restricted, and until when, is for you and your compliance officer to decide."}
+
+
+@router.post("/trader/restricted")
+def add_restricted(b: RestrictIn, p: Principal = Depends(require_role("admin", "trader"))):
+    sym = b.symbol.upper()
+    with get_sync_conn() as c:
+        cur = c.cursor()
+        cur.execute("INSERT INTO compliance_restricted_list (user_id, symbol, reason, restricted_until, added_by_role) VALUES (%s,%s,%s,%s,%s) RETURNING id", (p.id, sym, b.reason.strip(), b.restricted_until, p.role))
+        rid = cur.fetchone()["id"]
+        prof.record(c, p.id, p.role, "trader.restricted.add", {"symbol": sym, "reason": b.reason.strip(), "until": None if b.restricted_until is None else str(b.restricted_until)})
+    return {"id": rid, "symbol": sym}
+
+
+@router.delete("/trader/restricted/{symbol}")
+def release_restricted(symbol: str, p: Principal = Depends(require_role("admin", "trader"))):
+    sym = symbol.upper()
+    with get_sync_conn() as c:
+        cur = c.cursor()
+        cur.execute("UPDATE compliance_restricted_list SET released_at = NOW() WHERE user_id = %s AND symbol = %s AND released_at IS NULL", (p.id, sym))
+        n = cur.rowcount
+        if n:
+            prof.record(c, p.id, p.role, "trader.restricted.release", {"symbol": sym, "entries": n})
+    if not n:
+        raise HTTPException(status_code=404, detail=f"{sym} has no active restriction")
+    return {"symbol": sym, "released": n}
 
 
 @router.post("/trader/propose")

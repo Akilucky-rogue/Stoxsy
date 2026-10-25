@@ -40,6 +40,7 @@ class PortfolioParams:
     max_pair_corr: float = 0.55               # skip a name whose 250-session return correlation with an already-chosen name exceeds this
     horizon: str = "position_20d"
     holidays: frozenset = field(default_factory=frozenset)
+    calendar: object = None                    # qsde.exchange_calendar.Calendar; when given, dates come from the official holiday list and say if they are estimates
 
 
 def add_sessions(start: date, n: int, holidays=frozenset()) -> date:
@@ -75,9 +76,20 @@ def build_cards(scores: pd.DataFrame, prices: pd.DataFrame, p: PortfolioParams =
     as_of = pd.Timestamp(scores["date"].iloc[0]).date()
     regime = str(scores["regime"].iloc[0]) if "regime" in scores else "unknown"
     risk_mult, exposure_cap = REGIME_RISK_MULT.get(regime, 0.5), REGIME_EXPOSURE_CAP.get(regime, 0.5)
-    entry_date = add_sessions(as_of, 1, p.holidays)
-    exit_by = add_sessions(as_of, spec.label_horizon_days + 1, p.holidays)          # entry at the next open, then h sessions
-    review_by = min(exit_by, add_sessions(entry_date, 5, p.holidays))
+    if p.calendar is not None:
+        entry_date, e1 = p.calendar.add_sessions(as_of, 1)
+        exit_by, e2 = p.calendar.add_sessions(as_of, spec.label_horizon_days + 1)     # entry at the next open, then h sessions
+        review_by, e3 = p.calendar.add_sessions(entry_date, 5)
+        review_by = min(exit_by, review_by)
+        dates_are_estimates = bool(e1 or e2 or e3)
+        date_note = (f"Session dates use the official NSE holiday list (loaded through {p.calendar.loaded_through})." if not dates_are_estimates
+                     else "Some dates run past the loaded NSE holiday list or the list is missing, so they assume weekday sessions.")
+    else:
+        entry_date = add_sessions(as_of, 1, p.holidays)
+        exit_by = add_sessions(as_of, spec.label_horizon_days + 1, p.holidays)          # entry at the next open, then h sessions
+        review_by = min(exit_by, add_sessions(entry_date, 5, p.holidays))
+        dates_are_estimates = True
+        date_note = "Dates assume weekday sessions; exchange holidays after today are not known here."
 
     elig = scores[(scores["risk_bucket"] >= p.min_bucket) & (scores["liq"] >= p.min_traded_value) & (scores["dd120"] >= p.max_drawdown_from_high)]
     elig = elig.sort_values(["defensive_score", "symbol"], ascending=[False, True])
@@ -145,14 +157,14 @@ def build_cards(scores: pd.DataFrame, prices: pd.DataFrame, p: PortfolioParams =
     summary = {
         "as_of": as_of.isoformat(), "regime": regime, "regime_risk_multiplier": risk_mult, "exposure_cap": exposure_cap,
         "horizon": p.horizon, "horizon_sessions": spec.label_horizon_days, "entry_date": entry_date.isoformat(), "exit_by": exit_by.isoformat(),
-        "dates_are_estimates": True, "capital": p.capital, "positions": len(cards), "invested": used, "invested_pct": used / p.capital,
+        "dates_are_estimates": dates_are_estimates, "capital": p.capital, "positions": len(cards), "invested": used, "invested_pct": used / p.capital,
         "cash": p.capital - used, "largest_weight": max((c["weight"] for c in cards), default=0.0),
         "average_pairwise_correlation": avg_corr, "loss_if_all_stopped": total_loss, "loss_if_all_stopped_pct": total_loss / p.capital,
         "candidates_considered": int(len(elig)), "skipped": skipped[:20], "skipped_reasons": _count_reasons(skipped),
         "evidence": EVIDENCE,
         "notes": ["Risk-based allocation, not a forecast: no model has shown a net edge.",
                   "Stops are not guaranteed fills; a gap through the stop fills at the open.",
-                  "Dates assume weekday sessions; exchange holidays after today are not known here.",
+                  date_note,
                   f"Concentration is limited by return correlation (no name above {p.max_pair_corr:.2f} with another), not by sector: there is no sector data yet.",
                   "Only NSE data is loaded today; BSE-only listings are not covered yet."]}
     return {"cards": cards, "summary": summary}

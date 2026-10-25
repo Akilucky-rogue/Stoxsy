@@ -63,7 +63,7 @@ export function Decision() {
             <Tile label="Invested" value={pct(s.invested_pct, 0)} sub={`${inr(s.invested)} of ${inr(s.capital)} (${REGIME_LABEL[s.regime] ?? s.regime} cap ${pct(s.exposure_cap, 0)})`} />
             <Tile label="Positions" value={String(s.positions)} sub={`from ${s.candidates_considered} eligible; largest ${pct(s.largest_weight, 1)}`} />
             <Tile label="If every stop is hit" value={`-${pct(s.loss_if_all_stopped_pct, 1)}`} tone="bad" sub={`${inr(s.loss_if_all_stopped)} (gaps can be worse)`} />
-            <Tile label="Hold until" value={shortDate(s.exit_by)} sub={`${s.horizon_sessions} sessions after entry ${shortDate(s.entry_date)} (estimate)`} />
+            <Tile label="Hold until" value={shortDate(s.exit_by)} sub={`${s.horizon_sessions} sessions after entry ${shortDate(s.entry_date)}${s.dates_are_estimates ? " (estimate: weekdays only past the loaded holiday list)" : " (official NSE holidays)"}`} />
             <Tile label="Average pairwise correlation" value={s.average_pairwise_correlation == null ? "—" : num(s.average_pairwise_correlation)} sub="lower = less doubled-up risk" />
           </section>
 

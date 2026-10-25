@@ -188,6 +188,7 @@ class DecisionBook(BaseModel):
 def decision_cards(capital: float = Query(1_500_000, ge=50_000, le=1_000_000_000), risk_per_position: float = Query(0.005, ge=0.001, le=0.03),
                    max_position: float = Query(0.08, ge=0.01, le=0.25), max_positions: int = Query(20, ge=1, le=60),
                    horizon: str = Query("position_20d", pattern="^(swing_5d|position_20d)$"), min_bucket: int = Query(4, ge=3, le=5)):
+    from qsde import exchange_calendar
     from qsde.decision.cards import PortfolioParams, build_cards
     from qsde.decision.transparency import explain_exclusions, gather, risk_inputs
     from qsde.ml.registry import get_horizon
@@ -198,7 +199,7 @@ def decision_cards(capital: float = Query(1_500_000, ge=50_000, le=1_000_000_000
     sc = pd.read_parquet(SIGNAL)
     sc["date"] = pd.to_datetime(sc["date"])
     p = PortfolioParams(capital=capital, risk_per_position=risk_per_position, max_position=max_position, max_positions=max_positions,
-                        horizon=horizon, min_bucket=min_bucket)
+                        horizon=horizon, min_bucket=min_bucket, calendar=exchange_calendar.load())
     cand = sc[(sc["risk_bucket"] >= min_bucket) & (sc["liq"] >= p.min_traded_value)]["symbol"].tolist()
     start = str((sc["date"].iloc[0] - pd.Timedelta(days=700)).date())
     px = mldata.load_prices(cand, start=start)[["symbol", "date", "close"]]

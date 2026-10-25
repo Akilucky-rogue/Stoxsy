@@ -59,7 +59,7 @@ def who():
         cur = c.cursor()
         cur.execute("SET LOCAL session_replication_role = replica")
         cur.execute("DELETE FROM portfolio_holdings WHERE import_id IN (SELECT id FROM portfolio_imports WHERE user_id = %s)", (uid,))
-        for t in ("legacy_triage", "portfolio_imports", "mode_audit", "trader_ideas", "user_profiles"):
+        for t in ("legacy_triage", "portfolio_imports", "mode_audit", "trader_ideas", "user_profiles", "compliance_restricted_list"):
             cur.execute(f"DELETE FROM {t} WHERE user_id = %s", (uid,))
         cur.execute("DELETE FROM audit_log WHERE user_id = %s", (uid,))
 
@@ -108,3 +108,30 @@ def test_stops_can_only_be_set_for_symbols_in_the_latest_trading_import(who):
     make_import(uid, "trading", [("RELIANCE", 5, 1000.0)])
     assert c.put("/api/trader/triage/TCS", json={"stop_price": 100}).status_code == 404                                   # not in the import
     assert c.put("/api/trader/triage/RELIANCE", json={"stop_price": 0}).status_code == 422                                # a stop must be positive
+
+
+def test_restricted_list_starts_empty_blocks_a_symbol_until_released_and_is_audited(who):
+    c, uid = who
+    pot(c)
+    assert c.get("/api/trader/restricted").json()["entries"] == []                                                         # nothing preset
+    assert c.post("/api/trader/restricted", json={"symbol": "infy", "reason": "x"}).status_code == 422                       # a reason is required
+    assert c.post("/api/trader/restricted", json={"symbol": "infy", "reason": "client coverage"}).status_code == 200
+    r = c.post("/api/trader/ideas", json={"symbol": "INFY"})
+    assert r.status_code == 422 and "INFY is on your restricted list (client coverage)" in r.json()["detail"][0]
+    assert c.post("/api/trader/propose", json={"symbol": "RELIANCE"}).json()["allowed"] is True                             # other symbols are unaffected
+    e = c.get("/api/trader/restricted").json()["entries"][0]
+    assert e["symbol"] == "INFY" and e["active"] is True
+    assert c.delete("/api/trader/restricted/INFY").status_code == 200 and c.delete("/api/trader/restricted/INFY").status_code == 404
+    assert c.post("/api/trader/ideas", json={"symbol": "INFY"}).status_code == 200
+    e2 = c.get("/api/trader/restricted").json()["entries"][0]
+    assert e2["active"] is False and e2["released_at"] is not None                                                          # history is kept
+    n = lambda a: int(read_sql("SELECT count(*) AS n FROM mode_audit WHERE user_id = :u AND action = :a", params={"u": uid, "a": a})["n"].iloc[0])    # noqa: E731
+    assert n("trader.restricted.add") == 1 and n("trader.restricted.release") == 1
+
+
+def test_a_restriction_with_a_past_end_date_no_longer_blocks(who):
+    c, uid = who
+    pot(c)
+    assert c.post("/api/trader/restricted", json={"symbol": "INFY", "reason": "blackout", "restricted_until": "2020-01-01"}).status_code == 200
+    assert c.get("/api/trader/restricted").json()["entries"][0]["active"] is False
+    assert c.post("/api/trader/propose", json={"symbol": "INFY"}).json()["allowed"] is True
