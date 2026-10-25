@@ -68,6 +68,8 @@ def main() -> int:
             break
     if not a.dry_run:
         bad = [n for n, ok, _ in results if not ok]
+        from qsde.ops.heartbeat import beat
+        beat("daily_pipeline", "failed" if bad else "ok", {"steps": [{"step": n, "ok": ok, "seconds": round(t)} for n, ok, t in results], "failed": bad, "finished": f"{datetime.now():%Y-%m-%d %H:%M}"})
         print("summary: " + ("all steps ok" if not bad else "failed: " + ", ".join(bad)))
         return 1 if bad else 0
     return 0

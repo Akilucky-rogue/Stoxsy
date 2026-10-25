@@ -37,6 +37,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from qsde.ops.heartbeat import beat
 from qsde.db.connection import read_sql
 from qsde.ingestion.kite_ticker import KiteLiveStreamer
 from qsde.ingestion.intraday_storage import MinuteBarAggregator, PeriodicFlusher
@@ -125,9 +126,15 @@ def main():
 
     # Main thread parks here -- everything else is in background threads.
     try:
+        last_beat = 0.0
         while not stop_received["flag"]:
             time.sleep(2.0)
+            if time.time() - last_beat >= 30:                      # liveness for the alert engine and the doctor command
+                h = streamer.health()
+                beat("stream", "ok" if h["connected"] else "degraded", h)
+                last_beat = time.time()
     finally:
+        beat("stream", "stopped", streamer.health())
         log.info("Joining threads...")
         flusher.join(timeout=5)
         aggregator.join(timeout=10)

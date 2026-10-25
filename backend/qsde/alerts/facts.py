@@ -75,6 +75,12 @@ def logging_status() -> list:
              "deadline": ledger.entry_deadline_ist(sd).isoformat()}]
 
 
+def ops() -> list:
+    from qsde.ops import heartbeat
+
+    return heartbeat.read_all()
+
+
 def kite() -> dict:
     d = read_sql("SELECT count(*) AS n, max(expires_at) AS exp FROM kite_tokens WHERE is_active")
     n = int(d["n"].iloc[0])

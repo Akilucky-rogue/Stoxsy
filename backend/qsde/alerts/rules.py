@@ -240,5 +240,57 @@ def rule_portfolio(facts: dict, cfg: dict) -> list:
     return out
 
 
-GLOBAL_RULES = (rule_data_staleness, rule_source_health, rule_corporate_actions, rule_price_series, rule_bucket_a, rule_bse_corporate_actions, rule_models, rule_kite)
+def _market_open(now_ist: pd.Timestamp, c: dict) -> bool:
+    if now_ist.weekday() >= 5:
+        return False
+    m = now_ist.hour * 60 + now_ist.minute
+    return c["market_open_ist_minutes"] <= m <= c["market_close_ist_minutes"]
+
+
+def rule_ops(facts: dict, cfg: dict) -> list:
+    """Is the live stream still alive, and has the daily routine run? Judged only for components that have reported (or that the owner declared expected on the always-on host):
+    a stream that was never started is not an alarm, a stream that stopped beating inside the market session is."""
+    beats = {b["component"]: b for b in (facts.get("ops") or [])}
+    c = cfg.get("ops")
+    if c is None:
+        return []
+    now = pd.Timestamp(facts["now"])
+    now_ist = now.tz_convert("Asia/Kolkata")
+    out = []
+    s = beats.get("stream")
+    expected = c.get("stream_expected", False)
+    if (s is not None or expected) and _market_open(now_ist, c):
+        if s is None:
+            out.append(alert("ops_stream", "critical", "Live stream is not running", "The stream is expected during market hours on this host but has never reported. Start it or check the service.",
+                             "ops:stream:missing", entity_type="pipeline", entity_id="stream"))
+        else:
+            last_beat = pd.Timestamp(s["last_beat"])
+            age = (now - last_beat).total_seconds()
+            beat_today = last_beat.tz_convert("Asia/Kolkata").date() == now_ist.date() or expected
+            if beat_today and s["status"] != "stopped" and age > c["stream_beat_stale_seconds"]:
+                sev = "critical" if age > c["stream_beat_critical_seconds"] else "warning"
+                out.append(alert("ops_stream", sev, f"Live stream stopped reporting {age / 60:.0f} min ago",
+                                 f"The last heartbeat was at {last_beat.tz_convert('Asia/Kolkata'):%H:%M} IST on {s.get('host')}. The machine may have slept or lost power, or the service crashed. "
+                                 "Live bars after that are missing and are filled from Kite history at the close.", "ops:stream:stale", entity_type="pipeline", entity_id="stream",
+                                 payload={"age_seconds": age}))
+            else:
+                det = s.get("detail") or {}
+                tick_age = det.get("last_tick_age_s")
+                if s["status"] == "ok" and tick_age is not None and tick_age > c["stream_silent_tick_seconds"] and det.get("connected"):
+                    out.append(alert("ops_stream", "warning", f"Stream is connected but silent for {tick_age / 60:.0f} min",
+                                     "The socket is open and no price tick has arrived. Check the market session and the symbols subscribed.", "ops:stream:silent", entity_type="pipeline", entity_id="stream"))
+    d = beats.get("daily_pipeline")
+    if d is not None or c.get("daily_expected", False):
+        exp = expected_last_session(now_ist, c["daily_after_hours_ist"])
+        last = None if d is None else pd.Timestamp(d["last_beat"]).tz_convert("Asia/Kolkata").date()
+        if d is None or weekdays_behind(last, exp) > c["daily_weekdays_warn"]:
+            out.append(alert("ops_daily", "warning", "The daily routine has not completed" + ("" if d is None else f" since {last}"),
+                             "End-of-day data, signals, reconciliation and alerts depend on it. Run the daily command or check the scheduler.", "ops:daily:stale", entity_type="pipeline", entity_id="daily_pipeline"))
+        elif d["status"] == "failed":
+            out.append(alert("ops_daily", "warning", "The last daily routine finished with failures", "Failed steps: " + ", ".join((d.get("detail") or {}).get("failed", [])) + ".", "ops:daily:failed",
+                             entity_type="pipeline", entity_id="daily_pipeline"))
+    return out
+
+
+GLOBAL_RULES = (rule_data_staleness, rule_source_health, rule_corporate_actions, rule_price_series, rule_bucket_a, rule_bse_corporate_actions, rule_models, rule_kite, rule_ops)
 USER_RULES = (rule_portfolio,)

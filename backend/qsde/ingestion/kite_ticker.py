@@ -77,6 +77,7 @@ class KiteLiveStreamer:
         # in main() before instantiation) is honored.
         self._tick_count = 0
         self._first_tick_at: Optional[datetime] = None
+        self._last_tick_at: Optional[datetime] = None
         self._heartbeat_every = int(os.getenv("QSDE_TICK_HEARTBEAT", "50"))
 
         self._kws.on_ticks = self._on_ticks
@@ -165,6 +166,7 @@ class KiteLiveStreamer:
             fanout.publish(tick)
         # Periodic heartbeat at INFO; per-batch trace at DEBUG.
         self._tick_count += n
+        self._last_tick_at = now_utc
         hb = self._heartbeat_every
         if hb > 0 and (self._tick_count // hb) != ((self._tick_count - n) // hb):
             log.info("Ticks received: total=%d (last batch=%d, syms=%s)",
@@ -268,6 +270,13 @@ class KiteLiveStreamer:
         with self._tokens_lock:
             return sorted(self._token_to_symbol.get(t) or str(t)
                           for t in self._instrument_tokens)
+
+    def health(self) -> dict:
+        """What the heartbeat reports: connected, how many symbols and ticks, and how long since the last tick (a socket can be open and silent)."""
+        now = datetime.now(timezone.utc)
+        last = self._last_tick_at
+        return {"connected": self.is_connected, "symbols": len(self._instrument_tokens), "ticks": self._tick_count,
+                "last_tick_at": None if last is None else last.isoformat(), "last_tick_age_s": None if last is None else round((now - last).total_seconds(), 1)}
 
     @property
     def is_connected(self) -> bool:

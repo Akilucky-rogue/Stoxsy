@@ -2,23 +2,51 @@
   "version": "alert_rules_v1",
   "note": "Thresholds for the in-app alert rules. Edited by the owner only; every alert states the threshold it crossed.",
   "data_staleness": {
-    "nse_weekdays_warn": 2, "nse_weekdays_critical": 4,
-    "bse_weekdays_warn": 2, "bse_weekdays_critical": 4,
-    "amfi_days_warn": 3, "amfi_days_critical": 7,
+    "nse_weekdays_warn": 2,
+    "nse_weekdays_critical": 4,
+    "bse_weekdays_warn": 2,
+    "bse_weekdays_critical": 4,
+    "amfi_days_warn": 3,
+    "amfi_days_critical": 7,
     "after_hours_ist": 20
   },
-  "source_health": { "failures_warn": 1, "failures_critical": 3 },
+  "source_health": {
+    "failures_warn": 1,
+    "failures_critical": 3
+  },
   "corporate_actions": {
-    "upcoming_window_days_before": 5, "upcoming_window_days_after": 7,
-    "unreviewed_research_only_warn": 1, "candidates_open_warn": 1
+    "upcoming_window_days_before": 5,
+    "upcoming_window_days_after": 7,
+    "unreviewed_research_only_warn": 1,
+    "candidates_open_warn": 1
   },
-  "models": { "missed_log_warn_hours_after_deadline": 0 },
+  "models": {
+    "missed_log_warn_hours_after_deadline": 0
+  },
   "portfolio": {
-    "single_name_warn": 0.15, "single_name_critical": 0.25,
-    "top5_warn": 0.60,
-    "avg_pairwise_correlation_warn": 0.60, "min_names_for_correlation": 4, "correlation_lookback_sessions": 250,
-    "drawdown_warn": -0.15, "drawdown_critical": -0.25,
-    "high_risk_share_warn": 0.40
+    "single_name_warn": 0.15,
+    "single_name_critical": 0.25,
+    "top5_warn": 0.6,
+    "avg_pairwise_correlation_warn": 0.6,
+    "min_names_for_correlation": 4,
+    "correlation_lookback_sessions": 250,
+    "drawdown_warn": -0.15,
+    "drawdown_critical": -0.25,
+    "high_risk_share_warn": 0.4
   },
-  "kite": { "expiry_warn_hours": 2 }
+  "kite": {
+    "expiry_warn_hours": 2
+  },
+  "ops": {
+    "stream_expected": false,
+    "daily_expected": false,
+    "market_open_ist_minutes": 555,
+    "market_close_ist_minutes": 930,
+    "stream_beat_stale_seconds": 120,
+    "stream_beat_critical_seconds": 600,
+    "stream_silent_tick_seconds": 300,
+    "daily_after_hours_ist": 20,
+    "daily_weekdays_warn": 1,
+    "note": "stream_expected / daily_expected are switched to true on the always-on host; until then only a component that has reported is judged."
+  }
 }
