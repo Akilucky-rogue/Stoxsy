@@ -14,6 +14,21 @@ Status: DRAFT for owner approval, 2026-10-23. Principle for every phase: **raw f
 | **News and events** | `news_sentiment` table exists, **0 rows**. Exchange corporate-action files only. | Exchange announcements feed, results calendar, a licensed headline source, then sentiment as a derived, labelled layer. |
 | **Models** | Defensive-card shadow model (risk label, no return forecast); harness with purged CV, DSR, PBO, null control; ledger, monitor, kill switch. ML directional ranker **rejected**. | Everything in phase 3. |
 
+## Owner decisions (recorded 2026-10-25)
+
+| Question | Decision |
+|---|---|
+| Phase 1 sources | **Approved: official and free sources only** (items 1.1 to 1.6, 1.8 to 1.11). Every source must pass terms review, raw-first landing with SHA-256 and `known_at`, idempotent parsing and validation, a coverage/gap report, and **no silent fallback to an unapproved source** |
+| Paid news or fundamentals vendor | **No.** Revisit only if exchange filings prove unreliable, a model shows news adds out-of-sample value, historical timestamps are needed, and licensing is handled |
+| 1.7 paid headlines, 1.12 MCX | **Deferred** (MCX after equities, funds, F&O research and the product core are stable) |
+| Legal route | **Personal use.** No outside users, no personalised recommendations to others, no public "wealth management" claims; KYC, Terms and Privacy stay drafts until counsel and a clear SEBI route exist |
+| Pipeline host | **Always-on Debian mini-PC with UPS** (headless, wired, auto-restart after power loss, reboots outside market hours, remote monitoring, nightly backup to a second disk and cloud). Not this laptop, not a VM on it. A cloud VM is a monitored fallback only |
+| Operator interface | **CLI-first operator console (`stoxsy`) plus the local web UI** for charts and analysis; the web UI is reachable on the LAN or a private VPN only, never public |
+| Build order | (1) finish and validate the 1.8 adapters, (2) AMFI expense ratios, (3) fund holdings for the 20 largest fund houses, (4) exchange fundamentals and announcements after terms review, (5) unified daily pipeline with scheduler, alerting and backup/restore drills, (6) Phase 3 model candidates |
+| Incident rule | The stream silently stopping when a PC slept is a **production incident**: heartbeat alerts, scheduler health checks and automatic recovery are required |
+
+Product statement (owner): a Trader mode and an Investor mode with different mindsets; research on any Indian stock; daily candidate ideas; streaming data for equities, futures and mutual funds; every output answers what, where, how much, until when, under what conditions, the exit, and alerts. Positioning agreed: **an evidence-first Indian market research and wealth-decision platform** (transparent signals, risk-sized plans, portfolio oversight, models that must prove themselves), not "AI that predicts stocks".
+
 ## Phase 1: acquire the data (nothing downstream starts before its inputs pass a gate)
 
 Each source below is verified before building: official or licensed status, terms of use, format, cadence, point-in-time behaviour. A source that fails its gate is dropped, not worked around. **New external sources need your approval; this document is that request.** Items marked (verify) are not yet confirmed against the live site.
