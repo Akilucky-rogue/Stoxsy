@@ -263,3 +263,28 @@ export interface InvestorPlan {
   current: { values: Mix; parts: Record<keyof Mix, { label: string; value: number; source: string }[]>; unclassified: { symbol: string; value: number; reason: string }[]; total_classified: number };
   goals: GoalPlan[]; target?: Mix | null; rebalance?: Rebalance; stress?: Stress; holdings_priced_at?: string | null; balances?: Balance[];
 }
+
+// ── Trader desk (research and paper only) ──────────────────────────
+export interface TraderMeters {
+  capital: number; open_risk: number; open_risk_pct: number; open_risk_limit_pct: number; daily_pnl: number; daily_pnl_pct: number; daily_loss_limit_pct: number; daily_limit_used: number;
+  weekly_pnl: number; weekly_pnl_pct: number; weekly_loss_limit_pct: number; weekly_limit_used: number; positions: number; max_positions: number; size_multiplier: number;
+  size_multiplier_reasons: string[]; streak: { stops_in_row: number; reduced_trades_left: number }; invested: number; free_cash: number;
+}
+export interface TraderCard {
+  symbol: string; venue: string; setup: string; direction: "long"; horizon_id: string; evidence: "RESEARCH" | "PAPER" | "APPROVED"; evidence_note: string;
+  entry: number; entry_rule: string; stop: number; stop_pct: number; stop_in_daily_moves: number | null; target: number; target_r: number | null; time_stop: string; till_when: string;
+  qty: number; position_value: number; risk_rupees: number; risk_pct_of_trading_capital: number; expected_cost_rupees: number; loss_per_unit: number;
+  sizing: { binding_limit: string; multiplier: number }; invalidated_if: string[]; as_of: string;
+}
+export interface TraderDecision { allowed: boolean; card: TraderCard | null; reasons: string[]; notes: string[]; meters?: TraderMeters }
+export interface TraderCandidate extends TraderDecision { symbol: string; breakout_pct: number; volume_x_median: number; risk_bucket: number | null }
+export interface TraderOpen { symbol: string; qty: number; entry: number; stop: number; last: number; risk_rupees: number; unrealised: number }
+export interface TraderDesk {
+  disclaimer: string; engine_approved: boolean; trading_capital: number | null; meters: TraderMeters; limits: Record<string, number>; open: TraderOpen[]; mode: string | null;
+  candidates: TraderCandidate[]; needs: string[]; headline: string;
+}
+export interface TraderIdea {
+  id: number; created_at: string; symbol: string; setup: string; horizon_id: string; evidence: string; entry: number; stop: number; target: number | null; qty: number; risk_rupees: number;
+  time_stop: string; status: "open" | "closed"; opened_at: string; closed_at: string | null; exit_price: number | null; exit_reason: string | null; pnl_rupees: number | null; r_multiple: number | null; notes: string | null;
+}
+export interface TraderPerformance { n_closed: number; hit_rate?: number; expectancy_r?: number; median_r?: number; total_pnl_rupees?: number; by_exit?: Record<string, number>; min_for_judgement: number; note: string; disclaimer: string }

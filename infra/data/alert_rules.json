@@ -48,5 +48,11 @@
     "daily_after_hours_ist": 20,
     "daily_weekdays_warn": 1,
     "note": "stream_expected / daily_expected are switched to true on the always-on host; until then only a component that has reported is judged."
+  },
+  "trader": {
+    "near_fraction": 0.2,
+    "limit_warn_used": 0.8,
+    "time_stop_warn_sessions": 1,
+    "note": "Trader-desk alerts are information only: they never place, change or cancel anything. near_fraction = how close to a stop or target (as a share of the entry-to-level distance) raises the alert."
   }
 }

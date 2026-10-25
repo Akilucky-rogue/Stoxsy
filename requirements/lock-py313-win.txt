@@ -162,3 +162,5 @@ argon2-cffi==25.1.0
 argon2-cffi-bindings==26.1.0
 pyjwt==2.15.1
 pyotp==2.10.0
+hypothesis==6.170.9
+sortedcontainers==2.4.0

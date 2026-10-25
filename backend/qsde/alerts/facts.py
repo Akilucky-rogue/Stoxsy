@@ -126,6 +126,26 @@ def portfolio(user_id: str, cfg: dict) -> Optional[dict]:
             "high_risk_share": hr, "regime": reg}
 
 
+def trader(user_id: str) -> Optional[dict]:
+    """Open paper ideas with their last close, and the risk meters, for the user's trading pot. None when the user has no trading pot or no ideas at all."""
+    from qsde.db.connection import get_sync_conn
+    from qsde.modes import policy as pol, profile as prof
+    from qsde.trader import risk as R, store
+
+    with get_sync_conn() as c:
+        pr = prof.load(c, user_id)
+    cap = float(pr.get("trading_capital") or 0.0)
+    ideas = read_sql("SELECT * FROM trader_ideas WHERE user_id = :u ORDER BY opened_at", params={"u": user_id})
+    if cap <= 0 or ideas.empty:
+        return None
+    st, _ = store.build_state(read_sql, user_id, cap, ideas=ideas)
+    l = R.Limits.from_effective(pol.effective_limits(pr.get("limits")))
+    last = {p.symbol: p.last_price for p in st.open_positions}
+    op = ideas[ideas["status"] == "open"]
+    return {"meters": R.meters(st, l), "open": [{"id": int(r.id), "symbol": r.symbol, "entry": float(r.entry), "stop": float(r.stop), "target": None if r.target is None or pd.isna(r.target) else float(r.target),
+                                                "last": float(last.get(r.symbol, r.entry)), "time_stop": str(r.time_stop)} for r in op.itertuples()]}
+
+
 def series_consistency() -> dict:
     """The official `ohlcv` series (events flagged applied) versus the governed registry (`adjustment_events_applied`), keyed on symbol and NSE ex-date."""
     d = read_sql("""WITH a AS (SELECT symbol, ex_date FROM corp_action_events WHERE applied),

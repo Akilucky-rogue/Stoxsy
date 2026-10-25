@@ -91,6 +91,7 @@ export function Shell() {
         <nav className="nav">
           <div className="group">{profile.data?.mode ? `${profile.data.mode === "trader" ? "Trader" : "Investor"} mode` : "Overview"}</div>
           <NavLink to="/plan"><Icon name="target" /><span className="txt">Investor plan</span></NavLink>
+          <NavLink to="/trader"><Icon name="pulse" /><span className="txt">Trader desk</span></NavLink>
           <NavLink to="/profile"><Icon name="users" /><span className="txt">Profile &amp; capital</span></NavLink>
           <NavLink to="/" end><Icon name="home" /><span className="txt">Dashboard</span></NavLink>
           <NavLink to="/portfolio"><Icon name="wallet" /><span className="txt">My portfolio</span></NavLink>

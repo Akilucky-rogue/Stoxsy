@@ -45,10 +45,11 @@ def collect_global(cfg: dict, now: pd.Timestamp) -> tuple[list, list]:
 def collect_user(user_id: str, cfg: dict, now: pd.Timestamp) -> tuple[list, list]:
     errors: list = []
     p = _gather("portfolio", lambda: F.portfolio(user_id, cfg), errors)
+    t = _gather("trader desk", lambda: F.trader(user_id), errors)
     out = []
     for rule in R.USER_RULES:
         try:
-            out += rule({"now": now, "portfolio": p}, cfg)
+            out += rule({"now": now, "portfolio": p, "trader": t}, cfg)
         except Exception as e:      # noqa: BLE001
             errors.append((rule.__name__, f"{type(e).__name__}: {str(e)[:200]}"))
     return out + _error_alerts(errors, "user"), errors

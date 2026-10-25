@@ -152,3 +152,15 @@ Open item that cannot be inferred: the owner's real goals (amount, date, current
 4. F&O in Trader mode: defined-risk structures only (no naked short options) until an engine passes the gate: accept?
 5. Goals: the first goal(s) to model (amount, date, monthly SIP) so Investor mode can be tested on real numbers.
 6. Whether the same person uses both modes (assumed yes, separated by the capital partition) or the product should also support separate accounts later.
+
+## Trader risk engine (built 2026-10-25)
+
+Code: `backend/qsde/trader/{risk,store,setups}.py`, API `backend/api/routes/trader.py`, table `trader_ideas` (migration 057), page `web/src/pages/Trader.tsx`, alerts `rule_trader`.
+
+- **One gate.** `risk.evaluate` sizes and refuses; it is called by `propose` AND by the write path (`POST /api/trader/ideas`), against the signed-in user's real state read from the database. A posted card cannot skip a limit. Table CHECK constraints (long only, positive prices, closed rows complete) are the last line of defence. A property test (400 random cases) shows no allowed idea exceeds per-trade risk, the open-risk cap, the liquidity cap, free cash in the pot, the daily-loss day, or the position count.
+- **Definitions** are stated once in the `risk.py` docstring: loss per unit = stop distance + paper-default round-trip cost + 90th-percentile overnight gap (60 sessions); size = floor(risk budget / loss per unit), capped by liquidity (1% of 20-session median traded value), free cash in the trading pot and the remaining open-risk budget.
+- **Limits** come from the stored policy (stricter defaults: 0.25% per trade, 3% open risk, 1.5% daily, 4% weekly, 8 positions, 0.55 correlation). Losing streak (3 stops) halves the next 5 trades; a weekly breach halves the following week; both compound to 0.25.
+- **Evidence.** Every card is RESEARCH (or PAPER); APPROVED is refused while no engine is approved. The only setup is a named baseline (20-day breakout on median volume, ordered by lower recent risk, not by a forecast). It carries no claim of edge.
+- **Refusals** name the rule, the observed value and the limit, and are recorded in `mode_audit` as `trader.refused`. Nothing here places an order.
+- **Alerts** (information only): stop or target within 20% of the remaining distance, stop breached, target reached, time stop near or passed, and open-risk / daily / weekly limits at 80% and 100%.
+- **Not built yet:** futures and options ideas (defined-risk, research only), logging desk candidates to the prediction ledger as a shadow model, automatic stop/target/time-stop closing (closing is a manual, journalled action).

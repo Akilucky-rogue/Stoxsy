@@ -240,6 +240,45 @@ def rule_portfolio(facts: dict, cfg: dict) -> list:
     return out
 
 
+def rule_trader(facts: dict, cfg: dict) -> list:
+    """Trader desk: open paper ideas near or past their stop, target or time stop, and the risk limits filling up. Information only: nothing is placed, changed or cancelled."""
+    t, c = facts.get("trader"), cfg["trader"]
+    if not t:
+        return []
+    out, near = [], c["near_fraction"]
+    today = facts["now"].tz_convert("Asia/Kolkata").date()
+    for p in t["open"]:
+        sym, last, entry, stop, target = p["symbol"], p["last"], p["entry"], p["stop"], p.get("target")
+        key = f"trader:{p['id']}"
+        if last <= stop:
+            out.append(alert("trader_stop", "critical", f"{sym} is at or below its stop", f"Last close {last:g} against a stop of {stop:g} (entry {entry:g}). Your plan was to exit; the loss can be larger than planned if it gapped.",
+                             f"{key}:stop", scope="user", entity_type="symbol", entity_id=sym, payload=p))
+        elif entry > stop and (last - stop) / (entry - stop) <= near:
+            out.append(alert("trader_stop", "warning", f"{sym} is close to its stop", f"Last close {last:g}; stop {stop:g}. Only {(last - stop) / (entry - stop):.0%} of the entry-to-stop distance is left (alert at {near:.0%}).",
+                             f"{key}:stop_near", scope="user", entity_type="symbol", entity_id=sym, payload=p))
+        if target:
+            if last >= target:
+                out.append(alert("trader_target", "warning", f"{sym} reached its target", f"Last close {last:g} against a target of {target:g}. Your plan was to take the profit.", f"{key}:target", scope="user",
+                                 entity_type="symbol", entity_id=sym, payload=p))
+            elif target > entry and (target - last) / (target - entry) <= near:
+                out.append(alert("trader_target", "info", f"{sym} is close to its target", f"Last close {last:g}; target {target:g}. Only {(target - last) / (target - entry):.0%} of the entry-to-target distance is left.",
+                                 f"{key}:target_near", scope="user", entity_type="symbol", entity_id=sym, payload=p))
+        ts = date.fromisoformat(str(p["time_stop"]))
+        left = int(len(pd.bdate_range(pd.Timestamp(today), pd.Timestamp(ts))) - 1) if ts >= today else -1
+        if left <= c["time_stop_warn_sessions"]:
+            msg = "The time stop has passed: the plan says exit now." if left < 0 else ("The time stop is today." if left == 0 else f"The time stop is in {left} session(s).")
+            out.append(alert("trader_time_stop", "warning", f"{sym}: time stop {'passed' if left < 0 else 'is near'}", f"{msg} Time stop: {p['time_stop']}.", f"{key}:time", scope="user", entity_type="symbol", entity_id=sym, payload=p))
+    m = t["meters"]
+    for name, used, what in (("open_risk", (m["open_risk_pct"] / m["open_risk_limit_pct"]) if m["open_risk_limit_pct"] else 0.0, f"Open risk is {m['open_risk_pct']:.2f}% of your trading pot (limit {m['open_risk_limit_pct']:g}%)"),
+                             ("daily", m["daily_limit_used"], f"Today's P&L is {m['daily_pnl_pct']:+.2f}% of your trading pot (new ideas stop at -{m['daily_loss_limit_pct']:g}%)"),
+                             ("weekly", m["weekly_limit_used"], f"This week's P&L is {m['weekly_pnl_pct']:+.2f}% of your trading pot (limit -{m['weekly_loss_limit_pct']:g}%; a breach halves next week's size)")):
+        if used >= c["limit_warn_used"]:
+            hit = used >= 1.0
+            out.append(alert("trader_limit", "critical" if hit else "warning", f"Trader limit {'reached' if hit else 'nearly reached'}: {name.replace('_', ' ')}", f"{what}. {used:.0%} of the limit is used (alert at {c['limit_warn_used']:.0%}).",
+                             f"trader:limit:{name}", scope="user", entity_type="trader", payload={"used": used}))
+    return out
+
+
 def _market_open(now_ist: pd.Timestamp, c: dict) -> bool:
     if now_ist.weekday() >= 5:
         return False
@@ -293,4 +332,4 @@ def rule_ops(facts: dict, cfg: dict) -> list:
 
 
 GLOBAL_RULES = (rule_data_staleness, rule_source_health, rule_corporate_actions, rule_price_series, rule_bucket_a, rule_bse_corporate_actions, rule_models, rule_kite, rule_ops)
-USER_RULES = (rule_portfolio,)
+USER_RULES = (rule_portfolio, rule_trader)

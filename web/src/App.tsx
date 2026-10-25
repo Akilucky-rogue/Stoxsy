@@ -15,6 +15,7 @@ import { Portfolio } from "./pages/Portfolio";
 import { Profile } from "./pages/Profile";
 import { ReportView, Research } from "./pages/Research";
 import { System } from "./pages/System";
+import { Trader } from "./pages/Trader";
 
 function Guard({ admin = false, children }: { admin?: boolean; children: React.ReactNode }) {
   const { status, me, mustChange } = useAuth();
@@ -34,6 +35,7 @@ export default function App() {
       <Route element={<Guard><Shell /></Guard>}>
         <Route index element={<Dashboard />} />
         <Route path="plan" element={<Plan />} />
+        <Route path="trader" element={<Trader />} />
         <Route path="profile" element={<Profile />} />
         <Route path="portfolio" element={<Portfolio />} />
         <Route path="decision" element={<Decision />} />
