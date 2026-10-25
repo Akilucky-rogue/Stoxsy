@@ -1,7 +1,8 @@
 """Which corporate-action truth each price series carries, stated once and used everywhere (cards, signal lineage, alerts, System page).
 
-`ohlcv` is the series every consumer reads. Until all Bucket A events are adjudicated and the series is rebuilt once from the reconciled registry it is labelled
-`official_prices_with_pending_corp_action_review`; the governed `sbadj_v1` registry is `governed_research_series_not_production` (nothing in production reads it).
+`ohlcv` is the series every consumer reads. All 69 Bucket A events are adjudicated and the series was rebuilt under the owner's policy (2026-10-25), so it is labelled
+`official_prices_bucket_a_policy_v1`: confirmed events keep the factor, held events keep it provisionally (flagged, NOT validated), rejected events lose it. The governed `sbadj_v1`
+registry is `governed_research_series_not_production` (nothing in production reads it).
 """
 from __future__ import annotations
 

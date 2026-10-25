@@ -171,7 +171,7 @@ def test_bucket_a_progress_alert_and_decisions_file_are_consistent():
     assert kinds(a) == [("ca_bucket_a_progress", "info")] and "10 of 69" in a[0]["title"] and "rebuild waits" in a[0]["detail"]
     assert R.rule_bucket_a({"bucket_a": {**pr, "pending": 0, "needs_more_evidence": 0}}, CFG) == [] and R.rule_bucket_a({}, CFG) == []
     from qsde.ingestion import ca_series
-    assert ca_series.OHLCV_LABEL == "official_prices_with_pending_corp_action_review" and ca_series.REGISTRY_LABEL == "governed_research_series_not_production"
+    assert ca_series.OHLCV_LABEL == "official_prices_bucket_a_policy_v1" and ca_series.REGISTRY_LABEL == "governed_research_series_not_production"
     with pytest.raises(D.DecisionError):
         import json, tempfile, pathlib
         bad = pathlib.Path(tempfile.mkdtemp()) / "d.json"

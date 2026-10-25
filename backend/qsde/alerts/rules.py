@@ -120,7 +120,7 @@ def rule_price_series(facts: dict, cfg: dict) -> list:
     return [alert("price_series_mismatch", "warning", "The official price series and the governed adjustment registry disagree",
                   f"{s['applied_not_in_registry']} events are adjusted in the official `ohlcv` series (the one the cards, signals and portfolio read) but are not in the governed registry "
                   f"(these include the Bucket A events awaiting your decision), and {s['registry_not_applied']} governed events are not applied in `ohlcv`. "
-                  f"(`ohlcv`: {s['applied_in_ohlcv']} events, labelled official_prices_with_pending_corp_action_review; registry: {s['registry_events']} events, labelled governed_research_series_not_production.) "
+                  f"(`ohlcv`: {s['applied_in_ohlcv']} events, labelled official_prices_bucket_a_policy_v1 (31 confirmed, 34 held and applied provisionally, 4 rejected); registry: {s['registry_events']} events, labelled governed_research_series_not_production.) "
                   "Owner decision: `ohlcv` stays unchanged until all Bucket A events are adjudicated, then it is rebuilt once from the reconciled registry (versioned, prior series kept, before/after cliff and continuity reports).",
                   "series:mismatch", entity_type="corporate_actions", payload=s)]
 

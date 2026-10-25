@@ -15,7 +15,7 @@ UNIVERSE_METHOD = "adv60_top500_v1"
 SIGNAL_COMPONENTS = ["ATR% (14d)", "60d volatility", "60d downside deviation", "drawdown from 120-session high", "liquidity (median traded value)"]
 CA_POLICY = ("Prices are NSE closes from the official `ohlcv` series, adjusted for splits and bonuses whose NSE record matched the price gap (method `source_confirmed`); dividends are not in the price series. "
              "A stricter governed series (`sbadj_v1`: confirmed or owner-approved events only, bounded and hash-reproducible) is built separately and is NOT yet the series the cards read: the two disagree on the events listed below. "
-             "Price-only split candidates that no NSE record backs are not adjusted.")
+             "Price-only split candidates that no NSE record backs are not adjusted. Owner review (Bucket A, 69 events with a 3-10% unexplained gap): 31 confirmed; 34 HELD for evidence and applied only provisionally, flagged unreviewed, NOT validated; 4 rejected and left unadjusted so the raw price drop shows.")
 
 
 def explain_exclusions(scores: pd.DataFrame, p, skipped_reasons: dict) -> dict:
@@ -43,6 +43,16 @@ def risk_inputs(p, summary: dict, spec) -> dict:
             "signal_rule": "equal-weight percent ranks of the five components; bucket 5 = most defensive. A risk-reduction signal: no net return edge has been shown."}
 
 
+def _latest_version() -> Optional[dict]:
+    from qsde.db.connection import read_sql
+
+    d = read_sql("SELECT version_id, created_at, reason, n_rows, sha256 FROM ohlcv_versions ORDER BY created_at DESC LIMIT 1")
+    if d.empty:
+        return None
+    r = d.iloc[0]
+    return {"retained_snapshot": str(r["version_id"]), "created_at": pd.Timestamp(r["created_at"]).isoformat(), "reason": str(r["reason"]), "rows": int(r["n_rows"]), "sha256": str(r["sha256"]).strip()}
+
+
 def gather(scores: pd.DataFrame, price_last_date: Optional[str]) -> dict:
     """Database-backed facts: instruments excluded, BSE coverage, adjustment series, latest data dates. Never raises."""
     from qsde.db.connection import read_sql
@@ -68,7 +78,7 @@ def gather(scores: pd.DataFrame, price_last_date: Optional[str]) -> dict:
         from qsde.ingestion import bucket_a_decisions as BA, ca_series
         out["corporate_actions"] = {"policy": CA_POLICY, "series": f"ohlcv [{ca_series.OHLCV_LABEL}]", "validation": "method source_confirmed", "events_applied": sc["applied_in_ohlcv"],
                                     "built_at": None if row is None else pd.Timestamp(row["built_at"]).isoformat(),
-                                    "bucket_a": BA.progress(),
+                                    "bucket_a": {**BA.progress(), **BA.review_queue()}, "ohlcv_version": _latest_version(),
                                     "governed_registry": {"label": ca_series.REGISTRY_LABEL, "version": None if row is None else str(row["version"]), "events": sc["registry_events"], "applied_in_ohlcv_not_in_registry": sc["applied_not_in_registry"],
                                                           "in_registry_not_applied_in_ohlcv": sc["registry_not_applied"]}}
     except Exception as ex:      # noqa: BLE001

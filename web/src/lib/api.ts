@@ -135,7 +135,10 @@ export interface DecisionTransparency {
   universe: { method: string; description: string; non_equity_exclusion: string; non_equity_symbols_excluded: number; signal_rows: number; exchange: string };
   not_covered?: { bse_active_equities: number; reason: string; unlinked_nse_bse_pairs: number; other_asset_classes: string };
   corporate_actions: { policy: string; series?: string | null; validation?: string | null; events_applied?: number | null; built_at?: string | null;
-    bucket_a?: { total: number | null; confirm: number; needs_more_evidence: number; reject: number; pending: number | null; decided: number };
+    ohlcv_version?: { retained_snapshot: string; created_at: string; reason: string; rows: number; sha256: string } | null;
+    bucket_a?: { total: number | null; confirm: number; needs_more_evidence: number; reject: number; pending: number | null; decided: number;
+      held?: { symbol: string; ex_date: string; reason: string; residual?: number; sigma?: number; in_universe?: boolean; best_rank?: number | null }[];
+      rejected?: { symbol: string; ex_date: string; reason: string; raw_gap?: number | null }[]; note?: string };
     governed_registry?: { label?: string; version: string | null; events: number; applied_in_ohlcv_not_in_registry: number; in_registry_not_applied_in_ohlcv: number } };
   data_as_of: { signal_date: string; prices_last_date?: string | null; eod_raw_latest?: string | null; ohlcv_latest?: string | null; generated_at: string };
   notes: string[];

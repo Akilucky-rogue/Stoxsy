@@ -46,8 +46,21 @@ export function Transparency({ t }: { t: DecisionTransparency }) {
           {t.corporate_actions.bucket_a && t.corporate_actions.bucket_a.total != null && (
             <p className="muted" style={{ fontSize: "0.85rem" }}>
               Bucket A review: {t.corporate_actions.bucket_a.decided} of {t.corporate_actions.bucket_a.total} events adjudicated ({t.corporate_actions.bucket_a.confirm} confirmed, {t.corporate_actions.bucket_a.needs_more_evidence} held,
-              {" "}{t.corporate_actions.bucket_a.pending} pending). The official series is rebuilt once after all are decided.
+              {" "}{t.corporate_actions.bucket_a.pending} pending). The official series was rebuilt under your policy: confirmed events keep their factor; <strong>held events keep it provisionally and are NOT validated</strong>; rejected events are left unadjusted.
+              {t.corporate_actions.ohlcv_version && <> The previous series is retained as <code>{t.corporate_actions.ohlcv_version.retained_snapshot}</code> (SHA-256 {t.corporate_actions.ohlcv_version.sha256.slice(0, 12)}…).</>}
             </p>
+          )}
+          {t.corporate_actions.bucket_a?.rejected && t.corporate_actions.bucket_a.rejected.length > 0 && (
+            <details style={{ fontSize: "0.85rem" }}>
+              <summary>{t.corporate_actions.bucket_a.rejected.length} rejected events: the raw price drop is visible</summary>
+              <ul>{t.corporate_actions.bucket_a.rejected.map((r) => <li key={r.symbol + r.ex_date}><strong>{r.symbol}</strong> {r.ex_date}: overnight move {r.raw_gap == null ? "n/a" : `${(r.raw_gap * 100).toFixed(0)}%`}. {r.reason}</li>)}</ul>
+            </details>
+          )}
+          {t.corporate_actions.bucket_a?.held && t.corporate_actions.bucket_a.held.length > 0 && (
+            <details style={{ fontSize: "0.85rem" }}>
+              <summary>{t.corporate_actions.bucket_a.held.length} held events awaiting evidence (provisionally applied), universe names first</summary>
+              <ul>{t.corporate_actions.bucket_a.held.slice(0, 40).map((r) => <li key={r.symbol + r.ex_date}><strong>{r.symbol}</strong> {r.ex_date}{r.in_universe ? " (in the signal universe)" : ""}: {r.reason}</li>)}</ul>
+            </details>
           )}
         </section>
         <section>

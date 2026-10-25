@@ -359,7 +359,7 @@ _EVENT_COLS = ["exchange", "symbol", "ex_date", "prev_session", "close_prev_sess
                "close_ex_date", "open_ratio", "close_ratio", "volume_ratio", "persistence_ratio",
                "kind", "snapped_ratio", "price_factor", "applied", "method", "source", "source_purpose",
                "ex_date_shift", "applied_research", "confidence",
-               "approval_tier", "isin", "source_url", "retrieved_at", "evidence_ref"]
+               "approval_tier", "isin", "source_url", "retrieved_at", "evidence_ref", "review_status", "review_note"]
 
 
 def _py(df: pd.DataFrame) -> list[tuple]:
@@ -381,6 +381,8 @@ def _source_events(primary: pd.DataFrame, inferred: pd.DataFrame) -> tuple[pd.Da
             ev["applied_research"] = ev["applied"].astype(bool)
             ev["applied"] = False
             ev["confidence"] = "low"
+        ev["review_status"] = None
+        ev["review_note"] = None
         return ev, {"source": "absent"}
     src = cas.load_source()
     confirmed = cas.reconcile(src, primary)
@@ -400,12 +402,16 @@ def _source_events(primary: pd.DataFrame, inferred: pd.DataFrame) -> tuple[pd.Da
     for c in ("approval_tier", "isin", "source_url", "retrieved_at", "evidence_ref"):
         if c not in events.columns:
             events[c] = None
+    from qsde.ingestion import bucket_a_decisions as BA
+    events, bucket_a_report = BA.apply_policy(events)              # the owner's adjudication is an input to the rebuild, not a one-off edit
+    if bucket_a_report["unmatched"]:
+        log.warning("Bucket A decisions that match no event: %s", bucket_a_report["unmatched"][:5])
     summ = {"source_rows": int(len(src)),
             "source_split_bonus_rows": int(src["category"].isin(["SPLIT_BONUS", "CONSOLIDATION"]).sum()),
             "source_confirmed": int(confirmed["applied"].sum()) if len(confirmed) else 0,
             "source_unconfirmed": int((confirmed["kind"] == "SOURCE_UNCONFIRMED").sum()) if len(confirmed) else 0,
             "price_inferred_kept": int((events["source"] == "price_inferred").sum()) if len(events) else 0,
-            "owner_approvals": approval_report}
+            "owner_approvals": approval_report, "bucket_a_policy": bucket_a_report}
     return events, summ
 
 
