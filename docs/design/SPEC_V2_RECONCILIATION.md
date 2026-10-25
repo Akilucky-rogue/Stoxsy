@@ -33,3 +33,23 @@ Date: 2026-10-25. Sources read: `design stoxy.md` (Master Design Specification v
 - **Not wired on purpose:** the prediction ledger's resolution window. It resolves from actual bars, and changing what gets logged would alter hashes of an append-only record.
 - **Restricted list (migration 060, `/api/trader/restricted`):** an empty, owner-controlled list. A listed symbol is not proposed or logged by the trader desk until released or its end date passes; every change is audited. Nothing is preset: which securities and until when is for the owner and the compliance officer.
 - **Regulatory notes from an AI Studio answer (NOT verified here):** it asserts rules on advisory/broking segregation, trading contrary to client advice and a research-report blackout window, exchange data redistribution, and mandatory reporting of AI/ML tools by intermediaries, with citations. None of those citations or dates was checked against SEBI or exchange text, and some dates in it are in the future relative to what could be known. Treat all of it as questions for the compliance officer, not as findings. The four questions stay open.
+
+## Update 2026-10-26: broker file import, tax lots and per-security pot triage (migration 061)
+
+Built from the owner's request to bring the Choice Equity book in. Operator steps are in `docs/runbooks/broker_file_import.md`.
+
+| Topic | Decision |
+|---|---|
+| Accounts | Equities are held at Choice Equity (`choice`); Zerodha Kite is market data only. Holdings are imported from files; there is no broker holdings sync and none is planned. |
+| Pot design | The existing rule (a pot is set once per import) cannot describe a demat account that mixes investments and trades. The account snapshot is stored without a pot; each security gets its own pot (`security_pot`, set once, audited, trigger-protected); the per-pot `portfolio_imports` the trader and investor code read are regenerated from snapshot + triage. Triage carries to every later import, and recorded stops carry with the symbol. |
+| Holdings with no pot | Lock new trader ideas (same mechanism as unprotected positions), and show on the desk and the Tax lots page. |
+| Lots | FIFO per security, keyed by the resolved NSE symbol (ISIN alone breaks: NSE issues a new ISIN at splits and some bonuses). Split rescales and keeps the date; bonus adds a zero-cost lot at the ex-date (allotment date not in the feed). Only corporate actions confirmed against prices are applied; parsed terms must agree with NSE's listed factor. Broker lot reports are used as stated. |
+| Reconciliation | Against the latest holdings snapshot. A shortfall is an undated gap lot with the exact quantity; a surplus is flagged; nothing is guessed or trimmed. Mutual fund units are `UNVERIFIED` without a statement closing balance. |
+| Holding period | 12 calendar months + 1 day, not 365 days. Only listed equity and equity-oriented funds are classified. No tax amounts and no annual exemption are computed. `infra/data/tax_policy.json` is marked **UNVERIFIED** and must be checked with the owner's accountant. |
+| Layout approval | `--mapping-ok` is required once per header layout and kind (not once ever), after a dry run. Banner text (name, client code, PAN, DP id) is skipped and never stored, logged or printed. |
+| Inputs | CSV and XLSX; `.xls` and PDF are refused with a clear message. A one-off local script converted the Choice Global Details PDF to a tradebook CSV for the 12 holdings; it reconciled 11 of 12 exactly (DUCON's 50,000 rights shares are the gap). Not productised: the layout has been seen once. |
+| Data root | `STOXSY_ROOT` resolves from the environment, then the repository `.env`, then the folder holding the checkout, then `C:\Stoxsy`. It no longer falls back to the failed D: disk. |
+| Restricted list | One implementation (`qsde/trader/restricted.py`) used by both the API and `stoxsy restrict`, so changes are audited either way. |
+
+Not built: realised-gains ledger and the annual exemption (needs every broker and fund), CAS PDF parsing, an alert for holdings with no pot, rights-issue cost entry, and automatic handling of consolidations (CCAVENUE's October 2026 consolidation is not in the NSE feed; Choice has already restated its lots).
+The AI Studio statements about loss carry-forward, harvesting and sector limits that accompanied the Choice files are not Stoxsy output and are not verified here.

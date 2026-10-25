@@ -1,6 +1,11 @@
 # Daily operations (until the Debian host takes over)
 
-Commands run from `C:\Stoxsy\stoxsy\backend` with `C:\Stoxsy\.venv\Scripts\python.exe -m qsde.cli <command>` (`stoxsy <command>` once the package script is on your PATH). Exit codes: 0 ok, 1 warnings, 2 failures.
+Commands are `stoxsy <command>`. A new PowerShell window does not find it by default; any one of these works:
+- `C:\Stoxsy\.venv\Scripts\Activate.ps1` once per window (puts `stoxsy` on the PATH), or
+- `cd C:\Stoxsy` then `.\stoxsy <command>` (the `stoxsy.cmd` launcher sits there; PowerShell needs the `.\`), or
+- add `C:\Stoxsy` to your user PATH once: `[Environment]::SetEnvironmentVariable("Path", $env:Path + ";C:\Stoxsy", "User")`, then open a new window.
+
+Exit codes: 0 ok, 1 warnings, 2 failures. `STOXSY_ROOT` no longer needs to be set: the data root is found from the repository's location (see `qsde/config/paths.py`).
 
 ## Every trading morning (before 09:10 IST)
 1. **`kite login`**: the Kite token lapses at 06:00 IST every day, so the login is a daily manual step. It starts the local API if needed, opens Zerodha's login page, waits for the session to register, and tells you how many hours it is valid.
