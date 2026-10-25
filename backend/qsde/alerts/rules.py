@@ -249,7 +249,12 @@ def rule_trader(facts: dict, cfg: dict) -> list:
     today = facts["now"].tz_convert("Asia/Kolkata").date()
     for p in t["open"]:
         sym, last, entry, stop, target = p["symbol"], p["last"], p["entry"], p["stop"], p.get("target")
-        key = f"trader:{p['id']}"
+        key = f"trader:{p['id'] if p.get('id') is not None else 'imp:' + sym}"
+        if stop is None:
+            em = p.get("emergency_stop")
+            out.append(alert("trader_unprotected", "critical", f"{sym} has no stop", f"An imported trading-pot position with no stop has unbounded risk. Suggested emergency stop: {em:g}." if em else
+                             "An imported trading-pot position with no stop has unbounded risk. Record a stop on the Trader desk.", f"{key}:unprotected", scope="user", entity_type="symbol", entity_id=sym, payload=p))
+            continue
         if last <= stop:
             out.append(alert("trader_stop", "critical", f"{sym} is at or below its stop", f"Last close {last:g} against a stop of {stop:g} (entry {entry:g}). Your plan was to exit; the loss can be larger than planned if it gapped.",
                              f"{key}:stop", scope="user", entity_type="symbol", entity_id=sym, payload=p))
@@ -263,6 +268,8 @@ def rule_trader(facts: dict, cfg: dict) -> list:
             elif target > entry and (target - last) / (target - entry) <= near:
                 out.append(alert("trader_target", "info", f"{sym} is close to its target", f"Last close {last:g}; target {target:g}. Only {(target - last) / (target - entry):.0%} of the entry-to-target distance is left.",
                                  f"{key}:target_near", scope="user", entity_type="symbol", entity_id=sym, payload=p))
+        if not p.get("time_stop"):
+            continue                                                    # imported positions have no time stop
         ts = date.fromisoformat(str(p["time_stop"]))
         left = int(len(pd.bdate_range(pd.Timestamp(today), pd.Timestamp(ts))) - 1) if ts >= today else -1
         if left <= c["time_stop_warn_sessions"]:

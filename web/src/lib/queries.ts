@@ -130,3 +130,7 @@ export const useCloseIdea = () => {
   const qc = useQueryClient();
   return useMutation({ mutationFn: (x: { id: number; price: number; reason: "stop" | "target" | "time" | "manual"; notes?: string }) => post<{ pnl_rupees: number; r_multiple: number | null }>(`/api/trader/ideas/${x.id}/close`, { price: x.price, reason: x.reason, notes: x.notes }), onSuccess: () => invalidateTrader(qc) });
 };
+export const useSetStop = () => {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (x: { symbol: string; stop_price: number }) => put<{ symbol: string; stop_price: number }>(`/api/trader/triage/${encodeURIComponent(x.symbol)}`, { stop_price: x.stop_price }), onSuccess: () => invalidateTrader(qc) });
+};

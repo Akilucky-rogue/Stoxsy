@@ -72,6 +72,8 @@ class State:
     trades: list = field(default_factory=list)            # TradeRecord, any order
     previous_week_pnl: float = 0.0                        # realised + unrealised change of the previous week
     price_sessions_behind: int = 0                        # how many sessions the latest price lags the expected last session
+    unprotected: list = field(default_factory=list)       # symbols of imported trading-pot positions that have no recorded stop
+    book: list = field(default_factory=list)              # Section A rows: every open position (paper ideas and imported) with its command; display only, never read by the gate
 
 
 def open_risk(s: State) -> float:
@@ -179,6 +181,8 @@ def evaluate(s: State, l: Limits, *, symbol: str, side: str, entry: float, stop:
         why.append("entry and stop must be positive prices")
     elif side == "long" and stop >= entry:
         why.append(f"stop {stop:g} must be below the entry {entry:g} for a long idea")
+    if s.unprotected:
+        why.append(f"{len(s.unprotected)} imported trading-pot position(s) have no stop ({', '.join(sorted(s.unprotected))}): record a stop for each first, because the existing book is managed before any new idea")
     if s.price_sessions_behind > STALE_SESSIONS:
         why.append(f"price data is {s.price_sessions_behind} sessions behind: refused until the data is current")
     if why:
@@ -225,4 +229,4 @@ def meters(s: State, l: Limits) -> dict:
             "weekly_pnl": weekly_pnl(s), "weekly_pnl_pct": div(weekly_pnl(s), cap) * 100, "weekly_loss_limit_pct": l.weekly_loss_pct,
             "weekly_limit_used": max(0.0, div(-weekly_pnl(s), l.weekly_loss_pct / 100.0 * cap)) if cap else 0.0,
             "positions": len(s.open_positions), "max_positions": l.max_positions, "size_multiplier": m, "size_multiplier_reasons": why, "streak": st,
-            "invested": invested(s), "free_cash": max(0.0, cap - invested(s))}
+            "invested": invested(s), "free_cash": max(0.0, cap - invested(s)), "unprotected": sorted(s.unprotected)}

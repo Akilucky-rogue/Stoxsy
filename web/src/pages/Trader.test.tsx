@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { meterTone, meterWidth, Trader } from "./Trader";
+import { actionTone, meterTone, meterWidth, Trader } from "./Trader";
 
 vi.mock("../lib/auth", () => ({ useAuth: () => ({ status: "authed", me: { role: "trader" }, mustChange: false }) }));
 
@@ -17,6 +17,10 @@ const card = {
   qty: 36, position_value: 44388, risk_rupees: 2448, risk_pct_of_trading_capital: 0.245, expected_cost_rupees: 100, loss_per_unit: 68, sizing: { binding_limit: "risk_per_trade", multiplier: 1 }, invalidated_if: ["the price closes below 1184.20"], as_of: "2026-10-23",
 };
 const desk = {
+  book: [
+    { source: "imported", id: null, symbol: "ZEEL", qty: 1500, entry: 148, stop: null, emergency_stop: 124.2, target: null, last: 126.5, risk_rupees: 36000, protected: false, unrealised: -32250, time_stop: null, action: "SET_STOP_NOW", why: "no stop is recorded: the risk of this position is unbounded" },
+    { source: "paper idea", id: 3, symbol: "TRENT", qty: 25, entry: 7420, stop: 7420, target: 7900, last: 7810, risk_rupees: 1000, protected: true, unrealised: 9750, time_stop: "2026-11-05", action: "HOLD_AS_PLANNED", why: "inside its stop, before its time stop" },
+  ], unprotected: ["ZEEL"],
   disclaimer: "Research and decision support, not investment advice.", engine_approved: false, trading_capital: 1e6, meters, limits: {}, open: [], mode: "trader", needs: [],
   headline: "1 research candidate(s) pass your risk rules today (of 2 breakouts checked). They are baselines with no shown edge.",
   candidates: [
@@ -39,6 +43,12 @@ describe("meter helpers", () => {
     expect(meterTone(1)).toBe("bad");
     expect(meterTone(2.4)).toBe("bad");
   });
+  it("urgent commands are red, trailing is amber, holding is green", () => {
+    expect(actionTone("SET_STOP_NOW")).toBe("bad");
+    expect(actionTone("EXIT_STOP_BREACHED")).toBe("bad");
+    expect(actionTone("RAISE_STOP_TO_COST")).toBe("warn");
+    expect(actionTone("HOLD_AS_PLANNED")).toBe("ok");
+  });
   it("width is clamped to the track", () => {
     expect(meterWidth(-1)).toBe("0%");
     expect(meterWidth(0.456)).toBe("46%");
@@ -59,6 +69,18 @@ describe("Trader desk", () => {
     expect(screen.getByText(/This idea is wrong if:/)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Log as a paper idea/ })).toBeTruthy();
     expect(screen.getByRole("progressbar", { name: /Open risk: 30% of the limit used/ })).toBeTruthy();
+  });
+
+  it("lists the existing book first, most urgent command at the top, with a stop field for the unprotected import", async () => {
+    mock(desk);
+    wrap();
+    expect(await screen.findByText(/Manage what you already hold/)).toBeTruthy();
+    expect(screen.getByText("SET A STOP NOW")).toBeTruthy();
+    expect(screen.getByText("HOLD AS PLANNED")).toBeTruthy();
+    expect(screen.getByLabelText("Stop for ZEEL")).toBeTruthy();
+    expect(screen.getByText(/Suggested emergency stop: 124.2/)).toBeTruthy();
+    const rows = screen.getAllByRole("row").map((r) => r.textContent ?? "");
+    expect(rows.findIndex((t) => t.includes("ZEEL"))).toBeLessThan(rows.findIndex((t) => t.includes("TRENT")));
   });
 
   it("asks for the trading pot and sizes nothing when it is not set", async () => {

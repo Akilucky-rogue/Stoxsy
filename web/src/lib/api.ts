@@ -268,7 +268,12 @@ export interface InvestorPlan {
 export interface TraderMeters {
   capital: number; open_risk: number; open_risk_pct: number; open_risk_limit_pct: number; daily_pnl: number; daily_pnl_pct: number; daily_loss_limit_pct: number; daily_limit_used: number;
   weekly_pnl: number; weekly_pnl_pct: number; weekly_loss_limit_pct: number; weekly_limit_used: number; positions: number; max_positions: number; size_multiplier: number;
-  size_multiplier_reasons: string[]; streak: { stops_in_row: number; reduced_trades_left: number }; invested: number; free_cash: number;
+  size_multiplier_reasons: string[]; streak: { stops_in_row: number; reduced_trades_left: number }; invested: number; free_cash: number; unprotected?: string[];
+}
+export type BookAction = "SET_STOP_NOW" | "EXIT_STOP_BREACHED" | "EXIT_TIME_STOP" | "RAISE_STOP_TO_COST" | "HOLD_AS_PLANNED" | "NO_PRICE";
+export interface BookRow {
+  source: "paper idea" | "imported"; id: number | null; symbol: string; qty: number; entry: number; stop: number | null; emergency_stop?: number | null; target: number | null; last: number;
+  risk_rupees: number; protected: boolean; unrealised: number; time_stop: string | null; action: BookAction; why: string;
 }
 export interface TraderCard {
   symbol: string; venue: string; setup: string; direction: "long"; horizon_id: string; evidence: "RESEARCH" | "PAPER" | "APPROVED"; evidence_note: string;
@@ -281,7 +286,7 @@ export interface TraderCandidate extends TraderDecision { symbol: string; breako
 export interface TraderOpen { symbol: string; qty: number; entry: number; stop: number; last: number; risk_rupees: number; unrealised: number }
 export interface TraderDesk {
   disclaimer: string; engine_approved: boolean; trading_capital: number | null; meters: TraderMeters; limits: Record<string, number>; open: TraderOpen[]; mode: string | null;
-  candidates: TraderCandidate[]; needs: string[]; headline: string;
+  candidates: TraderCandidate[]; needs: string[]; headline: string; book: BookRow[]; unprotected: string[];
 }
 export interface TraderIdea {
   id: number; created_at: string; symbol: string; setup: string; horizon_id: string; evidence: string; entry: number; stop: number; target: number | null; qty: number; risk_rupees: number;

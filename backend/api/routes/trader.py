@@ -5,6 +5,7 @@ Trading capital comes only from the user's profile (the trading pot); nothing is
 """
 from __future__ import annotations
 
+from datetime import date, timedelta
 from typing import Literal, Optional
 
 import pandas as pd
@@ -32,6 +33,11 @@ class IdeaIn(BaseModel):
     evidence: Literal["RESEARCH", "PAPER", "APPROVED"] = "RESEARCH"
 
 
+class TriageIn(BaseModel):
+    stop_price: float = Field(gt=0)
+    horizon_id: Optional[Literal["swing_5d", "position_20d"]] = None
+
+
 class CloseIn(BaseModel):
     price: float = Field(gt=0)
     reason: Literal["stop", "target", "time", "manual"]
@@ -56,7 +62,7 @@ def desk(limit: int = 8, p: Principal = Depends(require_auth)):
     st, _ = store.build_state(read_sql, p.id, cap, now)
     out = {"disclaimer": DISCLAIMER, "engine_approved": pol.engine_approved(), "trading_capital": cap or None, "meters": R.meters(st, l), "limits": l.__dict__,
            "open": [{"symbol": o.symbol, "qty": o.qty, "entry": o.entry, "stop": o.stop, "last": o.last_price, "risk_rupees": o.risk_rupees, "unrealised": o.qty * (o.last_price - o.entry)} for o in st.open_positions],
-           "mode": pr.get("mode"), "candidates": [], "needs": []}
+           "mode": pr.get("mode"), "candidates": [], "needs": [], "book": st.book, "unprotected": sorted(st.unprotected)}
     if not cap:
         out["needs"].append("trading_capital")
         out["headline"] = "Set your trading pot on the Profile page to see sized ideas: nothing is assumed."
@@ -67,9 +73,42 @@ def desk(limit: int = 8, p: Principal = Depends(require_auth)):
         out["candidates"].append({"symbol": r.symbol, "breakout_pct": r.breakout_pct, "volume_x_median": r.volume_x_median, "risk_bucket": None if "risk_bucket" not in c.columns or pd.isna(r.risk_bucket) else int(r.risk_bucket),
                                   "allowed": d["allowed"], "card": d["card"], "reasons": d["reasons"], "notes": d["notes"]})
     n_ok = sum(1 for x in out["candidates"] if x["allowed"])
+    if st.unprotected:
+        out["headline"] = (f"Existing book first: {len(st.unprotected)} imported trading-pot position(s) have no stop ({', '.join(sorted(st.unprotected))}). "
+                           "New ideas stay locked until each has one.")
+        return out
     out["headline"] = (f"{n_ok} research candidate(s) pass your risk rules today (of {len(out['candidates'])} breakouts checked). They are baselines with no shown edge."
                        if out["candidates"] else "No breakout candidates in the universe today: nothing to do is a normal answer.")
     return out
+
+
+@router.get("/trader/triage")
+def triage(p: Principal = Depends(require_auth)):
+    """Imported trading-pot positions with their protection status. Investment-pot imports never appear here."""
+    from qsde.trader import legacy
+
+    rows = legacy.positions(read_sql, p.id, store.load_prices, date.today() - timedelta(days=40), gap_fraction=store.gap_allowance_fraction)
+    return {"positions": rows, "unprotected": [r["symbol"] for r in rows if not r["protected"]],
+            "rule": "Every imported trading-pot position needs a stop. Until it has one the position is counted at an emergency stop and no new idea is offered."}
+
+
+@router.put("/trader/triage/{symbol}")
+def set_stop(symbol: str, b: TriageIn, p: Principal = Depends(require_role("admin", "trader"))):
+    from qsde.trader import legacy
+
+    sym = symbol.upper()
+    imp = legacy.latest_trading_import(read_sql, p.id)
+    if imp is None:
+        raise HTTPException(status_code=404, detail="no trading-pot import: import holdings into the trading pot first")
+    h = read_sql("SELECT 1 FROM portfolio_holdings WHERE import_id = :i AND symbol = :s", params={"i": imp, "s": sym})
+    if h.empty:
+        raise HTTPException(status_code=404, detail=f"{sym} is not in your latest trading-pot import")
+    with get_sync_conn() as c:
+        c.cursor().execute("INSERT INTO legacy_triage (import_id, symbol, user_id, stop_price, horizon_id, set_by_role) VALUES (%s,%s,%s,%s,%s,%s) "
+                           "ON CONFLICT (import_id, symbol) DO UPDATE SET stop_price = EXCLUDED.stop_price, horizon_id = EXCLUDED.horizon_id, set_by_role = EXCLUDED.set_by_role, set_at = NOW()",
+                           (imp, sym, p.id, b.stop_price, b.horizon_id, p.role))
+        prof.record(c, p.id, p.role, "trader.triage", {"symbol": sym, "import_id": imp, "stop_price": b.stop_price, "horizon_id": b.horizon_id})
+    return {"symbol": sym, "stop_price": b.stop_price}
 
 
 @router.post("/trader/propose")

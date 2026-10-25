@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { Chip, Empty, ErrorState, Evidence, PageHead, Skeleton, Tile, type Tone } from "../components/ui";
-import type { TraderCandidate, TraderIdea, TraderMeters, TraderOpen } from "../lib/api";
+import type { BookAction, BookRow, TraderCandidate, TraderIdea, TraderMeters, TraderOpen } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { dash, num, pct, rupees, shortDate, signed } from "../lib/format";
-import { useCloseIdea, useLogIdea, useTraderDesk, useTraderIdeas, useTraderPerformance } from "../lib/queries";
+import { useCloseIdea, useLogIdea, useSetStop, useTraderDesk, useTraderIdeas, useTraderPerformance } from "../lib/queries";
 
 /** How full a limit is: under 60% fine, 60-100% close, 100%+ reached. Pure so it can be tested. */
 export function meterTone(used: number): Tone {
@@ -34,6 +34,40 @@ function Meters({ m }: { m: TraderMeters }) {
       <Meter label="Today" used={m.daily_limit_used} text={`${signed(m.daily_pnl_pct, 2)}%`} hint={`new ideas stop at -${m.daily_loss_limit_pct}% · ${rupees(m.daily_pnl)}`} />
       <Meter label="This week" used={m.weekly_limit_used} text={`${signed(m.weekly_pnl_pct, 2)}%`} hint={`limit -${m.weekly_loss_limit_pct}% · a breach halves next week's size`} />
       <Meter label="Positions" used={m.max_positions ? m.positions / m.max_positions : 0} text={`${m.positions} of ${m.max_positions}`} hint={`${rupees(m.free_cash)} of the pot is free`} />
+    </div>
+  );
+}
+
+const ACTION_LABEL: Record<BookAction, string> = {
+  SET_STOP_NOW: "SET A STOP NOW", EXIT_STOP_BREACHED: "EXIT: STOP BREACHED", EXIT_TIME_STOP: "EXIT: TIME STOP", RAISE_STOP_TO_COST: "RAISE STOP TO COST", HOLD_AS_PLANNED: "HOLD AS PLANNED", NO_PRICE: "NO PRICE DATA",
+};
+export const actionTone = (a: BookAction): Tone => (a === "SET_STOP_NOW" || a === "EXIT_STOP_BREACHED" || a === "EXIT_TIME_STOP" ? "bad" : a === "RAISE_STOP_TO_COST" ? "warn" : a === "HOLD_AS_PLANNED" ? "ok" : "");
+
+function ExistingBook({ book, canWrite }: { book: BookRow[]; canWrite: boolean }) {
+  const set = useSetStop();
+  const [stop, setStop] = useState<Record<string, string>>({});
+  if (book.length === 0) return <Empty>Nothing open or imported in the trading pot.</Empty>;
+  const order: BookAction[] = ["SET_STOP_NOW", "EXIT_STOP_BREACHED", "EXIT_TIME_STOP", "RAISE_STOP_TO_COST", "HOLD_AS_PLANNED", "NO_PRICE"];
+  const rows = [...book].sort((a, b) => order.indexOf(a.action) - order.indexOf(b.action));
+  return (
+    <div className="table-wrap"><table aria-label="Existing positions and what to do with each">
+      <thead><tr><th>What to do</th><th>Symbol</th><th>From</th><th className="num">Qty</th><th className="num">Cost</th><th className="num">Last</th><th className="num">Stop</th><th className="num">Risk</th><th>Why</th></tr></thead>
+      <tbody>{rows.map((b) => {
+        const v = Number(stop[b.symbol] ?? "");
+        return (
+          <tr key={`${b.source}-${b.symbol}`}>
+            <td><Chip tone={actionTone(b.action)}>{ACTION_LABEL[b.action]}</Chip></td><td><strong>{b.symbol}</strong></td><td>{b.source}</td><td className="num">{b.qty}</td><td className="num">{num(b.entry)}</td>
+            <td className="num">{num(b.last)}</td>
+            <td className="num">{b.stop != null ? num(b.stop) : b.source === "imported" && canWrite ? (
+              <span style={{ whiteSpace: "nowrap" }}>
+                <input className="input" aria-label={`Stop for ${b.symbol}`} inputMode="decimal" style={{ width: 80 }} placeholder={b.emergency_stop ? String(b.emergency_stop) : "stop"} value={stop[b.symbol] ?? ""} onChange={(e) => setStop({ ...stop, [b.symbol]: e.target.value })} />{" "}
+                <button className="btn" style={{ padding: "4px 8px" }} disabled={!(v > 0) || set.isPending} onClick={() => set.mutate({ symbol: b.symbol, stop_price: v })}>Record</button>
+              </span>) : dash}</td>
+            <td className="num">{rupees(b.risk_rupees)}</td><td className="muted" style={{ fontSize: "0.86rem" }}>{b.why}{!b.protected && b.emergency_stop ? ` Suggested emergency stop: ${b.emergency_stop}.` : ""}</td>
+          </tr>
+        );
+      })}</tbody></table>
+      {set.isError && <p role="alert" style={{ color: "var(--down)" }}>{set.error instanceof Error ? set.error.message : "Not saved"}</p>}
     </div>
   );
 }
@@ -142,11 +176,14 @@ export function Trader() {
           <h2>Your limits today</h2>
           <Meters m={d.meters} />
           {d.meters.size_multiplier < 1 && <div className="card" role="alert" style={{ marginTop: 12 }}><strong>Sizes are reduced ({d.meters.size_multiplier}x):</strong> {d.meters.size_multiplier_reasons.join("; ")}.</div>}
+          <h2>Manage what you already hold <Chip title="Existing positions are handled before any new idea, and their risk counts against your limits">section A</Chip></h2>
+          <ExistingBook book={d.book ?? []} canWrite={canWrite} />
+          <h2>New ideas <Chip title="Sized only from the risk budget left after the positions above">section B</Chip></h2>
           {d.needs.includes("trading_capital") ? (
             <Empty>Enter your trading pot on the Profile page. Ideas are sized only from that pot; nothing is assumed.</Empty>
           ) : (
             <>
-              <h2>Candidates today <Chip tone="research" title="Rule baseline, ordered by lower recent risk, not by any forecast of profit">baseline, no edge shown</Chip></h2>
+              <h3>Candidates today <Chip tone="research" title="Rule baseline, ordered by lower recent risk, not by any forecast of profit">baseline, no edge shown</Chip></h3>
               {d.candidates.length === 0 ? <Empty>No breakout candidates today. Doing nothing is a normal answer.</Empty> : <div style={{ display: "grid", gap: 12 }}>{d.candidates.map((c) => <CandidateCard key={c.symbol} c={c} canWrite={canWrite} />)}</div>}
             </>
           )}

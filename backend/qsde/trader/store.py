@@ -16,6 +16,7 @@ import psycopg2.extras
 from qsde.alerts import rules as alert_rules
 from qsde.modes import policy as pol
 from qsde.risk import costs
+from qsde.trader import legacy as LG
 from qsde.trader import risk as R
 
 IST = "Asia/Kolkata"
@@ -53,7 +54,7 @@ def build_state(read_sql, user_id: str, capital: float, now: Optional[pd.Timesta
         ideas = read_sql("SELECT * FROM trader_ideas WHERE user_id = :u ORDER BY opened_at", params={"u": user_id})
     syms = sorted(ideas["symbol"].unique().tolist()) if len(ideas) else []
     px = load_prices(read_sql, syms, pws - timedelta(days=10))
-    opens, trades = [], []
+    opens, trades, book = [], [], []
     realised_today = realised_week = prev_week_realised = 0.0
     wk_change = prev_wk_unreal = 0.0
     for r in ideas.itertuples():
@@ -74,6 +75,10 @@ def build_state(read_sql, user_id: str, capital: float, now: Optional[pd.Timesta
             last = float(s["close"].iloc[-1]) if len(s) else float(r.entry)
             prev = float(s["close"].iloc[-2]) if len(s) > 1 else last
             opens.append(R.OpenPosition(r.symbol, int(r.qty), float(r.entry), float(r.stop), last, prev, float(r.risk_rupees)))
+            tgt = None if r.target is None or pd.isna(r.target) else float(r.target)
+            book.append({"source": "paper idea", "id": int(r.id), "symbol": r.symbol, "qty": int(r.qty), "entry": float(r.entry), "stop": float(r.stop), "target": tgt, "last": last, "risk_rupees": float(r.risk_rupees),
+                         "protected": True, "unrealised": int(r.qty) * (last - float(r.entry)), "time_stop": str(r.time_stop),
+                         **LG.manage(entry=float(r.entry), stop=float(r.stop), last=last, time_stop=r.time_stop if isinstance(r.time_stop, date) else date.fromisoformat(str(r.time_stop)), today=today)})
             od = opened.tz_convert(IST).date()
             base = float(r.entry) if od >= ws else (last_close_on_or_before(px, r.symbol, ws - timedelta(days=1)) or float(r.entry))
             wk_change += int(r.qty) * (last - base)
@@ -84,8 +89,21 @@ def build_state(read_sql, user_id: str, capital: float, now: Optional[pd.Timesta
             base = float(r.entry) if od >= pws else (last_close_on_or_before(px, r.symbol, pws - timedelta(days=1)) or float(r.entry))
             if end is not None:
                 prev_wk_unreal += int(r.qty) * (end - base)
+    legacy = LG.positions(read_sql, user_id, load_prices, pws - timedelta(days=10), gap_fraction=gap_allowance_fraction)
+    unprotected = []
+    for g in legacy:                                   # existing book first: imported trading-pot holdings take part in every limit
+        if g["last"] is None:
+            continue
+        opens.append(R.OpenPosition(g["symbol"], int(g["qty"]), g["avg_cost"], g["counted_stop"], g["last"], g["prev_close"], g["risk_rupees"]))
+        base = last_close_on_or_before(load_prices(read_sql, [g["symbol"]], ws - timedelta(days=12)), g["symbol"], ws - timedelta(days=1)) or g["avg_cost"]
+        wk_change += g["qty"] * (g["last"] - base)
+        book.append({"source": "imported", "id": None, "symbol": g["symbol"], "qty": g["qty"], "entry": g["avg_cost"], "stop": g["stop"], "emergency_stop": g["emergency_stop"], "target": None, "last": g["last"],
+                     "risk_rupees": g["risk_rupees"], "protected": g["protected"], "unrealised": g["qty"] * (g["last"] - g["avg_cost"]), "time_stop": None, "action": g["action"], "why": g["why"]})
+    for g in legacy:
+        if not g["protected"]:
+            unprotected.append(g["symbol"])
     st = R.State(capital=float(capital or 0.0), open_positions=opens, realised_today=realised_today, realised_week=realised_week, week_start_value_change=wk_change, trades=trades,
-                 previous_week_pnl=prev_week_realised + prev_wk_unreal, price_sessions_behind=sessions_behind(read_sql, now))
+                 previous_week_pnl=prev_week_realised + prev_wk_unreal, price_sessions_behind=sessions_behind(read_sql, now), unprotected=unprotected, book=book)
     return st, px
 
 

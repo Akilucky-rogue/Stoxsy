@@ -127,7 +127,7 @@ def portfolio(user_id: str, cfg: dict) -> Optional[dict]:
 
 
 def trader(user_id: str) -> Optional[dict]:
-    """Open paper ideas with their last close, and the risk meters, for the user's trading pot. None when the user has no trading pot or no ideas at all."""
+    """The user's open trading-pot book (paper ideas and imported positions) with last close, and the risk meters. None when there is no trading pot or nothing open or imported."""
     from qsde.db.connection import get_sync_conn
     from qsde.modes import policy as pol, profile as prof
     from qsde.trader import risk as R, store
@@ -135,15 +135,14 @@ def trader(user_id: str) -> Optional[dict]:
     with get_sync_conn() as c:
         pr = prof.load(c, user_id)
     cap = float(pr.get("trading_capital") or 0.0)
-    ideas = read_sql("SELECT * FROM trader_ideas WHERE user_id = :u ORDER BY opened_at", params={"u": user_id})
-    if cap <= 0 or ideas.empty:
+    if cap <= 0:
         return None
-    st, _ = store.build_state(read_sql, user_id, cap, ideas=ideas)
+    st, _ = store.build_state(read_sql, user_id, cap)
+    if not st.book and not st.open_positions:
+        return None
     l = R.Limits.from_effective(pol.effective_limits(pr.get("limits")))
-    last = {p.symbol: p.last_price for p in st.open_positions}
-    op = ideas[ideas["status"] == "open"]
-    return {"meters": R.meters(st, l), "open": [{"id": int(r.id), "symbol": r.symbol, "entry": float(r.entry), "stop": float(r.stop), "target": None if r.target is None or pd.isna(r.target) else float(r.target),
-                                                "last": float(last.get(r.symbol, r.entry)), "time_stop": str(r.time_stop)} for r in op.itertuples()]}
+    return {"meters": R.meters(st, l), "open": [{"id": b["id"], "symbol": b["symbol"], "source": b["source"], "entry": float(b["entry"]), "stop": b["stop"], "target": b.get("target"), "last": float(b["last"]),
+                                                "emergency_stop": b.get("emergency_stop"), "time_stop": b.get("time_stop")} for b in st.book]}
 
 
 def series_consistency() -> dict:

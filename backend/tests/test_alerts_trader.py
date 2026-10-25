@@ -14,7 +14,7 @@ def pos(**kw):
     return base
 
 
-def run(opens, meters=None):
+def run(opens, meters=None):  # noqa: E302
     return R.rule_trader({"now": NOW, "trader": {"meters": {**M, **(meters or {})}, "open": opens}}, CFG)
 
 
@@ -55,3 +55,10 @@ def test_limits_warn_at_80_percent_and_turn_critical_when_reached():
 
 def test_the_rule_is_registered_for_users_only():
     assert R.rule_trader in R.USER_RULES and R.rule_trader not in R.GLOBAL_RULES
+
+
+def test_an_imported_position_without_a_stop_is_critical_and_has_no_time_stop():
+    out = run([pos(id=None, symbol="ZEEL", stop=None, target=None, time_stop=None, emergency_stop=124.2, source="imported")])
+    assert ids(out) == ["trader:imp:ZEEL:unprotected"] and out[0]["severity"] == "critical" and "124.2" in out[0]["detail"]
+    prot = run([pos(id=None, symbol="ZEEL", stop=90.0, time_stop=None, last=101.0, source="imported")])
+    assert prot == []                                                                       # protected, inside its levels, no time stop to flag
