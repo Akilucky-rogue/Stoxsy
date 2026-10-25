@@ -17,7 +17,7 @@ MAX_BYTES = 1_000_000
 MAX_ROWS = 2000
 
 SYMBOL_COLS = ["instrument", "symbol", "tradingsymbol", "scripname", "scrip", "stock", "security", "securityname"]
-QTY_COLS = ["qty", "quantity", "shares", "holdingqty", "totalqty", "quantityavailable", "holdingquantity", "netqty", "netquantity", "currentqty", "balanceqty", "quantityfreepledged"]
+QTY_COLS = ["qty", "quantity", "shares", "holdingqty", "totalqty", "quantityavailable", "holdingquantity", "netqty", "netquantity", "currentqty", "balanceqty", "quantityfreepledged", "qtylot"]
 COST_COLS = ["avgcost", "averageprice", "avgprice", "buyaverage", "averagecost", "avgcostprice", "buyprice", "avgbuyprice", "averagebuyprice"]
 ISIN_COLS = ["isin"]
 SUFFIX = re.compile(r"-(?:BE|EQ|BZ|SM|ST|N1|N2|IL)$")
