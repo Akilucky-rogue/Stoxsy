@@ -24,9 +24,10 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
+from qsde.config.paths import data_path
 
 SOURCE_FILE = Path(os.getenv("STOXSY_CORP_ACTIONS_FILE",
-                             r"D:\Stoxsy\data\stocktrack_data\cache\historical\corp_actions.parquet"))
+                             str(data_path("stocktrack_data", "cache", "historical", "corp_actions.parquet"))))
 METHOD = "source_confirmed_v2"
 SESSION_WINDOW = 2
 TOL_STRONG = 0.10        # |open_ratio / factor - 1| for factor <= 0.8 or >= 1.25

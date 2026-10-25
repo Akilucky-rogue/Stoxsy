@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from qsde.config.paths import data_path
 
 import numpy as np
 import pandas as pd
@@ -28,8 +29,8 @@ from qsde.ml.experiment import atr_neutral_target, lightgbm_fit_predict, run_exp
 from qsde.ml.registry import get_horizon
 
 log = logging.getLogger("research_resid")
-OUT = Path(r"D:\Stoxsy\data\reports\research")
-CARDS = Path(r"D:\Stoxsy\data\reports\model_cards")
+OUT = data_path("reports", "research")
+CARDS = data_path("reports", "model_cards")
 CONFIGS = [
     ("A", {"n_estimators": 150, "num_leaves": 15}),
     ("B", {"n_estimators": 300, "num_leaves": 31, "learning_rate": 0.03, "min_child_samples": 500}),

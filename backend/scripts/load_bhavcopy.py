@@ -18,9 +18,10 @@ from datetime import date, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from qsde.config.paths import data_path
 
 log = logging.getLogger("load_bhavcopy")
-REPORT_DIR = Path(r"D:\Stoxsy\data\reports")
+REPORT_DIR = data_path("reports")
 
 
 def _d(s: str) -> date:

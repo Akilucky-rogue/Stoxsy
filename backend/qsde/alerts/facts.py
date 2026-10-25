@@ -9,8 +9,8 @@ import numpy as np
 import pandas as pd
 
 from qsde.db.connection import read_sql
+from qsde.config.paths import DATA
 
-DATA = Path(os.environ.get("STOXSY_DATA_DIR", r"D:\Stoxsy\data"))
 SIGNAL = DATA / "signals" / "defensive" / "latest.parquet"
 ACTION_RE = r"split|sub-division|subdivision|bonus|rights|demerger|de-merger|merger|amalgamation|spin|capital reduction|consolidation"
 

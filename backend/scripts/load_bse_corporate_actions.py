@@ -16,13 +16,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from qsde.config.paths import data_path
 warnings.filterwarnings("ignore")
 
 import pandas as pd
 import psycopg2.extras
 
-INBOX = Path(r"D:\Stoxsy\data\inbox\bse_corporate_actions")
-REPORT = Path(r"D:\Stoxsy\data\reports\bse")
+INBOX = data_path("inbox", "bse_corporate_actions")
+REPORT = data_path("reports", "bse")
 CHUNK = 400
 
 

@@ -38,13 +38,14 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from qsde.config.paths import data_path
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s [retrain] %(message)s")
 log = logging.getLogger("retrain")
 
-CARDS = Path(r"D:\Stoxsy\data\reports\model_cards")
-SMOKE_LEDGER = Path(r"D:\Stoxsy\data\ledger_smoke")      # smoke trials never count towards a real key's DSR
-CANDIDATES = Path(r"D:\Stoxsy\data\models\candidates")
+CARDS = data_path("reports", "model_cards")
+SMOKE_LEDGER = data_path("ledger_smoke")      # smoke trials never count towards a real key's DSR
+CANDIDATES = data_path("models", "candidates")
 
 
 def _banner(s: str) -> None:

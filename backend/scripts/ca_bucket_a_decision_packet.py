@@ -13,6 +13,7 @@ import warnings
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from qsde.config.paths import data_path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 warnings.filterwarnings("ignore")
 
@@ -21,8 +22,8 @@ import pandas as pd
 
 from ca_bucket_a_packet import recommend
 
-OUT = Path(r"D:\Stoxsy\data\reports\corp_actions")
-SIGNAL = Path(r"D:\Stoxsy\data\signals\defensive\latest.parquet")
+OUT = data_path("reports", "corp_actions")
+SIGNAL = data_path("signals", "defensive", "latest.parquet")
 DEMERGER = r"demerg|de-merg|spin|scheme of arrangement|amalgam|merger|capital reduction|reduction of capital"
 
 

@@ -20,8 +20,9 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
+from qsde.config.paths import data_path
 
-LEDGER_DIR = Path(os.getenv("STOXSY_LEDGER_DIR", r"D:\Stoxsy\data\ledger"))
+LEDGER_DIR = Path(os.getenv("STOXSY_LEDGER_DIR", str(data_path("ledger"))))
 
 
 @dataclass(frozen=True)

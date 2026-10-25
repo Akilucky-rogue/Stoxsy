@@ -20,11 +20,12 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from qsde.config.paths import data_path
 
 import numpy as np
 import pandas as pd
 
-OUT = Path(r"D:\Stoxsy\data\reports\corp_actions")
+OUT = data_path("reports", "corp_actions")
 APPROVALS = Path(__file__).resolve().parents[2] / "infra" / "data" / "corp_action_approvals.json"
 
 

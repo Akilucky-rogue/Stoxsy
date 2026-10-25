@@ -18,11 +18,12 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from qsde.config.paths import data_path
 
 import numpy as np
 import pandas as pd
 
-OUT = Path(r"D:\Stoxsy\data\reports\data_quality")
+OUT = data_path("reports", "data_quality")
 CLIFF = 0.18
 
 

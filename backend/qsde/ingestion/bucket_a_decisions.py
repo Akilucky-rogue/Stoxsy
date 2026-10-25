@@ -17,10 +17,11 @@ from pathlib import Path
 from typing import Optional
 
 import pandas as pd
+from qsde.config.paths import data_path
 
 VERSION = "bucket_a_decisions_v1"
 FILE = Path(os.getenv("STOXSY_BUCKET_A_DECISIONS", str(Path(__file__).resolve().parents[3] / "infra" / "data" / "corp_action_bucket_a_decisions.json")))
-WORKSHEET = Path(r"D:\Stoxsy\data\reports\corp_actions\review_bucket_a_official_match_price_mismatch.csv")
+WORKSHEET = data_path("reports", "corp_actions", "review_bucket_a_official_match_price_mismatch.csv")
 DECISIONS = ("confirm", "needs_more_evidence", "reject")
 SERIES_LABELS = {"ohlcv": "official_prices_with_pending_corp_action_review", "sbadj_v1": "governed_research_series_not_production"}
 

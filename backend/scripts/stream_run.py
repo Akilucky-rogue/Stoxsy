@@ -19,9 +19,10 @@ from datetime import date, timedelta, datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from qsde.config.paths import data_path
 log = logging.getLogger("stream_run")
 
-STREAM_DIR = Path(r"D:\Stoxsy\data\stream")
+STREAM_DIR = data_path("stream")
 
 
 def landed_sessions(landing, source: str = "nse_bhavcopy") -> set:

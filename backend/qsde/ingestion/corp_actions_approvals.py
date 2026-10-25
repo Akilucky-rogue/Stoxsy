@@ -28,6 +28,7 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
+from qsde.config.paths import data_path
 
 log = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ FACTOR_TOL_STRONG = 0.05         # |observed gap / listed factor - 1| for factor
 FACTOR_TOL_MILD = 0.03           # milder factors barely clear noise, so the match must be tighter
 NOT_APPLIED_DECISIONS = ("reject", "rejected_pending_evidence", "manual_review", "proposed")
 OFFICIAL_TIER = "official_confirmed"
-EVIDENCE_DIR = Path(os.getenv("STOXSY_EVIDENCE_DIR", r"D:\Stoxsy\data\reports\corp_actions\evidence"))
+EVIDENCE_DIR = Path(os.getenv("STOXSY_EVIDENCE_DIR", str(data_path("reports", "corp_actions", "evidence"))))
 CA_API_URL = "https://www.nseindia.com/api/corporates-corporateActions"
 
 

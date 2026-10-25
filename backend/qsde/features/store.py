@@ -38,10 +38,11 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from qsde.factors.versions import FFD_D, FFD_THRES, FFD_VERSION
+from qsde.config.paths import data_path
 
 log = logging.getLogger(__name__)
 
-ROOT = Path(os.getenv("STOXSY_FEATURE_DIR", r"D:\Stoxsy\data\features"))
+ROOT = Path(os.getenv("STOXSY_FEATURE_DIR", str(data_path("features"))))
 META_COLS = ("symbol", "date", "known_at")
 KNOWABLE_HOURS_IST = 18                 # keep equal to pit_writer.KNOWABILITY_HOURS_AFTER_SESSION
 _IST_OFFSET = pd.Timedelta(hours=5, minutes=30)

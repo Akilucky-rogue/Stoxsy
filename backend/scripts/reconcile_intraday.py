@@ -15,13 +15,14 @@ from datetime import date, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from qsde.config.paths import data_path
 
 import numpy as np
 import pandas as pd
 
 from qsde.live import reconcile as R
 
-OUT = Path(r"D:\Stoxsy\data\reports\intraday")
+OUT = data_path("reports", "intraday")
 
 
 def _f(x, d=1, suf=""):

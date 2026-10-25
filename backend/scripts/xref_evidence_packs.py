@@ -15,12 +15,13 @@ import warnings
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from qsde.config.paths import data_path
 warnings.filterwarnings("ignore")
 
 import numpy as np
 import pandas as pd
 
-OUT = Path(r"D:\Stoxsy\data\reports\bse\evidence_packs")
+OUT = data_path("reports", "bse", "evidence_packs")
 DIFF_CLASS = re.compile(r"partly|part paid|\bpp\b|\bdvr\b|differential|rights entitlement|\bre\b|\bpaid.?up\b|warrant|\bnew\b", re.I)
 
 

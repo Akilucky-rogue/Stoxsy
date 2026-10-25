@@ -14,9 +14,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from qsde.config.paths import data_path
 
 FILE = Path(__file__).resolve().parents[2] / "infra" / "data" / "corp_action_approvals.json"
-EVIDENCE = Path(r"D:\Stoxsy\data\reports\corp_actions\evidence")
+EVIDENCE = data_path("reports", "corp_actions", "evidence")
 WHEN = "2026-10-18"
 # (feed symbol, traded symbol, listed ex-date): the exact entries named by the owner, not every entry of the same pair
 PROMOTE = {("UEL", None, "2025-10-08"), ("DRCSYSTEMS", None, "2022-03-16"), ("AURIGROW", "GODHA", "2022-03-24"),

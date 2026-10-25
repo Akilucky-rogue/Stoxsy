@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from qsde.config.paths import data_path
 
 import numpy as np
 import pandas as pd
@@ -29,8 +30,8 @@ from qsde.ml.labels import make_labels
 from qsde.ml.registry import COST_STRESS_BPS, get_horizon
 
 log = logging.getLogger("research_eval")
-CARDS = Path(r"D:\Stoxsy\data\reports\model_cards")
-OUT = Path(r"D:\Stoxsy\data\reports\research")
+CARDS = data_path("reports", "model_cards")
+OUT = data_path("reports", "research")
 BANNER = ("> **RESEARCH_ONLY.** Full-universe evaluation for deciding what to build next. Promotion is disabled "
           "(`QSDE_ML_PROMOTION_ENABLED=false`); nothing was saved as a candidate; this is not evidence of a tradable edge until the "
           "owner has reviewed it together with the data-quality report and the corporate-action reconciliation.")

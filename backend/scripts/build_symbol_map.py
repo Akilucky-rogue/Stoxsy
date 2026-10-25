@@ -21,12 +21,13 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from qsde.config.paths import data_path
 
 import numpy as np
 import pandas as pd
 
-REPORT = Path(r"D:\Stoxsy\data\reports\corp_actions\source_unconfirmed_reconciliation.csv")
-OUT = Path(r"D:\Stoxsy\data\reports\corp_actions\symbol_changes_candidate.csv")
+REPORT = data_path("reports", "corp_actions", "source_unconfirmed_reconciliation.csv")
+OUT = data_path("reports", "corp_actions", "symbol_changes_candidate.csv")
 HANDOFF_SESSIONS = 15
 
 

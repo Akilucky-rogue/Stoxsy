@@ -18,11 +18,12 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from qsde.config.paths import data_path
 
 import numpy as np
 import pandas as pd
 
-REPORTS = Path(r"D:\Stoxsy\data\reports\adjustment")
+REPORTS = data_path("reports", "adjustment")
 
 
 def load_raw():

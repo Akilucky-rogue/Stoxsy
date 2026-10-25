@@ -15,8 +15,9 @@ from pathlib import Path
 from typing import Iterator, Optional
 
 from qsde.stream.base import RawItem
+from qsde.config.paths import data_path
 
-DEFAULT_ROOT = Path(os.getenv("STOXSY_LANDING_DIR", r"D:\Stoxsy\data\landing"))
+DEFAULT_ROOT = Path(os.getenv("STOXSY_LANDING_DIR", str(data_path("landing"))))
 
 
 @dataclass(frozen=True)

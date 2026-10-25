@@ -23,11 +23,12 @@ from typing import Iterable, Optional
 
 import numpy as np
 import pandas as pd
+from qsde.config.paths import data_path
 
 log = logging.getLogger(__name__)
 
 DEFAULT_BASE = Path(os.getenv("STOXSY_BHAVCOPY_DIR",
-                              r"D:\Stoxsy\data\stocktrack_data\cache\historical\nse"))
+                              str(data_path("stocktrack_data", "cache", "historical", "nse"))))
 # (sub-directory, first date, last date) — a file belongs to the layout whose
 # range contains its date.
 LAYOUTS: list[tuple[str, date, date]] = [

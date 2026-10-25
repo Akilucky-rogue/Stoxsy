@@ -24,10 +24,11 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+from qsde.config.paths import data_path
 
 log = logging.getLogger(__name__)
 
-ROOT = Path(r"D:\Stoxsy\data\adjusted")
+ROOT = data_path("adjusted")
 SPLIT_VERSION_PREFIX = "sbadj_v1"
 TR_VERSION_PREFIX = "tr_v1"
 ZSTD_LEVEL = 3

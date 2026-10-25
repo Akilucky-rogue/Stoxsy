@@ -14,11 +14,12 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from qsde.config.paths import data_path
 
 import numpy as np
 import pandas as pd
 
-OUT = Path(r"D:\Stoxsy\data\reports\corp_actions\evidence")
+OUT = data_path("reports", "corp_actions", "evidence")
 DEFAULT = ["DOLPHIN:2024-01-30", "DRCSYSTEMS:2022-03-16", "NDRAUTO:2023-07-24", "UEL:2025-10-08", "VERTOZ:2025-06-24"]
 
 

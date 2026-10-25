@@ -10,12 +10,13 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from qsde.config.paths import data_path
 
 import numpy as np
 import pandas as pd
 
-OUT = Path(r"D:\Stoxsy\data\reports\backfill")
-BEFORE = Path(r"D:\Stoxsy\data\reports\universe_pit_before_backfill.parquet")
+OUT = data_path("reports", "backfill")
+BEFORE = data_path("reports", "universe_pit_before_backfill.parquet")
 CUTOFF = pd.Timestamp("2026-04-30")
 
 

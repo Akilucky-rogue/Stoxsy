@@ -15,10 +15,11 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+from qsde.config.paths import data_path
 
 PY = sys.executable
 HERE = Path(__file__).resolve().parent
-LOG_DIR = Path(r"D:\Stoxsy\data\reports\daily")
+LOG_DIR = data_path("reports", "daily")
 STREAM = [str(HERE / "stream_run.py"), "--mode", "once", "--enable-network", "--sink", "db"]
 
 # name, required, description, argv

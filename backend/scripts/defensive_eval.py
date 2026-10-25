@@ -17,6 +17,7 @@ import warnings
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from qsde.config.paths import data_path
 warnings.filterwarnings("ignore")
 
 import numpy as np
@@ -24,8 +25,8 @@ import pandas as pd
 
 from qsde.defensive import signal as dfs
 
-OUT = Path(r"D:\Stoxsy\data\reports\defensive")
-SIG = Path(r"D:\Stoxsy\data\signals\defensive")
+OUT = data_path("reports", "defensive")
+SIG = data_path("signals", "defensive")
 SCHEMES = ("ew", "tilt", "tilt_gated", "top_defensive")
 
 

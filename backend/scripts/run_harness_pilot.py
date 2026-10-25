@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from qsde.config.paths import data_path
 log = logging.getLogger("harness_pilot")
 
 
@@ -27,8 +28,8 @@ def main() -> int:
     ap.add_argument("--include-inferred", action="store_true",
                     help="RESEARCH policy: also apply low-confidence price-inferred corporate-action events "
                          "(card states adjustment is incomplete; no verdict is ever issued)")
-    ap.add_argument("--ledger-dir", default=r"D:\Stoxsy\data\ledger_pilot")
-    ap.add_argument("--out", default=r"D:\Stoxsy\data\reports\model_cards")
+    ap.add_argument("--ledger-dir", default=str(data_path("ledger_pilot")))
+    ap.add_argument("--out", default=str(data_path("reports", "model_cards")))
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 

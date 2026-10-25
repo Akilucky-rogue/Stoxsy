@@ -21,12 +21,13 @@ import warnings
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from qsde.config.paths import data_path
 warnings.filterwarnings("ignore")
 
 import numpy as np
 import pandas as pd
 
-OUT = Path(r"D:\Stoxsy\data\reports\bse")
+OUT = data_path("reports", "bse")
 BUILT_BY = "bse_validation_report.py v2"
 DEBT_GROUPS = {"F", "G", "GS", "D", "DB", "DR", "DT", "E", "TB", "W"}
 MEDIAN_GAP_LIMIT, MAX_GAP_LIMIT, MIN_OVERLAP, WINDOW = 0.01, 0.10, 30, 250

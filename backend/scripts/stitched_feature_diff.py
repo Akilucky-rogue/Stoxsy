@@ -12,11 +12,12 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from qsde.config.paths import data_path
 
 import numpy as np
 import pandas as pd
 
-OUT = Path(r"D:\Stoxsy\data\reports\stitching")
+OUT = data_path("reports", "stitching")
 FAMILIES = [("returns/momentum", ("mom", "roc", "ret", "trend")), ("volatility", ("vol", "atr", "std", "range")),
             ("drawdown/range", ("dd", "drawdown", "52w", "high", "low")), ("distance", ("dist", "ema", "sma", "vwap")),
             ("volume/flow", ("obv", "cmf", "mfi", "volume", "flow"))]

@@ -18,9 +18,9 @@ from pydantic import BaseModel
 from qsde.config.settings import settings
 from qsde.db.connection import read_sql
 from qsde.ingestion.bucket_a_decisions import SERIES_LABELS
+from qsde.config.paths import DATA
 
 router = APIRouter()
-DATA = Path(os.environ.get("STOXSY_DATA_DIR", r"D:\Stoxsy\data"))
 SIGNAL = DATA / "signals" / "defensive" / "latest.parquet"
 DEF_EVAL = DATA / "reports" / "defensive" / "defensive_eval.json"
 REPORT_DIRS = {"model_cards": DATA / "reports" / "model_cards", "research": DATA / "reports" / "research",

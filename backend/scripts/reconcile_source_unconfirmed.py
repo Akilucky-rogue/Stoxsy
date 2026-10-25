@@ -24,6 +24,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from qsde.config.paths import data_path
 
 import numpy as np
 import pandas as pd
@@ -34,7 +35,7 @@ TOL = 0.10                 # factor match tolerance (same as the reconciler's st
 PERSIST_SESSIONS = 5
 TOL_MILD = 0.06            # mild factors (0.8-1.25): the gap barely clears noise, so match more tightly
 MAX_SHIFT = 5              # sessions the observed gap may sit from the listed ex-date for an apply proposal
-OUT = Path(r"D:\Stoxsy\data\reports\corp_actions")
+OUT = data_path("reports", "corp_actions")
 RIGHTS = re.compile(r"right|warrant|partly paid|scheme|arrang|amalgam|merger|demerg|capital reduction|buyback", re.I)
 
 BUCKETS = ("confirm_and_apply", "needs_manual_review", "reject_listing_or_data_mismatch")

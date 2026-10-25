@@ -16,11 +16,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from qsde.config.paths import data_path
 
 import pandas as pd
 
 URL = "https://nsearchives.nseindia.com/content/equities/symbolchange.csv"
-DEFAULT_FILE = Path(r"D:\Stoxsy\data\nse\symbolchange.csv")
+DEFAULT_FILE = data_path("nse", "symbolchange.csv")
 SOURCE = "nse_symbolchange_csv"
 FUND_HINT = ("MF", "FTF", "Plan", "SERIES", "Sr.", "SCHEME", "FUND", "ETF")
 
