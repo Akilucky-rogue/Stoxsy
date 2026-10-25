@@ -4,6 +4,8 @@
     stoxsy doctor                       every health check with the reason; exit code for monitors
     stoxsy coverage [--out DIR]         the data-coverage matrix (text, plus Markdown and a visual HTML report)
     stoxsy heartbeat                    liveness of the stream and the daily routine
+    stoxsy kite login                   open Zerodha's login page, start the local API if needed, wait for the session to register
+    stoxsy stream start|stop|status     the live minute-bar stream (point-in-time top-500 universe) with its heartbeat
     stoxsy ingest daily|deals|fno|nse|bse|amfi [--dry-run]
     stoxsy alerts [run]                 open alerts, or re-evaluate them
     stoxsy backup [--out DIR]           compressed database dump (pg_dump)
@@ -164,6 +166,144 @@ def cmd_restore(args) -> int:
     return 0 if r.returncode == 0 else 1
 
 
+RUN = paths.data_path("run")
+
+
+def _alive(pid: int) -> bool:
+    try:
+        import psutil
+
+        return psutil.pid_exists(pid) and psutil.Process(pid).status() != psutil.STATUS_ZOMBIE
+    except ImportError:                                              # pragma: no cover - psutil is in the lock file
+        import os
+
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+
+
+def _read_pid(name: str) -> Optional[int]:
+    f = RUN / f"{name}.pid"
+    try:
+        pid = int(f.read_text().strip())
+    except (OSError, ValueError):
+        return None
+    return pid if _alive(pid) else None
+
+
+def _spawn(argv: list, name: str, log: Path) -> int:
+    """Start a detached background process, record its pid, send its output to a log file."""
+    import os
+
+    RUN.mkdir(parents=True, exist_ok=True)
+    log.parent.mkdir(parents=True, exist_ok=True)
+    kw = {"creationflags": 0x00000008 | 0x00000200} if os.name == "nt" else {"start_new_session": True}       # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+    with log.open("ab") as fh:
+        p = subprocess.Popen(argv, stdout=fh, stderr=fh, stdin=subprocess.DEVNULL, cwd=str(SCRIPTS.parent), **kw)
+    (RUN / f"{name}.pid").write_text(str(p.pid))
+    return p.pid
+
+
+def _kite_token_hours() -> Optional[float]:
+    import pandas as pd
+
+    from qsde.alerts import facts as F
+
+    k = F.kite()
+    if not k["has_token"]:
+        return None
+    return (pd.Timestamp(k["expires_at"]) - pd.Timestamp.now(tz="UTC")).total_seconds() / 3600
+
+
+def cmd_kite(args) -> int:
+    import time
+    import urllib.request
+    import webbrowser
+
+    from qsde.db.connection import read_sql
+    from qsde.ingestion.kite_client import KiteClient
+
+    def api_up() -> bool:
+        try:
+            return urllib.request.urlopen("http://127.0.0.1:8700/api/health", timeout=3).status == 200
+        except Exception:                                            # noqa: BLE001
+            return False
+
+    if not api_up():
+        pid = _spawn([sys.executable, "-m", "uvicorn", "api.main:app", "--host", "127.0.0.1", "--port", "8700"], "api", paths.data_path("logs", "api_8700.log"))
+        _print(f"started the local API (pid {pid}) so the login can complete")
+        for _ in range(30):
+            time.sleep(1)
+            if api_up():
+                break
+        else:
+            _print("the API did not come up; see data/logs/api_8700.log")
+            return 2
+    before = read_sql("SELECT coalesce(max(login_time), 'epoch') AS t FROM kite_tokens")["t"].iloc[0]
+    url = KiteClient().login_url()
+    if not url.startswith("https://kite.zerodha.com/connect/login"):
+        _print("unexpected login URL; not opening it")
+        return 2
+    webbrowser.open(url)
+    _print("opened Zerodha's login page: sign in there. Waiting up to 3 minutes for the session to register...")
+    for _ in range(36):
+        time.sleep(5)
+        now = read_sql("SELECT coalesce(max(login_time), 'epoch') AS t FROM kite_tokens")["t"].iloc[0]
+        if now > before:
+            h = _kite_token_hours()
+            _print(f"Kite session registered: valid for {h:.1f} h (it lapses at 06:00 IST).")
+            return 0
+    _print("no new session registered. If you signed in, the callback may have failed: check that the API is running and run this again.")
+    return 1
+
+
+def cmd_stream(args) -> int:
+    import time
+
+    from qsde.ops import checks, heartbeat
+
+    if args.action == "status":
+        pid = _read_pid("stream")
+        _print(f"stream process: {'running, pid ' + str(pid) if pid else 'not running'}")
+        _print(checks.render(checks.heartbeats()))
+        return 0 if pid else 1
+    if args.action == "stop":
+        pid = _read_pid("stream")
+        if not pid:
+            _print("the stream is not running")
+            return 0
+        import psutil
+
+        psutil.Process(pid).terminate()
+        heartbeat.beat("stream", "stopped", {"stopped_by": "stoxsy stream stop"})
+        _print(f"stopped the stream (pid {pid})")
+        return 0
+    pid = _read_pid("stream")
+    if pid:
+        _print(f"the stream is already running (pid {pid})")
+        return 0
+    h = _kite_token_hours()
+    if h is None or h <= 0.25:
+        _print("no valid Kite session: run `stoxsy kite login` first (the token lapses at 06:00 IST every day)")
+        return 2
+    pid = _spawn([sys.executable, str(SCRIPTS / "kite_stream.py"), "--no-raw-ticks", "--heartbeat-every", "20000"], "stream", paths.data_path("logs", f"stream_{date.today()}.log"))
+    _print(f"started the stream (pid {pid}); waiting for its first heartbeat...")
+    for _ in range(30):
+        time.sleep(3)
+        if _read_pid("stream") is None:
+            _print("the stream exited early: see the log under data/logs")
+            return 2
+        beats = {b["component"]: b for b in heartbeat.read_all()}
+        b = beats.get("stream")
+        if b is not None and (datetime.now(b["last_beat"].tzinfo) - b["last_beat"]).total_seconds() < 60 and b["status"] == "ok":
+            _print(f"stream is up: {b['detail'].get('symbols')} symbols, heartbeat ok. Token valid for {h:.1f} h.")
+            return 0
+    _print("started, but no heartbeat yet: check `stoxsy stream status` in a minute")
+    return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="stoxsy", description="Stoxsy operator console. Research and decision support; nothing here places an order.")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -180,6 +320,12 @@ def build_parser() -> argparse.ArgumentParser:
     a = sub.add_parser("alerts", help="open alerts, or `alerts run` to re-evaluate")
     a.add_argument("action", nargs="?", choices=["list", "run"], default="list")
     a.set_defaults(fn=cmd_alerts)
+    k = sub.add_parser("kite", help="Kite session")
+    k.add_argument("action", choices=["login"])
+    k.set_defaults(fn=cmd_kite)
+    st = sub.add_parser("stream", help="the live minute-bar stream")
+    st.add_argument("action", choices=["start", "stop", "status"])
+    st.set_defaults(fn=cmd_stream)
     b = sub.add_parser("backup", help="compressed database dump")
     b.add_argument("--out", default=None)
     b.set_defaults(fn=cmd_backup)

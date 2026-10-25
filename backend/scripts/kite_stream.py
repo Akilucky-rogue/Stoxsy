@@ -52,7 +52,7 @@ log = logging.getLogger(__name__)
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--symbols", type=str, default=None,
-                        help="Comma-separated symbols (default: full universe)")
+                        help="Comma-separated symbols (default: the point-in-time top-500 universe)")
     parser.add_argument("--no-raw-ticks", action="store_true",
                         help="Skip writing raw ticks to ticks_raw")
     parser.add_argument("--debug", action="store_true",
@@ -79,15 +79,19 @@ def main():
             params={"syms": syms},
         )
     else:
+        # Default: the point-in-time top-500 universe (the same names the signal and the logged predictions cover), minus ETFs and fund units.
+        from qsde.universe import instruments
+
+        drop = sorted(instruments.non_equity_symbols())
         rows = read_sql(
             """SELECT ki.instrument_token, ki.tradingsymbol
-                 FROM kite_instruments ki
-                 JOIN universe u ON u.symbol = ki.tradingsymbol
-                WHERE u.is_active = TRUE
-                  AND ki.instrument_type = 'EQ'
-                  AND ki.exchange = 'NSE'
-             ORDER BY ki.tradingsymbol"""
+                 FROM universe_pit up
+                 JOIN kite_instruments ki ON ki.tradingsymbol = up.symbol AND ki.instrument_type = 'EQ' AND ki.exchange = 'NSE'
+                WHERE up.method = 'adv60_top500_v1' AND up.date = (SELECT max(date) FROM universe_pit WHERE method = 'adv60_top500_v1')
+                  AND NOT (up.symbol = ANY(:drop))
+             ORDER BY ki.tradingsymbol""", params={"drop": drop}
         )
+        log.info("Streaming universe: point-in-time top 500 (%d resolved to Kite tokens).", len(rows))
 
     if rows.empty:
         log.error("No instrument_tokens resolved. Run /api/kite/refresh_instruments first.")
