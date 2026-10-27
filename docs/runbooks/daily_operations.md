@@ -15,6 +15,8 @@ Exit codes: 0 ok, 1 warnings, 2 failures. `STOXSY_ROOT` no longer needs to be se
 Keep the PC **plugged in and awake** until 15:45 IST (Settings > Power: never sleep while plugged in). A stream that stops because the machine slept is an incident: `doctor` and the alerts show a stale heartbeat, and live bars after that point are filled from Kite history at the close.
 
 ## Every evening (after 19:00 IST)
+**Scheduled (since 2026-10-27):** Windows task *Stoxsy daily after close* runs Mon-Fri at 19:15 as you (you must be signed in and the PC awake; a missed run starts when the PC is next available). `scripts/scheduled_daily.py` skips weekends and NSE holidays and otherwise runs `ingest daily`. You do not need to run step 1 by hand on those days; running it twice is harmless. Check it with `Get-ScheduledTaskInfo "Stoxsy daily after close"` and `stoxsy doctor`. It is a stopgap until the Debian host.
+
 1. **`ingest daily`**: prices, corporate actions, rebuild of the official series, point-in-time universe, signal, prediction logging (before the next 09:15 open), resolution, fund snapshot, alerts. Each step is logged under `data\reports\daily`. Safe to re-run the same day (an identical re-log is not an error).
 2. **`stream stop`** if it is still running, then the after-close reconcile runs as part of the daily routine when bars were streamed.
 3. **`doctor`**, then **`alerts`** to read what is open.
