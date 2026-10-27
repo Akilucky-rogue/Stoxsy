@@ -61,6 +61,7 @@ dependencies = [
     # ── Broker / Live Data ──
     "kiteconnect>=5.0",
     "websockets>=12.0",
+    "psutil>=5.9",  # process checks for `stoxsy stream status|stop`
 ]
 
 [project.scripts]

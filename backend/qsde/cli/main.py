@@ -174,18 +174,10 @@ RUN = paths.data_path("run")
 
 
 def _alive(pid: int) -> bool:
-    try:
-        import psutil
+    """psutil is a declared dependency. There is deliberately no signal-based fallback: on Windows signal 0 is CTRL_C_EVENT, not a harmless probe."""
+    import psutil
 
-        return psutil.pid_exists(pid) and psutil.Process(pid).status() != psutil.STATUS_ZOMBIE
-    except ImportError:                                              # pragma: no cover - psutil is in the lock file
-        import os
-
-        try:
-            os.kill(pid, 0)
-            return True
-        except OSError:
-            return False
+    return psutil.pid_exists(pid) and psutil.Process(pid).status() != psutil.STATUS_ZOMBIE
 
 
 def _read_pid(name: str) -> Optional[int]:
@@ -280,7 +272,12 @@ def cmd_stream(args) -> int:
             return 0
         import psutil
 
-        psutil.Process(pid).terminate()
+        root = psutil.Process(pid)
+        for p in [*root.children(recursive=True), root]:             # on Windows the venv launcher has a child that does the work
+            try:
+                p.terminate()
+            except psutil.NoSuchProcess:
+                pass
         heartbeat.beat("stream", "stopped", {"stopped_by": "stoxsy stream stop"})
         _print(f"stopped the stream (pid {pid})")
         return 0
