@@ -1,0 +1,185 @@
+"""Trader mode: the desk, the risk gate, research and paper ideas, the journal. RESEARCH and PAPER only; no order can be placed from here.
+
+The gate (`qsde.trader.risk.evaluate`) runs on EVERY path that stores an idea, against the signed-in user's real state read from the database, so a limit cannot be skipped by posting a card.
+Trading capital comes only from the user's profile (the trading pot); nothing is assumed when it is not set. Reads need a signed-in user; writes need admin or trader.
+"""
+from __future__ import annotations
+
+from datetime import date, timedelta
+from typing import Literal, Optional
+
+import pandas as pd
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+
+from api.auth_deps import Principal, require_auth, require_role
+from api.routes import cockpit
+from qsde.db.connection import get_sync_conn, read_sql
+from qsde.modes import policy as pol, profile as prof
+from qsde.trader import restricted as restricted_list, risk as R, setups, store
+
+router = APIRouter()
+HORIZONS = ("swing_5d", "position_20d")
+DISCLAIMER = ("Research and decision support, not investment advice. Every idea here is RESEARCH or PAPER: no engine is approved and no edge has been shown. No order is placed by this product.")
+
+
+class IdeaIn(BaseModel):
+    symbol: str = Field(min_length=1, max_length=20)
+    horizon_id: Literal["swing_5d", "position_20d"] = "swing_5d"
+    setup: str = Field(default="manual", max_length=60)
+    entry: Optional[float] = Field(default=None, gt=0)
+    stop: Optional[float] = Field(default=None, gt=0)
+    target: Optional[float] = Field(default=None, gt=0)
+    evidence: Literal["RESEARCH", "PAPER", "APPROVED"] = "RESEARCH"
+
+
+class TriageIn(BaseModel):
+    stop_price: float = Field(gt=0)
+    horizon_id: Optional[Literal["swing_5d", "position_20d"]] = None
+
+
+class RestrictIn(BaseModel):
+    symbol: str = Field(min_length=1, max_length=20)
+    reason: str = Field(min_length=3, max_length=300)
+    restricted_until: Optional[date] = None
+
+
+class CloseIn(BaseModel):
+    price: float = Field(gt=0)
+    reason: Literal["stop", "target", "time", "manual"]
+    notes: Optional[str] = Field(default=None, max_length=500)
+
+
+def _profile(p: Principal) -> dict:
+    with get_sync_conn() as c:
+        return prof.load(c, p.id)
+
+
+def _signal() -> Optional[pd.DataFrame]:
+    return pd.read_parquet(cockpit.SIGNAL) if cockpit.SIGNAL.exists() else None
+
+
+@router.get("/trader/desk")
+def desk(limit: int = 8, p: Principal = Depends(require_auth)):
+    pr = _profile(p)
+    l = R.Limits.from_effective(pol.effective_limits(pr.get("limits")))
+    cap = float(pr.get("trading_capital") or 0.0)
+    now = pd.Timestamp.now(tz="UTC")
+    st, _ = store.build_state(read_sql, p.id, cap, now)
+    out = {"disclaimer": DISCLAIMER, "engine_approved": pol.engine_approved(), "trading_capital": cap or None, "meters": R.meters(st, l), "limits": l.__dict__,
+           "open": [{"symbol": o.symbol, "qty": o.qty, "entry": o.entry, "stop": o.stop, "last": o.last_price, "risk_rupees": o.risk_rupees, "unrealised": o.qty * (o.last_price - o.entry)} for o in st.open_positions],
+           "mode": pr.get("mode"), "candidates": [], "needs": [], "book": st.book, "unprotected": sorted(st.unprotected), "untriaged": sorted(st.untriaged)}
+    if not cap:
+        out["needs"].append("trading_capital")
+        out["headline"] = "Set your trading pot on the Profile page to see sized ideas: nothing is assumed."
+        return out
+    c = setups.candidates(read_sql, _signal(), limit=max(1, min(limit, 20)))
+    for r in c.itertuples():
+        d = store.propose(read_sql, p.id, pr, symbol=r.symbol, horizon_id="swing_5d", setup=setups.SETUP, now=now, state=st)
+        out["candidates"].append({"symbol": r.symbol, "breakout_pct": r.breakout_pct, "volume_x_median": r.volume_x_median, "risk_bucket": None if "risk_bucket" not in c.columns or pd.isna(r.risk_bucket) else int(r.risk_bucket),
+                                  "allowed": d["allowed"], "card": d["card"], "reasons": d["reasons"], "notes": d["notes"]})
+    n_ok = sum(1 for x in out["candidates"] if x["allowed"])
+    if st.untriaged:
+        out["headline"] = (f"Existing book first: {len(st.untriaged)} holding(s) are not assigned to a pot yet ({', '.join(sorted(st.untriaged))}). "
+                           "New ideas stay locked until each is assigned to the investment or trading pot.")
+        return out
+    if st.unprotected:
+        out["headline"] = (f"Existing book first: {len(st.unprotected)} imported trading-pot position(s) have no stop ({', '.join(sorted(st.unprotected))}). "
+                           "New ideas stay locked until each has one.")
+        return out
+    out["headline"] = (f"{n_ok} research candidate(s) pass your risk rules today (of {len(out['candidates'])} breakouts checked). They are baselines with no shown edge."
+                       if out["candidates"] else "No breakout candidates in the universe today: nothing to do is a normal answer.")
+    return out
+
+
+@router.get("/trader/triage")
+def triage(p: Principal = Depends(require_auth)):
+    """Imported trading-pot positions with their protection status. Investment-pot imports never appear here."""
+    from qsde.trader import legacy
+
+    rows = legacy.positions(read_sql, p.id, store.load_prices, date.today() - timedelta(days=40), gap_fraction=store.gap_allowance_fraction)
+    return {"positions": rows, "unprotected": [r["symbol"] for r in rows if not r["protected"]],
+            "rule": "Every imported trading-pot position needs a stop. Until it has one the position is counted at an emergency stop and no new idea is offered."}
+
+
+@router.put("/trader/triage/{symbol}")
+def set_stop(symbol: str, b: TriageIn, p: Principal = Depends(require_role("admin", "trader"))):
+    from qsde.trader import legacy
+
+    sym = symbol.upper()
+    imps = legacy.latest_trading_imports(read_sql, p.id)
+    if not imps:
+        raise HTTPException(status_code=404, detail="no trading-pot import: import holdings into the trading pot first")
+    h = read_sql("SELECT import_id FROM portfolio_holdings WHERE import_id = ANY(:i) AND symbol = :s", params={"i": imps, "s": sym})
+    if h.empty:
+        raise HTTPException(status_code=404, detail=f"{sym} is not in your latest trading-pot import")
+    holding_imports = [int(x) for x in h["import_id"]]
+    with get_sync_conn() as c:
+        for imp in holding_imports:                                   # the same symbol held in two broker accounts gets the one stop in both
+            c.cursor().execute("INSERT INTO legacy_triage (import_id, symbol, user_id, stop_price, horizon_id, set_by_role) VALUES (%s,%s,%s,%s,%s,%s) "
+                               "ON CONFLICT (import_id, symbol) DO UPDATE SET stop_price = EXCLUDED.stop_price, horizon_id = EXCLUDED.horizon_id, set_by_role = EXCLUDED.set_by_role, set_at = NOW()",
+                               (imp, sym, p.id, b.stop_price, b.horizon_id, p.role))
+            prof.record(c, p.id, p.role, "trader.triage", {"symbol": sym, "import_id": imp, "stop_price": b.stop_price, "horizon_id": b.horizon_id})
+    return {"symbol": sym, "stop_price": b.stop_price}
+
+
+@router.get("/trader/restricted")
+def restricted(p: Principal = Depends(require_auth)):
+    return {"entries": restricted_list.list_entries(read_sql, p.id),
+            "note": "Your own list: nothing is preset. Which securities are restricted, and until when, is for you and your compliance officer to decide."}
+
+
+@router.post("/trader/restricted")
+def add_restricted(b: RestrictIn, p: Principal = Depends(require_role("admin", "trader"))):
+    with get_sync_conn() as c:
+        return restricted_list.add(c, p.id, p.role, b.symbol, b.reason, b.restricted_until)
+
+
+@router.delete("/trader/restricted/{symbol}")
+def release_restricted(symbol: str, p: Principal = Depends(require_role("admin", "trader"))):
+    try:
+        with get_sync_conn() as c:
+            return restricted_list.release(c, p.id, p.role, symbol)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/trader/propose")
+def propose(b: IdeaIn, p: Principal = Depends(require_auth)):
+    return store.propose(read_sql, p.id, _profile(p), symbol=b.symbol.upper(), horizon_id=b.horizon_id, setup=b.setup, entry=b.entry, stop=b.stop, target=b.target, evidence=b.evidence)
+
+
+@router.post("/trader/ideas")
+def create_idea(b: IdeaIn, p: Principal = Depends(require_role("admin", "trader"))):
+    d = store.propose(read_sql, p.id, _profile(p), symbol=b.symbol.upper(), horizon_id=b.horizon_id, setup=b.setup, entry=b.entry, stop=b.stop, target=b.target, evidence=b.evidence)
+    with get_sync_conn() as c:                                   # commits on exit: the refusal record must survive the error raised below
+        if d["allowed"]:
+            iid = store.persist(c, p.id, d, p.role)
+        else:
+            prof.record(c, p.id, p.role, "trader.refused", {"symbol": b.symbol.upper(), "reasons": d["reasons"]})
+    if not d["allowed"]:
+        raise HTTPException(status_code=422, detail=d["reasons"])
+    return {"id": iid, "card": d["card"], "notes": d["notes"]}
+
+
+@router.post("/trader/ideas/{idea_id}/close")
+def close_idea(idea_id: int, b: CloseIn, p: Principal = Depends(require_role("admin", "trader"))):
+    try:
+        with get_sync_conn() as c:
+            return store.close(c, p.id, p.role, idea_id, b.price, b.reason, b.notes)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="open idea not found")
+
+
+@router.get("/trader/ideas")
+def list_ideas(status: Literal["open", "closed", "all"] = "all", limit: int = 100, p: Principal = Depends(require_auth)):
+    q = "SELECT id, created_at, symbol, setup, horizon_id, evidence, entry, stop, target, qty, risk_rupees, time_stop, status, opened_at, closed_at, exit_price, exit_reason, pnl_rupees, r_multiple, notes FROM trader_ideas WHERE user_id = :u"
+    if status != "all":
+        q += " AND status = :s"
+    d = read_sql(q + " ORDER BY opened_at DESC LIMIT :n", params={"u": p.id, "s": status, "n": max(1, min(limit, 500))})
+    return [{k: (None if pd.isna(v) else (v.isoformat() if hasattr(v, "isoformat") else (float(v) if k in ("entry", "stop", "target", "risk_rupees", "exit_price", "pnl_rupees", "r_multiple") else v))) for k, v in r.items()} for r in d.to_dict("records")]
+
+
+@router.get("/trader/performance")
+def performance(p: Principal = Depends(require_auth)):
+    return {**store.performance(read_sql, p.id), "disclaimer": DISCLAIMER}

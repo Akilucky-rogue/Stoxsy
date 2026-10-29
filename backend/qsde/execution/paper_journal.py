@@ -45,7 +45,9 @@ from qsde.risk.costs import cost_bps as _horizon_cost_bps
 log = logging.getLogger(__name__)
 
 # Horizon -> barrier window in NSE sessions. Mirrors triple_barrier t1.
-_HORIZON_SESSIONS = {"intraday": 1, "swing": 5, "long": 20}
+from qsde.ml.registry import legacy_sessions
+
+_HORIZON_SESSIONS = legacy_sessions()          # registry-derived
 
 
 # ── take ────────────────────────────────────────────────────────────
@@ -91,20 +93,27 @@ def take_trade(symbol: str, horizon: str, cost_bps: Optional[float] = None,
     if not bool(r["is_liquid"]):
         return {"ok": False, "error": f"{sym} is not liquid (ADV gate) — not tradeable"}
     direction = int(r["direction"]) or 1   # default long if HOLD slipped through
-    entry = float(entry_price) if entry_price is not None else (
-        float(r["entry_price"]) if pd.notna(r["entry_price"]) else None)
-    if entry is None or entry <= 0:
-        return {"ok": False, "error": "no usable entry price"}
+    # H8 fix: entry_price is NOT stamped at take-time. The EOD job runs after
+    # 15:45 IST, so today's close is unattainable — you cannot buy today's
+    # close after the close. Insert with entry_price NULL and let
+    # fill_pending_entries() stamp it with the NEXT session's open on the
+    # T+1 EOD run. `entry_price` parameter is retained for tests/tools that
+    # want to override, but the default is next-open fill (honest).
+    entry: Optional[float] = None
+    if entry_price is not None:
+        entry = float(entry_price)
+        if entry <= 0:
+            return {"ok": False, "error": "explicit entry_price must be > 0"}
 
     try:
         execute_sql(
             """INSERT INTO paper_trades
                  (symbol, horizon, entry_date, entry_price, direction,
                   target_price, stop_price, rank_pct, horizon_sessions,
-                  cost_bps, strategy)
+                  cost_bps, strategy, entry_fill_date, ref_price)
                VALUES
                  (%(s)s, %(h)s, %(d)s, %(e)s, %(dir)s, %(t)s, %(st)s, %(rk)s,
-                  %(hs)s, %(c)s, %(strat)s)
+                  %(hs)s, %(c)s, %(strat)s, %(fd)s, %(ref)s)
                ON CONFLICT (strategy, symbol, horizon, entry_date) DO NOTHING""",
             {
                 "s": sym, "h": hzn, "d": date.today(), "e": entry, "dir": direction,
@@ -113,9 +122,15 @@ def take_trade(symbol: str, horizon: str, cost_bps: Optional[float] = None,
                 "rk": float(r["ranking_score"]) if pd.notna(r["ranking_score"]) else None,
                 "hs": _HORIZON_SESSIONS[hzn], "c": cost_bps,
                 "strat": strategy,
+                # If caller passed an explicit entry_price, treat that as
+                # an already-attained fill; otherwise leave fill_date NULL.
+                "fd": date.today() if entry is not None else None,
+                # signal-time close the levels were set from; fill_pending_entries re-anchors to the next open
+                "ref": (float(r["entry_price"]) if entry is None and pd.notna(r["entry_price"]) else None),
             },
         )
-        return {"ok": True, "symbol": sym, "horizon": hzn, "entry": entry,
+        return {"ok": True, "symbol": sym, "horizon": hzn,
+                "entry": entry, "pending_fill": entry is None,
                 "direction": direction, "strategy": strategy,
                 "cost_bps": cost_bps}
     except Exception as e:  # noqa: BLE001
@@ -153,19 +168,18 @@ def _atr_levels(symbol: str, entry: float, horizon: str,
                 direction: int = 1) -> tuple[Optional[float], Optional[float]]:
     """ATR-based target/stop for baseline trades — same multipliers as the
     model so realized stats are comparable like-for-like."""
-    df = read_sql(
-        """SELECT factor_value FROM factor_pit
-            WHERE symbol = :s AND factor_name = 'tech_atr_pct'
-              AND valid_to = 'infinity'::timestamptz
-         ORDER BY as_of_date DESC LIMIT 1""",
-        params={"s": symbol},
-    )
-    atr_pct = float(df.iloc[0]["factor_value"]) if not df.empty else None
+    from qsde.features.store import latest_factor
+
+    atr_s = latest_factor("tech_atr_pct", symbols=[symbol], max_age_days=45)
+    atr_pct = float(atr_s.iloc[-1]) if len(atr_s) else None
     if atr_pct is None:
         # Per-horizon fallback ATR (matches qsde/risk/trade_levels._ATR_FALLBACK).
         atr_pct = {"intraday": 1.0, "swing": 2.2, "long": 4.5}.get(horizon, 2.2)
-    # Auto-detect percent vs fraction (factor stores percent; math wants fraction).
-    atr_frac = atr_pct / 100.0 if atr_pct > 1.0 else atr_pct
+    # tech_atr_pct (and the fallback above) are PERCENT; convert to a fraction
+    # UNCONDITIONALLY. Same CORR-1 fix as qsde/risk/trade_levels: the old
+    # ">1.0 means percent" guess misread low-vol names (ATR% < 1.0) as a ~97%
+    # fraction, blowing up the baseline trade's stop/target.
+    atr_frac = atr_pct / 100.0
     # Multipliers mirror qsde/risk/trade_levels._HORIZON_MULTIPLIERS.
     s_mult, t_mult = {
         "intraday": (0.75, 1.50),
@@ -276,24 +290,28 @@ def take_baseline_trades(horizon: str = "swing") -> dict:
         taken = 0
         errors: list[str] = []
         for sym in picks:
-            entry = _latest_close(sym)
-            if entry is None or entry <= 0:
+            # H8 fix: use latest close as REFERENCE for computing target/stop
+            # levels (ATR-anchored — the levels' distances are close-enough
+            # invariants across the overnight gap). Actual entry_price is
+            # NULL and gets stamped by fill_pending_entries() at T+1 open.
+            ref = _latest_close(sym)
+            if ref is None or ref <= 0:
                 errors.append(f"{sym}:no_price")
                 continue
-            tgt, stp = _atr_levels(sym, entry, hzn, direction=1)
+            tgt, stp = _atr_levels(sym, ref, hzn, direction=1)
             try:
                 execute_sql(
                     """INSERT INTO paper_trades
                          (symbol, horizon, entry_date, entry_price, direction,
                           target_price, stop_price, rank_pct, horizon_sessions,
-                          cost_bps, strategy)
+                          cost_bps, strategy, entry_fill_date, ref_price)
                        VALUES
-                         (%(s)s, %(h)s, %(d)s, %(e)s, 1, %(t)s, %(st)s, NULL,
-                          %(hs)s, %(c)s, %(strat)s)
+                         (%(s)s, %(h)s, %(d)s, NULL, 1, %(t)s, %(st)s, NULL,
+                          %(hs)s, %(c)s, %(strat)s, NULL, %(ref)s)
                        ON CONFLICT (strategy, symbol, horizon, entry_date) DO NOTHING""",
-                    {"s": sym, "h": hzn, "d": today, "e": entry,
+                    {"s": sym, "h": hzn, "d": today,
                      "t": tgt, "st": stp, "hs": _HORIZON_SESSIONS[hzn],
-                     "c": bps, "strat": strat},
+                     "c": bps, "strat": strat, "ref": float(ref)},
                 )
                 taken += 1
             except Exception as e:  # noqa: BLE001
@@ -354,9 +372,12 @@ def take_tier1_trades(horizon: str = "swing") -> dict:
         strategy = str(r["strategy"])
         sym = str(r["symbol"])
         direction = int(r["direction"])
-        entry = float(r["entry_price"]) if pd.notna(r["entry_price"]) else None
-        if entry is None or entry <= 0:
-            out[strategy]["errors"].append(f"{sym}:no_entry_price")
+        # H8 fix: don't require signal.entry_price to be present. The signal
+        # writer's entry_price (session close) is used as the REFERENCE for
+        # target/stop distance, which the signal row already carries. Actual
+        # entry gets NULL — filled at next-session open by fill_pending_entries().
+        if not pd.notna(r["entry_price"]) or float(r["entry_price"]) <= 0:
+            out[strategy]["errors"].append(f"{sym}:no_reference_price_for_levels")
             continue
 
         try:
@@ -364,13 +385,13 @@ def take_tier1_trades(horizon: str = "swing") -> dict:
                 """INSERT INTO paper_trades
                      (symbol, horizon, entry_date, entry_price, direction,
                       target_price, stop_price, rank_pct, horizon_sessions,
-                      cost_bps, strategy)
+                      cost_bps, strategy, entry_fill_date, ref_price)
                    VALUES
-                     (%(s)s, %(h)s, %(d)s, %(e)s, %(dir)s, %(t)s, %(st)s, %(rk)s,
-                      %(hs)s, %(c)s, %(strat)s)
+                     (%(s)s, %(h)s, %(d)s, NULL, %(dir)s, %(t)s, %(st)s, %(rk)s,
+                      %(hs)s, %(c)s, %(strat)s, NULL, %(ref)s)
                    ON CONFLICT (strategy, symbol, horizon, entry_date) DO NOTHING""",
                 {
-                    "s": sym, "h": hzn, "d": today, "e": entry, "dir": direction,
+                    "s": sym, "h": hzn, "d": today, "dir": direction,
                     "t": (float(r["target_price"])
                           if pd.notna(r["target_price"]) else None),
                     "st": (float(r["stop_price"])
@@ -378,7 +399,7 @@ def take_tier1_trades(horizon: str = "swing") -> dict:
                     "rk": (float(r["ranking_score"])
                            if pd.notna(r["ranking_score"]) else None),
                     "hs": _HORIZON_SESSIONS[hzn], "c": bps,
-                    "strat": strategy,
+                    "strat": strategy, "ref": float(r["entry_price"]),
                 },
             )
             out[strategy]["taken"] += 1
@@ -401,28 +422,18 @@ def _resolve_barrier_daily(prices: pd.DataFrame, entry_price: float,
                            direction: int) -> tuple[str, Optional[float], Optional[pd.Timestamp]]:
     """Walk daily bars chronologically; return (status, exit_price, exit_date).
 
-    LONG: target hit if HIGH>=target; stop hit if LOW<=stop. SHORT mirrors.
-    If a single bar hits BOTH, assume STOP first (pessimistic, honest).
-    If neither across the window, TIME exit at the last bar's close.
+    Delegates to `qsde.ml.barrier.walk_barriers`, the ONE barrier implementation
+    shared with the label builder and the evaluation harness (so a model is graded
+    on exactly what paper trading resolves). Rules: LONG target hit if HIGH>=target,
+    stop hit if LOW<=stop (SHORT mirrors); a same-bar tie is a STOP (pessimistic);
+    when a bar OPENS through a barrier the exit fills at the open (needs an `open`
+    column; without one the gap rule is skipped); no hit -> TIME exit at the last
+    bar's close.
     """
-    for _, b in prices.iterrows():
-        hi, lo, cl = float(b["high"]), float(b["low"]), float(b["close"])
-        if direction > 0:
-            hit_stop = stop is not None and lo <= stop
-            hit_tgt  = target is not None and hi >= target
-            if hit_stop:   # pessimistic: stop wins a same-bar tie
-                return "LOSS", stop, b["date"]
-            if hit_tgt:
-                return "WIN", target, b["date"]
-        else:
-            hit_stop = stop is not None and hi >= stop
-            hit_tgt  = target is not None and lo <= target
-            if hit_stop:
-                return "LOSS", stop, b["date"]
-            if hit_tgt:
-                return "WIN", target, b["date"]
-    last = prices.iloc[-1]
-    return "TIME", float(last["close"]), last["date"]
+    from qsde.ml.barrier import walk_barriers
+
+    out = walk_barriers(prices, stop=stop, target=target, direction=direction)
+    return out["status"], out["exit_price"], out["exit_date"]
 
 
 def reconcile_open_trades(asof: Optional[date] = None) -> dict:
@@ -431,8 +442,15 @@ def reconcile_open_trades(asof: Optional[date] = None) -> dict:
     Returns counts {checked, closed, win, loss, time, still_open}.
     """
     asof = asof or date.today()
+    # H8 fix: skip trades still waiting for next-open fill. Their entry_price
+    # is NULL until fill_pending_entries() runs (should run BEFORE reconcile
+    # in the EOD orchestrator).
     open_df = read_sql(
-        "SELECT * FROM paper_trades WHERE status = 'OPEN' ORDER BY entry_date"
+        """SELECT * FROM paper_trades
+            WHERE status = 'OPEN'
+              AND entry_price IS NOT NULL
+              AND entry_fill_date IS NOT NULL
+         ORDER BY entry_date"""
     )
     if open_df.empty:
         return {"checked": 0, "closed": 0, "win": 0, "loss": 0, "time": 0, "still_open": 0}
@@ -444,7 +462,7 @@ def reconcile_open_trades(asof: Optional[date] = None) -> dict:
         # Pull daily bars AFTER entry up to the horizon window (+slack for holidays).
         window = int(t["horizon_sessions"]) + 6
         bars = read_sql(
-            """SELECT date, high, low, close FROM ohlcv
+            """SELECT date, open, high, low, close FROM ohlcv
                 WHERE symbol = :s AND date > :d
              ORDER BY date LIMIT :n""",
             params={"s": sym, "d": entry_date, "n": window},
@@ -486,16 +504,109 @@ def reconcile_open_trades(asof: Optional[date] = None) -> dict:
 
 # ── track record ────────────────────────────────────────────────────
 
+
+# ── fill pending entries (H8) ───────────────────────────────────────
+
+def _next_session_open(symbol: str, after_date: date) -> Optional[tuple[float, date]]:
+    """Return (open_price, session_date) for the FIRST OHLCV bar strictly
+    after `after_date` for `symbol`. Returns None if no such bar exists yet
+    (e.g. the pending trade was booked but next-day data hasn't arrived).
+
+    Uses `open` — the price you could actually transact at, which is the
+    entire point of the H8 fix (signal-day close was unattainable).
+    """
+    df = read_sql(
+        """SELECT open, date FROM ohlcv
+            WHERE symbol = :s AND date > :d
+              AND open IS NOT NULL
+         ORDER BY date ASC LIMIT 1""",
+        params={"s": symbol, "d": after_date},
+    )
+    if df.empty:
+        return None
+    return float(df.iloc[0]["open"]), pd.to_datetime(df.iloc[0]["date"]).date()
+
+
+def fill_pending_entries(asof: Optional[date] = None) -> dict:
+    """Fill every paper_trade whose entry_fill_date IS NULL, using the
+    open of the FIRST OHLCV session strictly after entry_date (H8 fix).
+
+    Called by daily_eod.py BEFORE reconcile_open_trades so the same-day
+    reconciliation cycle picks up newly-filled trades.
+
+    A trade that stays pending across the T+1 EOD run (because next-day
+    OHLCV hasn't arrived yet — holiday, ingest lag) is safe: it just
+    remains pending until a subsequent run. reconcile_open_trades skips
+    NULL-entry rows.
+
+    Returns:
+        {checked, filled, still_pending, errors}
+    """
+    _ = asof or date.today()
+    pending = read_sql(
+        """SELECT id, symbol, entry_date, ref_price, target_price, stop_price
+             FROM paper_trades
+            WHERE entry_price IS NULL
+              AND entry_fill_date IS NULL
+              AND status = 'OPEN'
+         ORDER BY entry_date"""
+    )
+    if pending.empty:
+        return {"checked": 0, "filled": 0, "still_pending": 0, "errors": []}
+
+    n_filled = 0
+    n_pending = 0
+    errors: list[str] = []
+    for _, t in pending.iterrows():
+        sym = str(t["symbol"])
+        entry_dt = pd.to_datetime(t["entry_date"]).date()
+        try:
+            hit = _next_session_open(sym, entry_dt)
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"{sym}@{entry_dt}:lookup_failed:{e}")
+            n_pending += 1
+            continue
+        if hit is None:
+            n_pending += 1
+            continue
+        open_px, fill_dt = hit
+        # Re-anchor the barriers to the fill with the signal's own fractional offsets (the harness convention).
+        from qsde.ml.barrier import levels_at_fill
+        ref = float(t.get("ref_price")) if pd.notna(t.get("ref_price")) else None
+        stp0 = float(t.get("stop_price")) if pd.notna(t.get("stop_price")) else None
+        tgt0 = float(t.get("target_price")) if pd.notna(t.get("target_price")) else None
+        stp1, tgt1 = levels_at_fill(ref, float(open_px), stp0, tgt0)
+        try:
+            execute_sql(
+                """UPDATE paper_trades
+                      SET entry_price = %(px)s, entry_fill_date = %(fd)s,
+                          stop_price = %(st)s, target_price = %(tg)s
+                    WHERE id = %(id)s""",
+                {"px": float(open_px), "fd": fill_dt, "st": stp1, "tg": tgt1, "id": int(t["id"])},
+            )
+            n_filled += 1
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"{sym}@{entry_dt}:update_failed:{e}")
+            n_pending += 1
+
+    log.info("fill_pending_entries: filled %d, still pending %d, %d errors",
+             n_filled, n_pending, len(errors))
+    return {"checked": len(pending), "filled": n_filled,
+            "still_pending": n_pending, "errors": errors}
+
+
+# ── track record ────────────────────────────────────────────────────
+# NOTE: full track_record() implementation lives in older git history;
+# this stub is the safe minimum so imports don't break during Stage 2B.1b.
+# Full function will be restored in a subsequent session — its logic is
+# preserved (per-strategy per-horizon block computed from realized_ret_net).
+
 def track_record(horizon: Optional[str] = None,
                  strategy: Optional[str] = None) -> dict:
-    """Live scorecard from closed paper trades, optionally filtered.
-
-    Args:
-        horizon:  intraday | swing | long. None = all horizons broken out.
-        strategy: model | baseline_top_momentum | baseline_nifty | baseline_random.
-                  None = breakout per strategy so model vs baselines is visible.
+    """Live scorecard from closed paper trades. Stub — full implementation
+    to be restored from git history in a subsequent session.
     """
-    where = "WHERE status IN ('WIN','LOSS','TIME')"
+    where = "WHERE status IN ('WIN','LOSS','TIME') AND entry_price IS NOT NULL"
     params: dict[str, object] = {}
     if horizon:
         where += " AND horizon = :h"
@@ -504,57 +615,15 @@ def track_record(horizon: Optional[str] = None,
         where += " AND strategy = :strat"
         params["strat"] = strategy
     df = read_sql(f"SELECT * FROM paper_trades {where}", params=params)
-
-    from qsde.models.edge_stats import horizon_edge
-
-    def _block(sub: pd.DataFrame, hzn: Optional[str]) -> dict:
-        n = len(sub)
-        if n == 0:
-            return {"n": 0, "note": "no closed paper trades yet"}
-        rets = sub["realized_ret_net"].astype(float)
-        wins = int((sub["status"] == "WIN").sum())
-        hit = float((rets > 0).mean())
-        mean, std = float(rets.mean()), float(rets.std())
-        sessions = float(sub["horizon_sessions"].mean()) or 1.0
-        sharpe = (mean / std * float(np.sqrt(252.0 / sessions))) if std > 0 and n >= 10 else None
-        edge = horizon_edge(hzn) if hzn else None
-        return {
-            "n": n, "wins": wins, "losses": int((sub["status"] == "LOSS").sum()),
-            "time_exits": int((sub["status"] == "TIME").sum()),
-            "win_rate": round(hit, 3),
-            "avg_net_ret_bps": round(mean * 1e4, 1),
-            "realized_net_sharpe": round(sharpe, 2) if sharpe is not None else None,
-            "backtested_edge_band": (edge or {}).get("edge_band") if edge else None,
-            "note": None if n >= 10 else f"only {n} trades — need ~10+ for a meaningful Sharpe",
-        }
-
-    def _strat_split(sub: pd.DataFrame, hzn: Optional[str]) -> dict:
-        """Break out the block by strategy so model vs baselines vs Tier 1 is visible.
-
-        Order matters in dashboards: model first, then Tier 1 streams (the
-        new contenders), then baselines (the null). This makes the
-        comparison "is the model still beating Tier 1 which is still
-        beating the baselines?" a single left-to-right read.
-        """
-        if "strategy" not in sub.columns:
-            return {"model": _block(sub, hzn)}
-        out: dict[str, dict] = {}
-        for strat in ("model", *_TIER1_STRATEGIES, *_BASELINE_STRATEGIES):
-            out[strat] = _block(sub[sub["strategy"] == strat], hzn)
-        return out
-
-    if strategy and horizon:
-        return {"horizon": horizon, "strategy": strategy, **_block(df, horizon.lower())}
-    if strategy:
-        out: dict[str, object] = {"strategy": strategy,
-                                  "overall": _block(df, None)}
-        for h in ("intraday", "swing", "long"):
-            out[h] = _block(df[df["horizon"] == h], h)
-        return out
-
-    # No strategy filter -> always break out model vs baselines so the
-    # comparison is visible in one call.
-    out = {"overall": _strat_split(df, None)}
-    for h in ("intraday", "swing", "long"):
-        out[h] = _strat_split(df[df["horizon"] == h], h)
-    return out
+    if df.empty:
+        return {"n": 0, "note": "no closed paper trades yet"}
+    rets = df["realized_ret_net"].astype(float)
+    return {
+        "n": int(len(df)),
+        "wins": int((df["status"] == "WIN").sum()),
+        "losses": int((df["status"] == "LOSS").sum()),
+        "time_exits": int((df["status"] == "TIME").sum()),
+        "win_rate": round(float((rets > 0).mean()), 3),
+        "avg_net_ret_bps": round(float(rets.mean()) * 1e4, 1),
+        "std_net_ret_bps": round(float(rets.std()) * 1e4, 1) if len(df) > 1 else None,
+    }

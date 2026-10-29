@@ -54,7 +54,7 @@ class Settings(BaseSettings):
     # and update the .env file. Never commit either to git.
     kite_api_key: str = ""
     kite_api_secret: str = ""
-    kite_redirect_url: str = "http://127.0.0.1:8000/api/kite/callback"
+    kite_redirect_url: str = "http://127.0.0.1:8700/api/kite/callback"
     # Either "kite" or "yfinance". Lets the ingestion layer fall back
     # to yfinance if a Kite outage hits or you let the subscription lapse.
     market_data_source: str = "yfinance"
@@ -62,6 +62,14 @@ class Settings(BaseSettings):
     # ── Telegram ──────────────────────────────────────────────
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
+
+    # ── Auth ──────────────────────────────────────────────────
+    # AUTH_ENFORCED=false keeps the API open exactly as before (local single-user development); set it to true, with a real
+    # JWT_SECRET of >= 32 random characters, as soon as the new UI's login is in use. Tokens: 15-minute access, 14-day rotating refresh.
+    auth_enforced: bool = False
+    jwt_secret: str = ""
+    access_token_minutes: int = 15
+    refresh_token_days: int = 14
 
     # ── Application ───────────────────────────────────────────
     app_env: str = "local"
@@ -132,17 +140,22 @@ class Settings(BaseSettings):
         }
 
     # ── Transaction Cost Surface (bps round-trip) ─────────────
-    @property
-    def transaction_costs(self) -> dict:
-        return {
-            "large_cap": {"normal": 7, "high_vol": 18},     # Nifty 50
-            "mid_cap": {"normal": 16, "high_vol": 40},      # Nifty 150
-            "small_cap": {"normal": 35, "high_vol": 80},    # expansion
-        }
+    # DELETED (AUDIT_v2 M4 / Stage 2B.1): this dead property advertised
+    # cost numbers (7/16/35 bps) that DISAGREED with the actual paper /
+    # backtest cost model in qsde.risk.costs. It had no callers but was
+    # a landmine — anyone reading settings.transaction_costs would have
+    # come away with the wrong cost table.
+    #
+    # Single source of truth is now qsde.risk.costs:
+    #   from qsde.risk.costs import cost_bps, PAPER_DEFAULT_BPS
+    #
+    # CNC delivery is 24 bps realistic / 30 bps paper (STT alone = 20 bps
+    # r/t, does not amortize). Intraday MIS is 6 bps realistic / 8 bps
+    # paper. See qsde/risk/costs.py for the derivation.
 
 
 @lru_cache()
-def get_settings() -> Settings:
+def get_settings() -> "Settings":
     """Return cached settings singleton."""
     return Settings()
 

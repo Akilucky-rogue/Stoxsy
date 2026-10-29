@@ -56,11 +56,11 @@ N_CV_SPLITS = 5
 # 5d of the fold boundary leaks. This is the dominant fix for the
 # previously-inflated intraday DSR (~0.999): with 5d embargo and 1d label,
 # train/test factor windows still overlapped through factor autocorrelation.
-EMBARGO_BY_HORIZON: dict[str, int] = {
-    "intraday": 1,   # 1d label -> 1d embargo
-    "swing":    5,
-    "long":     5,
-}
+# Derived from the horizon registry: the embargo FLOOR equals the label horizon
+# (a 20-session label needs >= 20 sessions; the previous 5 for 'long' leaked).
+from qsde.ml.registry import LEGACY_CORE as _LEGACY_CORE, get_horizon as _get_horizon
+
+EMBARGO_BY_HORIZON: dict[str, int] = {n: _get_horizon(n).embargo_days for n in _LEGACY_CORE}
 # Backwards-compat default for any code path that imports the constant.
 EMBARGO_DAYS = 5
 
@@ -291,7 +291,19 @@ def train_lightgbm_model(dataset, horizon="swing"):
            signal generation.
 
     Returns the production model.
+
+    DEPRECATED (ADR 0001): this evaluator uses its own horizon/cost tables and a purged k-fold (not CPCV), and its
+    labels came from the close-of-day labeler. Model evaluation now goes through qsde.ml.experiment.run_experiment
+    (scripts/retrain.py). Kept only to reproduce historical numbers; it refuses to run unless
+    QSDE_ALLOW_LEGACY_TRAINER=true.
     """
+    import os
+
+    if os.getenv("QSDE_ALLOW_LEGACY_TRAINER", "false").strip().lower() not in ("1", "true", "yes"):
+        raise RuntimeError(
+            "train_lightgbm_model is the legacy evaluator and is disabled. Use scripts/retrain.py "
+            "(registry labels, CPCV harness, trial ledger, model cards). To reproduce historical numbers set "
+            "QSDE_ALLOW_LEGACY_TRAINER=true.")
     if dataset.empty:
         log.warning("Empty dataset provided for horizon " + str(horizon))
         return None
@@ -405,7 +417,7 @@ def train_lightgbm_model(dataset, horizon="swing"):
         "Purged-CV out-of-sample: IC=" + format(metrics["ic"], ".4f")
         + ", Annualized Sharpe=" + format(metrics["ann_sharpe"], ".3f")
         + " (non-overlapping, " + str(horizon_days) + "d rebalance)"
-        + ", DSR=" + format(metrics["dsr"], ".4f")
+        + ", DSR_gross=" + format(metrics["dsr"], ".4f")
         + " (n_periods=" + str(metrics["n_obs"])
         + " / " + str(metrics["n_obs_overlap"]) + " daily, n_trials="
         + str(DSR_N_TRIALS) + ")"
@@ -421,17 +433,45 @@ def train_lightgbm_model(dataset, horizon="swing"):
     feat_imp = sorted(zip(features, importance), key=lambda x: x[1], reverse=True)[:15]
     feat_imp_dict = [{"name": k, "importance": float(v)} for k, v in feat_imp]
 
-    # 4. Promotion gate — DSR is the ONLY promotion metric (Blueprint #2).
-    #    A failing model is saved as a candidate but does NOT overwrite the
-    #    live/active model that signal_generator loads.
-    gate = should_promote(metrics["dsr"])
+    # 4. Promotion gate — NET-of-cost DSR is the promotion metric (Blueprint #2).
+    #    The gross DSR rubber-stamped turnover-driven mirages: a 63%-daily-
+    #    turnover intraday model scored DSR 0.98 GROSS but 0.00 NET at just
+    #    5 bps. We now gate on the cost-aware DSR at QSDE_PROMOTION_COST_BPS
+    #    (default 10 bps — mid of the 5-8 large-cap / 12-20 mid-cap round-trip
+    #    band). A failing model is saved as a candidate but does NOT overwrite
+    #    the live/active model that signal_generator loads.
+    # Registry cost (the SAME conservative number the Scorecard charges to paper
+    # trades: 30 bps for delivery horizons, 8 for intraday). The env var is kept
+    # only as an explicit research override and is logged loudly.
+    from qsde.ml.registry import promotion_cost_bps as _registry_promo_cost
+    promotion_cost_bps = _registry_promo_cost(horizon)
+    _override = os.getenv("QSDE_PROMOTION_COST_BPS")
+    if _override:
+        log.warning("QSDE_PROMOTION_COST_BPS=%s overrides the registry cost of %.1f bps for %s",
+                    _override, promotion_cost_bps, horizon)
+        promotion_cost_bps = float(_override)
+    cost_eval = _evaluate_oos_with_costs(
+        oos, horizon_days=horizon_days, cost_bps_round_trip=promotion_cost_bps,
+    )
+    dsr_gross = float(metrics["dsr"])
+    dsr_net = float(cost_eval["dsr_net"])
+    log.info(
+        "Promotion gate (%s): DSR_gross=%.4f -> DSR_net=%.4f @ %.0fbps "
+        "(avg turnover %.0f%%, net Sharpe %.3f). Gate metric = NET.",
+        horizon, dsr_gross, dsr_net, promotion_cost_bps,
+        cost_eval["avg_turnover"] * 100.0, cost_eval["ann_sharpe_net"],
+    )
+    gate = should_promote(dsr_net)
 
     model_dir = os.path.join(os.path.dirname(__file__), "weights")
     os.makedirs(model_dir, exist_ok=True)
     candidate_path = os.path.join(model_dir, "lgbm_" + horizon + "_candidate.txt")
     active_path = os.path.join(model_dir, "lgbm_" + horizon + ".txt")
     prod_model.save_model(candidate_path)
-    if gate["promote"]:
+    # Audit safety fix: ONLY a genuine DSR pass activates the live book.
+    # QSDE_FORCE_PROMOTE produces a candidate but NEVER overwrites the active
+    # model, so a forced no-edge model can no longer silently go live.
+    if gate["passed"]:
         prod_model.save_model(active_path)
         log.info("PROMOTED %s primary -> %s (%s)", horizon, active_path, gate["reason"])
         # Primary promoted -> the meta candidate is calibrated against THIS
@@ -441,6 +481,14 @@ def train_lightgbm_model(dataset, horizon="swing"):
             promote_meta_candidate(horizon)
         else:
             log.info("Meta-model promotion skipped (status=%s).", meta_status)
+    elif gate.get("forced"):
+        log.warning(
+            "%s FORCE-PROMOTE requested but NOT activated (DSR_net %.4f < %.2f). "
+            "Candidate saved to %s; the live/active model is UNCHANGED. Forced "
+            "promotion no longer overwrites the book (audit safety fix) — activate "
+            "the candidate manually if you truly intend to.",
+            horizon, dsr_net, gate["threshold"], candidate_path,
+        )
     else:
         log.warning(
             "%s primary NOT promoted (%s). Primary candidate saved to %s; "
@@ -475,16 +523,23 @@ def train_lightgbm_model(dataset, horizon="swing"):
             "n_features":       len(features),
             "n_samples":        len(dataset),
             "ic_mean":          float(metrics["ic"]),
-            "sharpe":           float(metrics["ann_sharpe"]),
-            "deflated_sharpe":  float(metrics["dsr"]),
+            # sharpe / deflated_sharpe now record the NET-of-cost gate metrics
+            # (gross kept in params_json for diagnostics).
+            "sharpe":           float(cost_eval["ann_sharpe_net"]),
+            "deflated_sharpe":  float(dsr_net),
             "params_json":      json.dumps({
                 **LGBM_PARAMS,
                 "n_cv_splits":   N_CV_SPLITS,
                 "embargo_days":  embargo,
                 "dsr_n_trials":  DSR_N_TRIALS,
+                "dsr_gross":     dsr_gross,
+                "dsr_net":       dsr_net,
+                "ann_sharpe_gross": float(metrics["ann_sharpe"]),
+                "promotion_cost_bps": promotion_cost_bps,
+                "avg_turnover":  float(cost_eval["avg_turnover"]),
             }),
             "feature_importance": json.dumps(feat_imp_dict),
-            "promoted":         bool(gate["promote"]),
+            "promoted":         bool(gate["passed"]),   # genuine DSR pass only (forced != activated)
             "dsr_threshold":    float(gate["threshold"]),
             "promotion_note":   gate["reason"],
         },

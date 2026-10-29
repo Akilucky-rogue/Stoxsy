@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, "feat/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  secrets:
+    name: gitleaks (full history)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install gitleaks 8.30.1
+        run: |
+          curl -sSLO https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          curl -sSL -o gl_checksums.txt https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_checksums.txt
+          grep "gitleaks_8.30.1_linux_x64.tar.gz" gl_checksums.txt | sha256sum -c -
+          tar -xzf gitleaks_8.30.1_linux_x64.tar.gz gitleaks
+      - name: Scan history and working tree
+        run: |
+          ./gitleaks git --config .gitleaks.toml --redact --no-banner .
+          ./gitleaks dir --config .gitleaks.toml --redact --no-banner .
+
+  frontend:
+    name: frontend (types, tests, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  backend:
+    name: backend (tests on an empty TimescaleDB)
+    runs-on: ubuntu-latest
+    services:
+      timescaledb:
+        image: timescale/timescaledb:latest-pg16
+        env:
+          POSTGRES_USER: qsde
+          POSTGRES_PASSWORD: qsde_ci_only
+          POSTGRES_DB: qsde
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U qsde -d qsde"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://qsde:qsde_ci_only@127.0.0.1:5433/qsde
+      DATABASE_URL_ASYNC: postgresql+asyncpg://qsde:qsde_ci_only@127.0.0.1:5433/qsde
+      AUTH_ENFORCED: "false"
+      STOXSY_DATA_DIR: ${{ github.workspace }}/ci-data
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - name: Bootstrap the base schema (infra/init.sql), then apply migrations
+        env:
+          PGPASSWORD: qsde_ci_only
+        run: |
+          psql -h 127.0.0.1 -p 5433 -U qsde -d qsde -v ON_ERROR_STOP=1 -f infra/init.sql
+          python backend/scripts/apply_migrations.py
+      - name: Tests that do not need the loaded datasets
+        run: python -m pytest -q -m "not real_data"

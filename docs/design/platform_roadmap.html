@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Stoxsy roadmap and KYC journey</title>
+<style>
+:root{--bg:#f6f8fb;--card:#fff;--ink:#0f1b2d;--muted:#5b6b82;--line:#dbe3ee;--ok:#0b8a5f;--warn:#b7791f;--bad:#c0392b;--acc:#3b5bdb;--soft:#eef2ff}
+@media (prefers-color-scheme:dark){:root{--bg:#0d1421;--card:#141e30;--ink:#e8eef8;--muted:#93a4bd;--line:#26344d;--ok:#2fd4a0;--warn:#f6c453;--bad:#ff7a6b;--acc:#7c93ff;--soft:#1a2542}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,Segoe UI,Roboto,sans-serif}
+main{max-width:1040px;margin:0 auto;padding:16px}h1{margin:.2em 0}h2{margin:.2em 0 .4em}.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:14px 0}
+.muted{color:var(--muted)}.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}.tile{border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--card)}.tile b{font-size:1.6rem;display:block}
+.phases{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin:10px 0}
+.ph{border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--card);cursor:pointer;text-align:left;font:inherit;color:inherit;opacity:0;transform:translateY(10px);animation:in .5s ease forwards}
+.ph:nth-child(2){animation-delay:.15s}.ph:nth-child(3){animation-delay:.3s}.ph:nth-child(4){animation-delay:.45s}.ph:nth-child(5){animation-delay:.6s}.ph:nth-child(6){animation-delay:.75s}
+.ph[aria-pressed=true]{outline:2px solid var(--acc);background:var(--soft)}.ph b{display:block}.ph small{color:var(--muted)}
+.now{border-color:var(--ok)}.gate{border-color:var(--warn)}
+@keyframes in{to{opacity:1;transform:none}}
+.bar{height:16px;border-radius:8px;background:var(--line);overflow:hidden;display:flex}.bar i{display:block;height:100%;width:0;transition:width 1.2s ease}
+table{border-collapse:collapse;width:100%;font-size:.9rem}td,th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;counter-reset:s}
+.st{border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--card);opacity:.25;transition:opacity .4s,border-color .4s}.st.on{opacity:1;border-color:var(--acc)}.st b{display:block}
+.tier{display:inline-block;padding:1px 8px;border-radius:999px;font-size:.75rem;font-weight:700;background:var(--soft);color:var(--acc)}
+.t3{background:#fff3d6;color:#8a5a00}button.go{padding:8px 14px;border:1px solid var(--line);border-radius:10px;background:var(--acc);color:#fff;font-weight:600;cursor:pointer}
+.opts{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}.warnbox{border-left:4px solid var(--warn);padding:8px 12px;background:var(--soft);border-radius:8px}
+@media (prefers-reduced-motion:reduce){.ph{animation:none;opacity:1;transform:none}.bar i,.st{transition:none}}
+</style></head><body><main>
+<h1>Stoxsy: what we build, in what order, and how a new client joins</h1>
+<p class="muted">DRAFT roadmap, 2026-10-23. Click a phase to see its scope. Numbers are measured from the platform today. Research and decision support, not investment advice.</p>
+<div class="tiles"><div class="tile"><b>6</b>phases, each with an exit gate</div><div class="tile"><b>12</b>datasets to acquire (3 already flowing, 9 to build)</div><div class="tile"><b>3</b>asset classes get ML and DL candidates</div><div class="tile"><b>0</b>approved engines today</div></div>
+
+<div class="card"><h2>The order of work</h2>
+<div class="phases" id="phases" role="group" aria-label="Phases"></div>
+<div id="detail" class="warnbox" aria-live="polite"></div></div>
+
+<div class="card"><h2>What data we hold today, by domain</h2>
+<p class="muted">What is loaded in the platform database today, and what is not (checked 2026-10-23).</p>
+<div id="cov"></div></div>
+
+<div class="card"><h2>Models for every asset class, one honest test</h2>
+<table><thead><tr><th>Asset class</th><th>Predicts</th><th>Candidates</th><th>Verdict today</th></tr></thead><tbody>
+<tr><td><b>Equity, cash</b></td><td>rank, barrier-hit probability, regime, volatility</td><td>boosted rankers, meta-label, HMM; sequence and transformer models</td><td>ranker rejected; defensive risk label in shadow</td></tr>
+<tr><td><b>Futures and options</b></td><td>volatility premium, basis and open-interest states, defined-risk payoffs</td><td>volatility forecasters, boosted classifiers; LSTM-HAR</td><td>research and paper only; no order placement</td></tr>
+<tr><td><b>Mutual funds</b></td><td>net-of-cost rank within like-for-like peers, benchmark-lag probability, overlap</td><td>regularised and boosted models; holdings embeddings</td><td>needs expense ratios and holdings first</td></tr>
+</tbody></table>
+<p class="muted">Gate for any model: deflated Sharpe at least 0.95 with the real trial count, backtest-overfitting probability below 0.3, a positive lower bound from at least 60 resolved paper ideas, and a win over simple baselines after costs.</p></div>
+
+<div class="card"><h2>How a new client joins (KYC journey)</h2>
+<p><button class="go" id="play">Play the journey</button> <span class="muted">13 steps; three access tiers; the last two steps need a second person to approve.</span></p>
+<div class="steps" id="steps"></div>
+<p><span class="tier">T0</span> visitor &nbsp; <span class="tier">T1</span> member: own tools, private data &nbsp; <span class="tier">T2</span> verified client &nbsp; <span class="tier t3">T3</span> linked broker data (read only)</p></div>
+
+<div class="card gate"><h2>The gate before anyone else is let in</h2>
+<p>Opening Stoxsy to other people changes what it legally is. Pick the route first; everything else can be built and tested with made-up people meanwhile.</p>
+<div class="opts"><div class="tile"><b>A. Register</b>as a SEBI investment adviser or research analyst. Full onboarding, suitability, agreement, records.</div>
+<div class="tile"><b>B. Partner</b>with a registered entity that owns the client relationship; we receive only what we need.</div>
+<div class="tile"><b>C. Personal use</b>only you. No client onboarding is built.</div></div>
+<p class="muted">Terms of Use and Privacy Notice drafts are in the repository (docs/legal), with every missing fact left as a [BRACKET] for counsel.</p></div>
+
+<script>
+const P=[
+ ["1","Get the data","12 datasets, official sources first: expense ratios, fund holdings, fundamentals, announcements and news, flows, macro, index history, futures extras. Each passes a gate or is dropped.","now"],
+ ["2","Data pipeline","Raw first, point-in-time, validated, scheduled, restorable. One command runs the day; failures page you before they reach a model.",""],
+ ["3","ML and DL pipeline","Feature store without look-ahead, labels, purged cross-validation, costs, baselines, registry, drift. Candidates for equity, futures and funds.",""],
+ ["4","Product surfaces","Trader risk engine (can start now), futures desk (defined risk only), fund selection with cost and overlap, alerts, visual reports.","now"],
+ ["5","Clients and compliance","KYC onboarding, risk profiling, agreements, Terms and Privacy. Needs the legal route decision first.","gate"],
+ ["6","Hardening and launch","Security review, penetration test, backup restore, load and chaos tests, accessibility, incident runbook.",""]];
+const ph=document.getElementById('phases'),det=document.getElementById('detail');
+P.forEach((p,i)=>{const b=document.createElement('button');b.className='ph '+p[3];b.setAttribute('aria-pressed',i===0);b.innerHTML='<small>Phase '+p[0]+'</small><b>'+p[1]+'</b>'+(p[3]==='now'?'<small>can start now</small>':p[3]==='gate'?'<small>legal gate</small>':'');
+ b.onclick=()=>{[...ph.children].forEach(c=>c.setAttribute('aria-pressed','false'));b.setAttribute('aria-pressed','true');det.textContent=p[2]};ph.appendChild(b)});
+det.textContent=P[0][2];
+const C=[["Equity prices: NSE and BSE, 2016 to now",1,"loaded; BSE adjusted series waits for validation"],["Corporate actions: NSE and BSE records",1,"loaded; 69 reviewed events decided, rebuild awaiting your approval"],["Futures and options archive, 2016 to now",1,"loaded; implied volatility to be derived and labelled"],["Mutual-fund NAVs and classification",1,"loaded: 23,858 schemes"],["Mutual-fund expense ratios",0,"not loaded"],["Mutual-fund portfolio holdings",0,"not loaded"],["Fundamentals (exchange filings)",0,"not loaded"],["News and announcements",0,"not loaded"],["Flows, delivery, bulk deals, VIX, macro",0,"tables exist, no rows"]];
+const cov=document.getElementById('cov');
+C.forEach(c=>{const d=document.createElement('div');d.style.margin='8px 0';d.innerHTML='<div style="display:flex;justify-content:space-between;gap:10px"><span>'+c[0]+'</span><b style="color:'+(c[1]?'var(--ok)':'var(--bad)')+';text-align:right">'+c[2]+'</b></div><div class="bar"><i style="background:'+(c[1]?'var(--ok)':'var(--bad)')+'" data-w="'+(c[1]?100:4)+'"></i></div>';cov.appendChild(d)});
+setTimeout(()=>cov.querySelectorAll('i').forEach(i=>i.style.width=i.dataset.w+'%'),200);
+const S=[["Account","verify mobile and email, authenticator","T0"],["Consents","each purpose separately, nothing pre-ticked","T1"],["Identity","PAN verified, name match","T1"],["Address and ID","DigiLocker, masked Aadhaar","T2"],["KRA and CKYC","reuse an existing valid KYC","T2"],["Liveness","live selfie, face match","T2"],["Bank account","penny-drop, name match","T2"],["Tax residency","FATCA and CRS declaration","T2"],["Screening","sanctions, PEP, adverse media","T2"],["Risk category","low, medium, high; high gets extra checks","T2"],["Risk profile","capacity and tolerance, the lower wins","T2"],["Agreement","read and e-sign","T2"],["Approval","second person signs off; activation","T2"]];
+const st=document.getElementById('steps');
+S.forEach((s,i)=>{const d=document.createElement('div');d.className='st';d.innerHTML='<small class="muted">Step '+(i+1)+'</small><b>'+s[0]+'</b><span class="muted" style="font-size:.85rem">'+s[1]+'</span><br><span class="tier">'+s[2]+'</span>';st.appendChild(d)});
+let t=null;function play(){[...st.children].forEach(c=>c.classList.remove('on'));let i=0;clearInterval(t);t=setInterval(()=>{if(i>=st.children.length){clearInterval(t);return}st.children[i++].classList.add('on')},450)}
+document.getElementById('play').onclick=play;play();
+</script></main></body></html>

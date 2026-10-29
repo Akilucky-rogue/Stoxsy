@@ -96,9 +96,9 @@ def get_factor_ic(
 ):
     """Per-factor Spearman IC over recent N days vs forward returns.
 
-    Joins factor_pit (long-format) with prices to compute the forward
-    return per (symbol, date), pivots factors wide, then Spearman per
-    factor pooled across all (symbol, date) rows in the window.
+    Joins the feature store (wide) with prices to compute the forward
+    return per (symbol, date), then Spearman per factor pooled across all
+    (symbol, date) rows in the window.
     """
     try:
         forward_days = 5 if horizon == "swing" else 20
@@ -126,24 +126,13 @@ def get_factor_ic(
                .rename(columns={"date": "as_of_date"})
         )
 
-        # Factors in the same window
-        factors = read_sql(
-            """
-            SELECT symbol, as_of_date, factor_name, factor_value
-              FROM factor_pit
-             WHERE as_of_date >= (CURRENT_DATE - :lookback * INTERVAL '1 day')
-               AND valid_to = 'infinity'::timestamptz
-            """,
-            params={"lookback": lookback_days},
-        )
-        if factors.empty:
-            return {"horizon": horizon, "factors": [], "note": "No factors in window."}
+        # Factors in the same window, from the Parquet feature store (wide, NaN kept)
+        from datetime import date, timedelta
 
-        wide = factors.pivot_table(
-            index=["symbol", "as_of_date"],
-            columns="factor_name",
-            values="factor_value",
-        ).reset_index()
+        from qsde.features.store import read_features
+        wide = read_features(start=date.today() - timedelta(days=lookback_days)).drop(columns=["known_at"])
+        if wide.empty:
+            return {"horizon": horizon, "factors": [], "note": "No factors in window."}
 
         merged = wide.merge(targets, on=["symbol", "as_of_date"], how="inner")
         if merged.empty:
@@ -178,14 +167,11 @@ def get_factor_ic(
 
 @router.get("/factors/categories")
 def get_factor_categories():
-    """Counts of distinct factor names per category in factor_pit."""
+    """Counts of factor names per category in the current feature snapshots."""
     try:
-        df = read_sql(
-            """SELECT factor_name FROM factor_pit
-                 GROUP BY factor_name"""
-        )
+        from qsde.features.store import feature_columns
         counts = {"technical": 0, "fundamental": 0, "flow": 0, "macro": 0, "other": 0}
-        for name in df["factor_name"]:
+        for name in feature_columns():
             counts[_category(name)] += 1
         return {
             "categories": [{"name": k, "count": v} for k, v in counts.items()],

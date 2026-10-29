@@ -11,7 +11,7 @@
 
 import { useState } from "react";
 
-const API = "http://127.0.0.1:8000/api";
+import { API_BASE as API } from "@/lib/api";
 
 const box: React.CSSProperties = {
   position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
@@ -19,7 +19,7 @@ const box: React.CSSProperties = {
 };
 const mono = "var(--font-mono)";
 
-export default function OrderTicketModal({ symbol, onClose }: { symbol: string; onClose: () => void }) {
+export default function OrderTicketModal({ symbol, signal, onClose }: { symbol: string; signal?: any; onClose: () => void }) {
   const [budget, setBudget] = useState(200000);
   const [risk, setRisk] = useState(5000);
   const [ticket, setTicket] = useState<any>(null);
@@ -32,7 +32,10 @@ export default function OrderTicketModal({ symbol, onClose }: { symbol: string; 
     try {
       const r = await fetch(`${API}/orders/ticket`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbol, budget, risk_per_trade: risk }),
+        // Send the on-screen signal so the ticket is built from exactly what
+        // the user is looking at — not whatever a separate live loop happens to
+        // hold (which 404'd when the loop wasn't running for this symbol).
+        body: JSON.stringify({ symbol, signal: signal ? { ...signal, symbol } : undefined, budget, risk_per_trade: risk }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.detail || JSON.stringify(d));

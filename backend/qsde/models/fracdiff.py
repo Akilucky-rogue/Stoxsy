@@ -89,6 +89,7 @@ def frac_diff_ffd(
     d: float,
     thres: float = 1e-4,
     max_warmup_frac: float = 0.5,
+    auto_widen: bool = True,
 ) -> pd.Series:
     """Fractionally differentiated series with a fixed-width window.
 
@@ -105,6 +106,13 @@ def frac_diff_ffd(
                 consume more than this fraction of the series, the function
                 automatically widens `thres` until it fits. Prevents the
                 "all-NaN output on short series" failure mode.
+        auto_widen: True (default, legacy) enables the widening above. Pass
+                False for anything that is STORED: the kernel then depends
+                only on (d, thres), never on how much history the caller
+                happened to pass, so a value at date T is identical whether
+                it was computed from a backfill or from a daily run. A series
+                shorter than the kernel yields all-NaN instead of silently
+                using a different kernel.
 
     Returns:
         Series same length as input. First (window-1) values are NaN by
@@ -124,7 +132,7 @@ def frac_diff_ffd(
     # We multiply thres by 10 each loop iteration; in the worst case we
     # fall back to a trivial first-difference (d=1) when nothing fits.
     cur_thres = thres
-    while width > int(n * (1.0 - max_warmup_frac)) and cur_thres < 1.0:
+    while auto_widen and width > int(n * (1.0 - max_warmup_frac)) and cur_thres < 1.0:
         cur_thres *= 10.0
         w = _get_weights_ffd(d=d, thres=cur_thres)
         width = len(w)
@@ -137,11 +145,12 @@ def frac_diff_ffd(
 
     x = series.astype(float).to_numpy()
     out = np.full(n, np.nan, dtype=float)
-    for i in range(width - 1, n):
-        window = x[i - width + 1 : i + 1]
-        if np.isnan(window).any():
-            continue
-        out[i] = float(np.dot(w, window))
+    # Sliding windows @ kernel. A window containing NaN dot-products to NaN,
+    # which is exactly the "skip windows with a NaN" rule of the loop this
+    # replaces (same values, ~100x faster, so full-history differencing at
+    # every EOD run is affordable).
+    windows = np.lib.stride_tricks.sliding_window_view(x, width)
+    out[width - 1:] = windows @ w
     return pd.Series(out, index=series.index, dtype=float)
 
 
@@ -196,6 +205,8 @@ def apply_fracdiff_to_features(
     per_symbol: bool = True,
     symbol_col: str = "symbol",
     sort_col: str = "as_of_date",
+    auto_widen: bool = True,
+    strict: bool = False,
 ) -> tuple[pd.DataFrame, dict[str, Optional[float]]]:
     """Return (transformed_df, d_used_per_column).
 
@@ -215,7 +226,15 @@ def apply_fracdiff_to_features(
                          independently so cross-sectional pooling doesn't
                          contaminate the kernel.
         symbol_col:      column to group by when per_symbol=True.
-        sort_col:        date column to sort within each symbol.
+        sort_col:        date column to sort within each symbol. If absent, the
+                         frame's index is used (the factor engine's frames are
+                         date-indexed with a repeated date per symbol).
+        auto_widen:      forwarded to frac_diff_ffd. Use False for anything
+                         persisted (fixed kernel; see frac_diff_ffd).
+        strict:          if True, a failure on any column raises instead of
+                         leaving that column raw. Ingest must use True: a raw
+                         column tagged as differenced is exactly the
+                         train/serve skew this module exists to prevent.
     """
     if feature_cols is None:
         feature_cols = [
@@ -226,6 +245,23 @@ def apply_fracdiff_to_features(
 
     out = df.copy()
     d_used: dict[str, Optional[float]] = {}
+
+    # Work positionally: the factor engine hands us a date-indexed frame whose
+    # index has one repeated date per symbol, so label-based sort/reindex
+    # (the previous implementation) raised on duplicate labels and silently
+    # left every column raw.
+    n_rows = len(out)
+    if sort_col in out.columns:
+        sort_key = out[sort_col].to_numpy()
+    else:
+        sort_key = np.asarray(out.index)
+    if per_symbol and symbol_col in out.columns:
+        groups = out.groupby(symbol_col, sort=False).indices
+    else:
+        groups = {None: np.arange(n_rows)}
+    ordered = {
+        k: pos[np.argsort(sort_key[pos], kind="stable")] for k, pos in groups.items()
+    }
 
     for col in feature_cols:
         if col not in out.columns:
@@ -239,19 +275,17 @@ def apply_fracdiff_to_features(
             continue
 
         try:
-            if per_symbol:
-                out[col] = (
-                    out.sort_values([symbol_col, sort_col])
-                       .groupby(symbol_col, group_keys=False)[col]
-                       .apply(lambda s: frac_diff_ffd(s, d=default_d, thres=thres))
-                       .reindex(out.index)
-                )
-            else:
-                out[col] = frac_diff_ffd(
-                    out.sort_values(sort_col)[col], d=default_d, thres=thres
-                ).reindex(out.index)
+            vals = out[col].to_numpy(dtype=float)
+            res = np.full(n_rows, np.nan)
+            for pos in ordered.values():
+                res[pos] = frac_diff_ffd(
+                    pd.Series(vals[pos]), d=default_d, thres=thres, auto_widen=auto_widen,
+                ).to_numpy()
+            out[col] = res
             d_used[col] = default_d
         except Exception as e:  # noqa: BLE001
+            if strict:
+                raise RuntimeError(f"fracdiff failed for {col}: {e}") from e
             log.warning("fracdiff failed for %s: %s — leaving column as-is", col, e)
             d_used[col] = None
 

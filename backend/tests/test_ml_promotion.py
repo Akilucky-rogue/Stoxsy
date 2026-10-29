@@ -19,7 +19,21 @@ from qsde.models.deflated_sharpe import (
 from qsde.ingestion.universe import build_bse_universe, BSE_SENSEX_SYMBOLS
 
 
-def test_should_promote_threshold():
+def test_promotion_is_paused_by_default(monkeypatch):
+    """The legacy gate (close-of-t labels, subsampled periods, n_trials=1) is superseded by qsde.ml.eval:
+    nothing may be promoted on it unless explicitly re-enabled."""
+    monkeypatch.delenv("QSDE_ML_PROMOTION_ENABLED", raising=False)
+    monkeypatch.delenv("QSDE_FORCE_PROMOTE", raising=False)
+    g = should_promote(0.99, threshold=0.95, force=False)
+    assert g["paused"] and not g["promote"]
+    monkeypatch.setenv("QSDE_FORCE_PROMOTE", "true")
+    assert not should_promote(0.10)["promote"]            # even a force flag cannot override the pause
+    monkeypatch.setenv("QSDE_ML_PROMOTION_ENABLED", "true")
+    assert should_promote(0.10)["promote"]                # explicit research override re-enables it
+
+
+def test_should_promote_threshold(monkeypatch):
+    monkeypatch.setenv("QSDE_ML_PROMOTION_ENABLED", "true")          # threshold logic under test
     g = should_promote(0.96, threshold=0.95, force=False)
     assert g["promote"] and g["passed"] and not g["forced"]
 
@@ -60,3 +74,29 @@ def test_build_bse_universe():
     assert (df["exchange"] == "BSE").all()
     assert "BSE SENSEX" in df["index_membership"].iloc[0]
     assert df["is_active"].all()
+
+
+class TestLegacyTrainerRetired:
+    def test_legacy_trainer_refuses_to_run_by_default(self, monkeypatch):
+        import pandas as pd
+        import pytest
+
+        from qsde.models.lgbm_model import train_lightgbm_model
+        monkeypatch.delenv("QSDE_ALLOW_LEGACY_TRAINER", raising=False)
+        with pytest.raises(RuntimeError, match="retrain.py"):
+            train_lightgbm_model(pd.DataFrame(), horizon="swing")
+
+    def test_retrain_review_gate(self):
+        import importlib.util
+        from pathlib import Path
+
+        spec = importlib.util.spec_from_file_location(
+            "retrain_script", Path(__file__).resolve().parents[1] / "scripts" / "retrain.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        full = "adv60_top500_v1+adv10+full"
+        assert mod.review_gate("snap-1", full, None, False) is not None          # unreviewed full universe blocked
+        assert mod.review_gate("snap-1", full, "snap-OTHER", False) is not None   # reviewed a different snapshot
+        assert mod.review_gate("snap-1", full, "snap-1", True) is None            # reviewed: proceed
+        assert mod.review_gate("snap-1", "x+PILOT-SURVIVOR-SELECTED", None, False) is None      # plumbing is free
+        assert mod.review_gate("snap-1", "x+PILOT-SURVIVOR-SELECTED", None, True) is not None   # but never a candidate

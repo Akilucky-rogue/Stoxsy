@@ -1,0 +1,103 @@
+*, *::before, *::after { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3, h4 { margin: 0; font-weight: 650; letter-spacing: -0.01em; }
+h1 { font-size: 1.55rem; }
+h2 { font-size: 1.15rem; }
+h3 { font-size: 1rem; }
+p { margin: 0 0 0.6em; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: none; box-shadow: var(--focus); border-radius: 6px; }
+.num, td.num, .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.up { color: var(--up); }
+.down { color: var(--down); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ── buttons & inputs ─────────────────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; gap: 8px; justify-content: center;
+  padding: 9px 16px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--surface); cursor: pointer; font-weight: 550;
+}
+.btn:hover { background: var(--surface-2); }
+.btn.primary { background: var(--brand); color: var(--brand-ink); border-color: transparent; }
+.btn.primary:hover { filter: brightness(1.06); }
+.btn.danger { color: var(--down); }
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.field { display: grid; gap: 6px; margin-bottom: 14px; }
+.field label { font-size: 0.82rem; font-weight: 600; color: var(--ink-2); }
+.input {
+  width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--surface); min-height: 42px;
+}
+.input:focus { outline: none; box-shadow: var(--focus); border-color: var(--accent); }
+.error { color: var(--down); background: var(--danger-soft); padding: 10px 12px; border-radius: 10px; font-size: 0.9rem; }
+.notice { background: var(--info-soft); padding: 10px 12px; border-radius: 10px; font-size: 0.9rem; }
+
+/* ── cards, tiles, chips ──────────────────────────────────── */
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px; }
+.card > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.grid { display: grid; gap: var(--gutter); }
+.grid.tiles { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+.grid.two { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+.grid.three { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); }
+.tile .label { font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+.tile .value { font-size: 1.6rem; font-weight: 650; margin-top: 4px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.tile .sub { font-size: 0.82rem; color: var(--muted); margin-top: 2px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px;
+  font-size: 0.74rem; font-weight: 650; letter-spacing: 0.03em; white-space: nowrap; flex: 0 0 auto; background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--line);
+}
+.chip.research { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.chip.ok { background: var(--brand-soft); color: var(--brand); border-color: transparent; }
+.chip.warn { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+.chip.bad { background: var(--danger-soft); color: var(--down); border-color: transparent; }
+.chip.off { opacity: 0.8; }
+
+/* ── tables ───────────────────────────────────────────────── */
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+th { text-align: left; font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 10px 12px; background: var(--surface-2); position: sticky; top: 0; white-space: nowrap; }
+td { padding: 9px 12px; border-top: 1px solid var(--line); white-space: nowrap; }
+td.wrap { white-space: normal; min-width: 220px; }
+th.num, td.num { text-align: right; }
+tbody tr:hover { background: var(--surface-2); }
+.empty { padding: 28px; text-align: center; color: var(--muted); }
+
+/* ── segmented control & bars ─────────────────────────────── */
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface); }
+.seg button { padding: 7px 12px; border: 0; background: transparent; cursor: pointer; font-weight: 550; color: var(--ink-2); }
+.seg button[aria-pressed="true"] { background: var(--brand); color: var(--brand-ink); }
+.bar { height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; min-width: 70px; }
+.bar > span { display: block; height: 100%; border-radius: 999px; background: var(--brand); }
+.skeleton { background: linear-gradient(90deg, var(--surface-2), var(--line), var(--surface-2)); background-size: 200% 100%; animation: sk 1.2s infinite; border-radius: 8px; height: 18px; }
+@keyframes sk { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } * { transition: none !important; } }
+
+/* ── markdown report body ─────────────────────────────────── */
+.md { line-height: 1.6; max-width: 980px; }
+.md h1 { margin: 0 0 12px; } .md h2 { margin: 22px 0 8px; } .md h3 { margin: 16px 0 6px; }
+.md table { display: block; overflow-x: auto; margin: 10px 0; }
+.md code { font-family: var(--font-mono); background: var(--surface-2); padding: 1px 5px; border-radius: 5px; font-size: 0.85em; }
+.md blockquote { margin: 10px 0; padding: 8px 14px; border-left: 4px solid var(--warn); background: var(--warn-soft); border-radius: 6px; }
+.md ul { padding-left: 1.2em; }
+
+.logo { background: #0b1b2b; display: inline-grid; place-items: center; border-radius: 10px; flex: 0 0 auto; }
+
+/* keep wide children (segmented controls, tables) from widening the page on narrow screens */
+.grid > *, .content > *, .card { min-width: 0; }
+.seg { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.seg button { white-space: nowrap; }
+.card > header > * { min-width: 0; }

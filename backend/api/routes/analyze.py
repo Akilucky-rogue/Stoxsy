@@ -14,7 +14,7 @@ Two routes:
 
   POST /api/analyze/{symbol}/pin    Same fetch + compute, then persists
                                     into universe, ohlcv, fundamentals,
-                                    factor_pit, and signals tables so the
+                                    the feature store, and signals tables so the
                                     symbol appears in every downstream UI
                                     afterward.
 
@@ -226,7 +226,7 @@ def _predict_with_model(
 #
 #   "threshold"  = |pred| below which we call HOLD (no edge above costs).
 #   "conf_scale" = |pred| value mapped to 100% magnitude-score (saturation).
-#   "atr_fallback" = used when factor_pit has no tech_atr_pct for the symbol.
+#   "atr_fallback" = used when the feature store has no tech_atr_pct for the symbol.
 _HORIZON_CALIB: dict[str, dict[str, float]] = {
     "intraday": {"threshold": 0.003, "conf_scale": 0.012, "atr_fallback": 0.010},
     "swing":    {"threshold": 0.008, "conf_scale": 0.035, "atr_fallback": 0.022},
@@ -302,7 +302,7 @@ def compute_meta_confidence(
 
 
 def _atr_fallback_for(horizon: str) -> float:
-    """Horizon-scaled ATR fallback when factor_pit has no row for this symbol.
+    """Horizon-scaled ATR fallback when the feature store has no row for this symbol.
     Scales as sqrt(horizon_days) which matches volatility's time-scaling."""
     return _HORIZON_CALIB.get(horizon, _HORIZON_CALIB["swing"])["atr_fallback"]
 
@@ -753,7 +753,7 @@ def analyze(symbol: str):
 
 def _persist_pinned(payload: dict) -> dict:
     """Write a pinned symbol's data into universe, ohlcv, fundamentals,
-    factor_pit, and signals so it appears alongside the seeded Nifty 200.
+    the Parquet feature store, and signals so it appears alongside the seeded Nifty 200.
 
     Re-fetches OHLCV + fundamentals to get the long-form data
     (the analyze response only carries the latest snapshot).
@@ -810,16 +810,16 @@ def _persist_pinned(payload: dict) -> dict:
         conflict_columns=["symbol", "fiscal_date", "filing_date"],
     )
 
-    # 4. Compute + persist factors into factor_pit.
-    ohlcv_indexed = ohlcv.set_index(pd.to_datetime(ohlcv["date"]))
-    ohlcv_indexed = ohlcv_indexed[["open", "high", "low", "close", "volume"]]
-    tech = compute_all_technical(ohlcv_indexed)
-    fund = compute_fundamental_factors_from_filings(filings, ohlcv_indexed.index)
-    factors_wide = pd.concat([tech, fund], axis=1)
-    factors_wide["symbol"] = internal
-
-    from qsde.factors.pit_writer import write_factors_to_pit
-    n_written = write_factors_to_pit(factors_wide, data_source="analyze_pin")
+    # 4. Compute + persist factors into the Parquet feature store (ffd_v2, fractionally differenced over the full
+    #    history just upserted). factor_pit is deprecated and has no writer left on a live path; the old code stored
+    #    RAW, undifferenced factors there, which is exactly the train/serve skew the feature store removed.
+    from qsde.factors.engine import compute_factors_batch
+    try:
+        combined = compute_factors_batch([internal])
+        n_written = int(len(combined))
+    except Exception as e:  # noqa: BLE001 - a feature-store failure must not undo the pin
+        log.warning("pin %s: feature-store write failed: %s", internal, e)
+        n_written = 0
 
     # 5. Insert signals for all horizons (today's date), incl. trade levels.
     today = date.today()

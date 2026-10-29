@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from fastapi import APIRouter, Body, HTTPException
 
 from qsde.db import execute_sql, read_sql
@@ -69,6 +70,22 @@ def _update(ticket_id: str, **fields) -> None:
     sets = ", ".join(f"{k} = %({k})s" for k in fields) + ", updated_at = NOW()"
     params = {**fields, "tid": ticket_id}
     execute_sql(f"UPDATE orders SET {sets} WHERE ticket_id = %(tid)s", params)
+
+
+def _today_live_pnl() -> float:
+    """Today's net P&L (INR) from the broker — the source of truth for the
+    daily-loss circuit breaker on LIVE orders. Best-effort: returns 0.0 if the
+    broker is unreachable, so the cap simply doesn't fire on a transient error
+    rather than blocking a confirm. Negative = down on the day."""
+    try:
+        from qsde.ingestion.kite_client import get_kite_client
+        kite = get_kite_client()
+        positions = kite.positions() if hasattr(kite, "positions") else kite.kite.positions()
+        day = positions.get("day", []) if isinstance(positions, dict) else []
+        return float(sum(float(p.get("pnl", 0) or 0) for p in day))
+    except Exception as e:  # noqa: BLE001
+        log.warning("daily-loss P&L unavailable (%s) — day-loss cap not enforced this request", e)
+        return 0.0
 
 
 @router.post("/orders/ticket")
@@ -127,6 +144,15 @@ def confirm_ticket(payload: dict = Body(default={})):
         "AND created_at >= date_trunc('day', NOW())"
     ).iloc[0]["c"])
 
+    # Daily-loss circuit breaker (LIVE only). Opt-in via env QSDE_MAX_DAY_LOSS
+    # (INR, positive number); default inf = disabled, preserving prior behavior.
+    # day_loss is the broker's net day P&L, fetched only for live confirms.
+    try:
+        max_day_loss = float(os.getenv("QSDE_MAX_DAY_LOSS", "inf") or "inf")
+    except ValueError:
+        max_day_loss = float("inf")
+    day_loss = _today_live_pnl() if live else 0.0
+
     ok, reasons = check_risk_gates(
         live=live,
         n_open=n_open,
@@ -134,6 +160,8 @@ def confirm_ticket(payload: dict = Body(default={})):
         deployed_capital=deployed,
         capital_cap=float(payload.get("capital_cap", float("inf"))),
         incoming_capital=float(row.get("capital_required") or 0.0),
+        day_loss=day_loss,
+        max_day_loss=max_day_loss,
     )
     if not ok:
         _update(ticket_id, status=REJECTED, reasons=json.dumps(reasons))

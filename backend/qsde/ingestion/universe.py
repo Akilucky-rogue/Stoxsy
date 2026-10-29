@@ -283,7 +283,7 @@ def sync_universe_from_kite(exchange: str = "NSE", limit: int | None = None, rep
     tradingsymbol on `exchange` into `universe`.
 
     Requires an active Kite session -- start the backend and open
-    http://localhost:8000/api/kite/login_url first.
+    http://localhost:8700/api/kite/login_url first.
 
     Args:
         exchange: "NSE" or "BSE".
@@ -299,7 +299,7 @@ def sync_universe_from_kite(exchange: str = "NSE", limit: int | None = None, rep
     if not client.is_authenticated:
         raise RuntimeError(
             "Kite not authenticated. Start the backend and open "
-            "http://localhost:8000/api/kite/login_url to log in, then re-run."
+            "http://localhost:8700/api/kite/login_url to log in, then re-run."
         )
 
     n_inst = int(read_sql(

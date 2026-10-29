@@ -5,10 +5,9 @@ Connects to wss://ws.kite.trade using the active access_token, subscribes
 to a set of instrument tokens, and republishes each tick into the
 process-wide TickFanout for downstream consumers (aggregator, SSE, etc.).
 
-The kiteconnect SDK's KiteTicker uses Twisted under the hood. We run it
-in `threaded=True` mode so the FastAPI event loop is unaffected -- ticks
-arrive on a Twisted reactor thread and we just hand them to our own
-thread-safe fanout.
+Transport: `qsde.ingestion.kite_ws.KiteWebSocket` (the `websockets` library in a background thread). The SDK's own KiteTicker transport is refused by
+Kite's server on current Python (HTTP 400 on the upgrade), so only the transport was replaced; packets are parsed by the SDK's parser. Ticks arrive on the
+socket thread and are handed to our thread-safe fanout.
 
 Modes supported:
   * MODE_LTP   -- only last-traded-price. Cheapest.
@@ -30,6 +29,7 @@ from typing import Optional
 
 from qsde.config import settings
 from qsde.db.connection import read_sql
+from qsde.ingestion.kite_ws import KiteWebSocket
 from qsde.ingestion.tick_fanout import get_fanout
 
 log = logging.getLogger(__name__)
@@ -51,11 +51,6 @@ class KiteLiveStreamer:
         access_token: Optional[str] = None,
         mode: str = "quote",
     ) -> None:
-        try:
-            from kiteconnect import KiteTicker
-        except ImportError as e:
-            raise RuntimeError("kiteconnect SDK not installed.") from e
-
         if not settings.kite_api_key:
             raise RuntimeError("KITE_API_KEY not set.")
         if access_token is None:
@@ -65,14 +60,13 @@ class KiteLiveStreamer:
                 "No active Kite access_token in DB. Re-login via /api/kite/login_url."
             )
 
-        self._KiteTicker = KiteTicker
         # Use a mutable set under a lock so add_symbols() can race-safely
         # add tokens to a live socket.
         self._tokens_lock = threading.Lock()
         self._instrument_tokens: list[int] = list(instrument_tokens)
         self._connected = False  # flipped True in _on_connect
         self._mode_name = mode.lower()
-        self._kws = KiteTicker(settings.kite_api_key, access_token)
+        self._kws = KiteWebSocket(settings.kite_api_key, access_token)    # see kite_ws: the SDK transport is refused by Kite's server
         self._fanout = get_fanout()
         self._stop_event = threading.Event()
         # instrument_token -> tradingsymbol map, populated lazily.
@@ -83,6 +77,7 @@ class KiteLiveStreamer:
         # in main() before instantiation) is honored.
         self._tick_count = 0
         self._first_tick_at: Optional[datetime] = None
+        self._last_tick_at: Optional[datetime] = None
         self._heartbeat_every = int(os.getenv("QSDE_TICK_HEARTBEAT", "50"))
 
         self._kws.on_ticks = self._on_ticks
@@ -171,6 +166,7 @@ class KiteLiveStreamer:
             fanout.publish(tick)
         # Periodic heartbeat at INFO; per-batch trace at DEBUG.
         self._tick_count += n
+        self._last_tick_at = now_utc
         hb = self._heartbeat_every
         if hb > 0 and (self._tick_count // hb) != ((self._tick_count - n) // hb):
             log.info("Ticks received: total=%d (last batch=%d, syms=%s)",
@@ -189,7 +185,7 @@ class KiteLiveStreamer:
 
     def start(self) -> None:
         """Start the WS in a background Twisted reactor thread."""
-        log.info("Starting KiteTicker (threaded)...")
+        log.info("Starting Kite WebSocket (threaded)...")
         self._kws.connect(threaded=True)
 
     def stop(self) -> None:
@@ -274,6 +270,13 @@ class KiteLiveStreamer:
         with self._tokens_lock:
             return sorted(self._token_to_symbol.get(t) or str(t)
                           for t in self._instrument_tokens)
+
+    def health(self) -> dict:
+        """What the heartbeat reports: connected, how many symbols and ticks, and how long since the last tick (a socket can be open and silent)."""
+        now = datetime.now(timezone.utc)
+        last = self._last_tick_at
+        return {"connected": self.is_connected, "symbols": len(self._instrument_tokens), "ticks": self._tick_count,
+                "last_tick_at": None if last is None else last.isoformat(), "last_tick_age_s": None if last is None else round((now - last).total_seconds(), 1)}
 
     @property
     def is_connected(self) -> bool:

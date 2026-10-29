@@ -30,7 +30,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import LiveChart, { type Bar, type Micro, type Sig, type ChartType } from "./LiveChart";
 import OrderTicketModal from "./OrderTicketModal";
 
-const API = "http://127.0.0.1:8000/api";
+import { API_BASE as API } from "@/lib/api";
 const LIVE_POLL_MS = 1000;
 const HIST_POLL_MS = 60000;
 const SPARSE_INTRADAY_THRESHOLD = 10;   // <10 bars -> auto-show 1M historical instead
@@ -432,11 +432,11 @@ export default function SymbolAnalysisPanel({
             {chartUpdated ? ` · refreshed ${chartUpdated}` : ""}
             {tf === "live" ? " · 1s poll" : " · 60s poll"}
           </span>
-          <button onClick={() => setOrderOpen(true)} disabled={!liveSig || liveSig.direction === 0} style={{
+          <button onClick={() => setOrderOpen(true)} disabled={!displayedSig || displayedSig.direction === 0} style={{
             padding: "6px 14px", background: "transparent", border: "1px solid var(--accent-cyan)", borderRadius: "var(--radius-sm)",
             color: "var(--accent-cyan)", fontFamily: mono, fontWeight: 700, fontSize: "0.7rem",
-            cursor: (!liveSig || liveSig.direction === 0) ? "not-allowed" : "pointer",
-            opacity: (!liveSig || liveSig.direction === 0) ? 0.5 : 1,
+            cursor: (!displayedSig || displayedSig.direction === 0) ? "not-allowed" : "pointer",
+            opacity: (!displayedSig || displayedSig.direction === 0) ? 0.5 : 1,
           }}>⊕ Trade</button>
         </div>
 
@@ -693,7 +693,7 @@ export default function SymbolAnalysisPanel({
       )}
 
       {orderOpen && analyze && (
-        <OrderTicketModal symbol={analyze.internal_symbol} onClose={() => setOrderOpen(false)} />
+        <OrderTicketModal symbol={analyze.internal_symbol} signal={displayedSig} onClose={() => setOrderOpen(false)} />
       )}
     </div>
   );

@@ -135,9 +135,18 @@ def pit_query(
     """
     Point-in-Time correct factor retrieval.
 
-    Returns factor values that were known on `as_of_date`, preventing
-    lookahead bias. This is the ONLY sanctioned way to retrieve factors
-    for backtest or live signal computation.
+    Returns factor values that were knowable BY THE END OF `as_of_date`,
+    preventing lookahead bias. This is the ONLY sanctioned way to retrieve
+    factors for backtest / training reads. LIVE serving (signal_generator)
+    correctly reads `valid_to = 'infinity'` for the current snapshot; use
+    that path for live signals, THIS path for backtest / training.
+
+    C4 fix (Stage 2B.2): pit_writer now stamps `valid_from` with the
+    knowability timestamp (as_of_date + 18h IST). The predicate below
+    asks "was this row knowable by end-of-day on `as_of_date`?" — the
+    end-of-day being `as_of_date + 23:59:59 IST`. Any row stamped with
+    `valid_from = as_of_date + 18h` clears the predicate for its own
+    session but NOT for prior sessions — no lookahead.
 
     Args:
         symbol: Stock ticker (e.g., 'RELIANCE').
@@ -151,11 +160,11 @@ def pit_query(
         SELECT factor_name, factor_value, data_source
         FROM factor_pit
         WHERE symbol = :symbol
-          AND as_of_date = :date
-          AND valid_from <= :date::timestamp
-          AND valid_to > :date::timestamp
+          AND as_of_date = :date::date
+          AND valid_from <= (:date::date + INTERVAL '23 hours 59 minutes 59 seconds')::timestamptz
+          AND valid_to   > (:date::date + INTERVAL '23 hours 59 minutes 59 seconds')::timestamptz
     """
-    params = {"symbol": symbol, "date": as_of_date}
+    params: dict = {"symbol": symbol, "date": as_of_date}
 
     if factor_names:
         placeholders = ", ".join([f":f{i}" for i in range(len(factor_names))])
@@ -163,6 +172,34 @@ def pit_query(
         for i, fn in enumerate(factor_names):
             params[f"f{i}"] = fn
 
+    return read_sql(base_sql, params)
+
+
+def pit_query_bulk(
+    symbols: list[str],
+    as_of_date: str,
+    factor_names: Optional[list[str]] = None,
+) -> pd.DataFrame:
+    """Bulk PIT retrieval for backtest / training — returns a WIDE
+    DataFrame keyed (symbol, factor_name) columns.
+
+    Same PIT semantics as `pit_query` but batched. Wire this into
+    dataset.py / rule_engine backfill loops in Stage 2C.
+    """
+    base_sql = """
+        SELECT symbol, factor_name, factor_value, data_source
+        FROM factor_pit
+        WHERE symbol = ANY(:symbols)
+          AND as_of_date = :date::date
+          AND valid_from <= (:date::date + INTERVAL '23 hours 59 minutes 59 seconds')::timestamptz
+          AND valid_to   > (:date::date + INTERVAL '23 hours 59 minutes 59 seconds')::timestamptz
+    """
+    params: dict = {"symbols": symbols, "date": as_of_date}
+    if factor_names:
+        placeholders = ", ".join([f":f{i}" for i in range(len(factor_names))])
+        base_sql += f" AND factor_name IN ({placeholders})"
+        for i, fn in enumerate(factor_names):
+            params[f"f{i}"] = fn
     return read_sql(base_sql, params)
 
 

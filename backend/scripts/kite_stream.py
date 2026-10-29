@@ -37,6 +37,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from qsde.ops.heartbeat import beat
 from qsde.db.connection import read_sql
 from qsde.ingestion.kite_ticker import KiteLiveStreamer
 from qsde.ingestion.intraday_storage import MinuteBarAggregator, PeriodicFlusher
@@ -51,7 +52,7 @@ log = logging.getLogger(__name__)
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--symbols", type=str, default=None,
-                        help="Comma-separated symbols (default: full universe)")
+                        help="Comma-separated symbols (default: the point-in-time top-500 universe)")
     parser.add_argument("--no-raw-ticks", action="store_true",
                         help="Skip writing raw ticks to ticks_raw")
     parser.add_argument("--debug", action="store_true",
@@ -78,15 +79,19 @@ def main():
             params={"syms": syms},
         )
     else:
+        # Default: the point-in-time top-500 universe (the same names the signal and the logged predictions cover), minus ETFs and fund units.
+        from qsde.universe import instruments
+
+        drop = sorted(instruments.non_equity_symbols())
         rows = read_sql(
             """SELECT ki.instrument_token, ki.tradingsymbol
-                 FROM kite_instruments ki
-                 JOIN universe u ON u.symbol = ki.tradingsymbol
-                WHERE u.is_active = TRUE
-                  AND ki.instrument_type = 'EQ'
-                  AND ki.exchange = 'NSE'
-             ORDER BY ki.tradingsymbol"""
+                 FROM universe_pit up
+                 JOIN kite_instruments ki ON ki.tradingsymbol = up.symbol AND ki.instrument_type = 'EQ' AND ki.exchange = 'NSE'
+                WHERE up.method = 'adv60_top500_v1' AND up.date = (SELECT max(date) FROM universe_pit WHERE method = 'adv60_top500_v1')
+                  AND NOT (up.symbol = ANY(:drop))
+             ORDER BY ki.tradingsymbol""", params={"drop": drop}
         )
+        log.info("Streaming universe: point-in-time top 500 (%d resolved to Kite tokens).", len(rows))
 
     if rows.empty:
         log.error("No instrument_tokens resolved. Run /api/kite/refresh_instruments first.")
@@ -125,9 +130,15 @@ def main():
 
     # Main thread parks here -- everything else is in background threads.
     try:
+        last_beat = 0.0
         while not stop_received["flag"]:
             time.sleep(2.0)
+            if time.time() - last_beat >= 30:                      # liveness for the alert engine and the doctor command
+                h = streamer.health()
+                beat("stream", "ok" if h["connected"] else "degraded", h)
+                last_beat = time.time()
     finally:
+        beat("stream", "stopped", streamer.health())
         log.info("Joining threads...")
         flusher.join(timeout=5)
         aggregator.join(timeout=10)

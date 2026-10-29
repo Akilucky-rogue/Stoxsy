@@ -1,0 +1,22 @@
+{
+  "version": "tax_policy_v1",
+  "status": "UNVERIFIED. Written from the owner's pasted AI Studio answer and general knowledge of the Income-tax Act as amended up to the Finance Act 2024; NOT checked against current statute text or CBDT circulars. Confirm every figure with your chartered accountant before relying on it. Only the holding-period classes below are computed; no tax amount is computed.",
+  "listed_securities_and_equity_funds": {
+    "applies_to": "shares listed on a recognised exchange, and mutual fund schemes whose asset_class is 'equity' in mf_scheme_master",
+    "long_term_after_months": 12,
+    "long_term_rule": "held for MORE than 12 calendar months: long-term from acquisition date + 12 months + 1 day (calendar months, not 365 days, so a leap day moves the boundary by one day)",
+    "near_long_term_days": 35
+  },
+  "not_classified": [
+    "debt and hybrid mutual funds (rules depend on the purchase date and the equity share of the portfolio)",
+    "commodity / international / fund-of-funds schemes",
+    "lots whose purchase date is not in any loaded file",
+    "bonus shares: the allotment date is not in the NSE feed, so the ex-date is used as a proxy and the lot is marked for review"
+  ],
+  "not_computed": [
+    "tax amounts at any rate",
+    "the annual long-term capital gains exemption (it needs this financial year's realised gains across every broker and fund)",
+    "grandfathering for shares bought before 1 February 2018",
+    "indexation, surcharge and cess"
+  ]
+}

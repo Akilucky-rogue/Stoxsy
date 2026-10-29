@@ -81,7 +81,7 @@ def kite_callback(
               <p>User: <strong>{info.get('user_name') or '-'}</strong></p>
               <p>Token valid until: <strong>{info.get('expires_at')}</strong></p>
               <p>You can close this tab and return to the dashboard.</p>
-              <script>setTimeout(()=>{{ window.location.href = "http://localhost:3000/"; }}, 2500);</script>
+              <script>setTimeout(()=>{{ window.location.href = "http://localhost:5273/"; }}, 2500);</script>
             </body></html>
             """
         )
@@ -96,7 +96,7 @@ def kite_callback(
 @router.post("/kite/exchange")
 def kite_exchange(request_token: str = Query(..., description="request_token from the Zerodha redirect URL")):
     """Manual token exchange. Use when the browser redirect didn't hit /callback
-    (e.g. the Kite app's Redirect URL isn't http://127.0.0.1:8000/api/kite/callback).
+    (e.g. the Kite app's Redirect URL isn't http://127.0.0.1:8700/api/kite/callback).
     Paste the request_token you landed on. Single-use; expires in ~2 minutes.
     """
     try:

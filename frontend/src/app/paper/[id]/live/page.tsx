@@ -20,7 +20,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
-const API = "http://127.0.0.1:8000/api";
+import { API_BASE as API } from "@/lib/api";
 
 // ──────────────────────────────────────────────────────────────────────
 // API response shapes (mirror backend qsde/execution/paper_live.py)

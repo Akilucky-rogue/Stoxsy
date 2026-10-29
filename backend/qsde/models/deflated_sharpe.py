@@ -245,6 +245,12 @@ def should_promote(dsr, threshold=None, force=None) -> dict:
     small / synthetic data where DSR can't realistically clear 0.95) — recorded
     as forced=True for the audit trail.
 
+    DEFAULT IS PAUSED (changed 2026-10-18): this legacy gate evaluates the old
+    close-of-t labels with subsampled periods and n_trials=1, which the new
+    evaluation harness (qsde.ml.eval + trial ledger) supersedes. Until the
+    harness-based gate replaces it, promotion requires an explicit
+    QSDE_ML_PROMOTION_ENABLED=true and should be treated as a research override.
+
     HARD PAUSE: env QSDE_ML_PROMOTION_ENABLED=false short-circuits and refuses
     promotion regardless of DSR or force. Used during the Tier 1 rule-engine
     validation window (target: 30+ paper sessions) so ML and rule strategies
@@ -254,7 +260,7 @@ def should_promote(dsr, threshold=None, force=None) -> dict:
     Returns {promote, passed, forced, threshold, reason}.
     """
     # ── Hard pause check (overrides everything, including FORCE_PROMOTE) ──
-    ml_enabled_raw = os.getenv("QSDE_ML_PROMOTION_ENABLED", "true").strip().lower()
+    ml_enabled_raw = os.getenv("QSDE_ML_PROMOTION_ENABLED", "false").strip().lower()
     ml_enabled = ml_enabled_raw in ("1", "true", "yes", "on", "y")
     if not ml_enabled:
         # Still compute DSR diagnostic for the audit log — caller may log it.
@@ -268,7 +274,7 @@ def should_promote(dsr, threshold=None, force=None) -> dict:
             "reason": (
                 f"ML promotion PAUSED (QSDE_ML_PROMOTION_ENABLED={ml_enabled_raw!r}). "
                 f"DSR diagnostic only: {d:.4f}. Active model unchanged. "
-                "Unset or set =true to resume."
+                "Default is paused until the harness-based gate replaces this legacy one; set =true to override."
             ),
         }
 

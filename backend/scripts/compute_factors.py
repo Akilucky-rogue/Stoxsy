@@ -43,7 +43,7 @@ def main():
     parser.add_argument("--symbols", type=str, default=None,
                         help="Comma-separated symbols (default: full universe)")
     parser.add_argument("--only-new", action="store_true",
-                        help="Only symbols not yet in factor_pit")
+                        help="Only symbols not yet in the Parquet feature store")
     parser.add_argument("--start", type=str, default="2018-01-01",
                         help="Earliest date to compute factors from")
     args = parser.parse_args()
@@ -51,17 +51,11 @@ def main():
     if args.symbols:
         symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
     elif args.only_new:
-        df = read_sql(
-            """SELECT u.symbol
-                 FROM universe u
-            LEFT JOIN (SELECT DISTINCT symbol FROM factor_pit) f
-                   ON f.symbol = u.symbol
-                WHERE u.is_active = TRUE
-                  AND f.symbol IS NULL
-             ORDER BY u.symbol"""
-        )
-        symbols = df["symbol"].tolist()
-        log.info("Found %d symbols in universe with no factor_pit rows.", len(symbols))
+        from qsde.features.store import read_features
+        have = set(read_features(columns=[])["symbol"].unique())
+        df = read_sql("SELECT symbol FROM universe WHERE is_active = TRUE ORDER BY symbol")
+        symbols = [s for s in df["symbol"].tolist() if s not in have]
+        log.info("Found %d symbols in universe with no rows in the feature store.", len(symbols))
     else:
         df = read_sql(
             "SELECT symbol FROM universe WHERE is_active = TRUE ORDER BY symbol"

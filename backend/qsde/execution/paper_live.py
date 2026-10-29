@@ -31,7 +31,9 @@ log = logging.getLogger(__name__)
 
 
 # Horizon -> number of NSE trading sessions for the barrier window.
-HORIZON_SESSIONS = {"intraday": 1, "swing": 5, "long": 20}
+from qsde.ml.registry import legacy_sessions
+
+HORIZON_SESSIONS = legacy_sessions()           # registry-derived
 
 
 # ──────────────────────────────────────────────────────────────────────

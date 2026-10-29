@@ -75,6 +75,36 @@ SHORT_DECILE = float(os.getenv("QSDE_TIER1_SHORT_DECILE", "0.10")) # bottom 10%
 # Benchmark — we use NIFTY 50 as the broad-market proxy for BAB.
 BENCHMARK_INDEX = os.getenv("QSDE_TIER1_BENCHMARK", "NIFTY 50")
 
+# Momentum-tilted COLD-START PRIOR for the composite weights.
+#
+# The full-history backtest (scripts/backtest_rules.py, 164 tradeable NSE names,
+# 2019-2026, adj_close total-return, realistic next-session entry, net of 12bps)
+# measured which tier-1 factors actually carry a net-of-cost edge that beats both
+# costs and an equal-weight buy-and-hold benchmark:
+#   * jt  (Jegadeesh-Titman 12-1)     -> REAL EDGE  (+0.6-0.9 Sharpe excess, DSR 0.96+)
+#   * mop (time-series momentum)      -> REAL EDGE  (+0.5-0.7 Sharpe excess, DSR 0.94+)
+#   * bab (betting-against-beta)      -> DEAD        (NEGATIVE excess + negative L/S spread
+#                                                     in BOTH sub-periods; the Indian bull
+#                                                     rewarded high beta, opposite of BAB)
+#   * rsi2 (Connors RSI(2) reversion) -> UNRELIABLE  (marginal->bad across regimes, 68%
+#                                                     turnover, cost-sensitive)
+# Equal-weighting all four DILUTES the momentum alpha to ~benchmark (excess ~0).
+# So until live paper accumulates >= MIN_OBSERVATIONS of resolved IC per factor,
+# we anchor the composite to a momentum-tilted prior. See memory: momentum-is-the-real-edge.
+MOMENTUM_PRIOR: dict[str, float] = {"jt": 0.5, "mop": 0.5, "bab": 0.0, "rsi2": 0.0}
+
+# Shrinkage anchor toward the backtest prior when blending with live IC.
+#
+# The live IC (rule_factor_ic) is a 60-SESSION ROLLING Spearman IC — structurally
+# a ~3-month regime estimate. On its own it chases whatever worked last quarter:
+# e.g. the June-2026 paper month was mean-reverting, so live IC put ~100% of the
+# swing composite on rsi2 (the factor the 7-year backtest proved is the WORST) and
+# ZERO on momentum. A 3-month rolling estimate must NOT be trusted to fully
+# override a 7-year, regime-stable backtest. So we Bayesian-shrink live IC toward
+# the durable prior: final = SHRINK*prior + (1-SHRINK)*normalized_live_IC. Live
+# data can TILT the composite but never HIJACK it — momentum keeps a hard floor.
+PRIOR_SHRINK = float(os.getenv("QSDE_TIER1_PRIOR_SHRINK", "0.70"))
+
 
 # ──────────────────────────────────────────────────────────────────────
 # Data loaders
@@ -83,23 +113,46 @@ BENCHMARK_INDEX = os.getenv("QSDE_TIER1_BENCHMARK", "NIFTY 50")
 def load_active_universe() -> pd.DataFrame:
     """Active symbols with their NSE/BSE-index membership.
 
+    Honors the `liquidity_tier` column populated by
+    qsde.universe.liquidity_filter.refresh_universe_tiers() when present:
+    returns only `tradeable` rows. When the column is NULL across the
+    whole table (pre-expansion bootstrap state), returns ALL active rows
+    so the engine still works — the inline ADV gate downstream catches
+    illiquid names defensively.
+
     Returns
     -------
     pd.DataFrame
-        columns: symbol, index_membership (list[str]), market_cap, sector
+        columns: symbol, index_membership (list[str]), market_cap, sector,
+                 liquidity_tier (str or NULL), adv_60d (float or NULL)
     """
     df = read_sql(
         """
         SELECT symbol,
                index_membership,
                market_cap,
-               sector
+               sector,
+               liquidity_tier,
+               adv_60d
           FROM universe
          WHERE is_active = TRUE
         """
     )
     if df.empty:
         log.warning("Active universe is empty; rule engine will produce no signals")
+        return df
+
+    # If liquidity_tier has been populated anywhere, trust it and trim
+    # to tradeable. Otherwise (NULL everywhere = pre-expansion bootstrap)
+    # let the downstream inline ADV gate handle the cut.
+    has_tiers = df["liquidity_tier"].notna().any()
+    if has_tiers:
+        tradeable = df[df["liquidity_tier"] == "tradeable"].reset_index(drop=True)
+        log.info("Universe: %d total active, %d tradeable (tier-filtered)",
+                 len(df), len(tradeable))
+        return tradeable
+    log.info("Universe: %d active (no liquidity_tier yet; inline ADV gate will apply)",
+             len(df))
     return df
 
 
@@ -164,34 +217,58 @@ def compute_adv_map() -> dict[str, float]:
 def load_latest_atr_map() -> dict[str, float]:
     """Latest tech_atr_pct per symbol (used for trade-level computation).
 
-    Mirrors the load pattern in models/signal_generator.py — `DISTINCT ON`
-    grabs the latest valid_to=infinity row per (symbol).
+    Reads the Parquet feature store (same store training and serving use).
     """
-    df = read_sql(
-        """
-        SELECT DISTINCT ON (symbol)
-               symbol, factor_value
-          FROM factor_pit
-         WHERE factor_name = 'tech_atr_pct'
-           AND valid_to = 'infinity'::timestamptz
-           AND as_of_date >= (CURRENT_DATE - INTERVAL '20 days')
-      ORDER BY symbol, as_of_date DESC
-        """
-    )
-    if df.empty:
-        return {}
-    return {str(r["symbol"]): float(r["factor_value"]) for _, r in df.iterrows()
-            if pd.notna(r["factor_value"])}
+    from qsde.features.store import latest_factor
+
+    s = latest_factor("tech_atr_pct", max_age_days=20)
+    return {str(k): float(v) for k, v in s.items() if pd.notna(v)}
+
+
+def shrink_toward_prior(
+    live_pos: dict[str, float],
+    prior: dict[str, float],
+    shrink: float = PRIOR_SHRINK,
+) -> dict[str, float]:
+    """Bayesian-shrink positive live IC weights toward the backtest prior.
+
+    final[f] = shrink * prior[f] + (1 - shrink) * live_norm[f]
+
+    where live_norm is `live_pos` renormalized to sum 1. Both inputs are keyed by
+    factor name over the same key set. If live_pos sums to <= 0 (cold start), the
+    prior is returned unchanged. Pure — no I/O — so the momentum-floor property is
+    unit-testable: with shrink=0.7 and prior {jt:.5,mop:.5}, jt+mop weight is
+    always >= 0.7 no matter how live IC is distributed.
+    """
+    keys = list(prior.keys())
+    live_total = sum(max(live_pos.get(k, 0.0), 0.0) for k in keys)
+    if live_total <= 0.0:
+        return dict(prior)
+    return {
+        k: shrink * prior[k] + (1.0 - shrink) * (max(live_pos.get(k, 0.0), 0.0) / live_total)
+        for k in keys
+    }
 
 
 def load_ic_weights(horizon: str) -> dict[str, float]:
-    """Latest IC-derived composite weights from rule_factor_ic_latest view.
+    """Composite factor weights = backtest prior Bayesian-shrunk toward live IC.
 
-    Returns
-    -------
-    dict[factor_name, weight]
-        Always contains all 4 factor names. Cold start = equal-weight 0.25.
+    The live IC (rule_factor_ic) is a 60-session ROLLING estimate — a ~3-month
+    regime snapshot. Trusting it to FULLY set the composite lets a single quarter
+    hijack the blend (June-2026 paper put ~100% weight on rsi2, the factor the
+    7-year backtest proved is worst, and 0% on momentum). So instead of replacing
+    the prior with live IC, we shrink toward the durable prior:
+
+        final[f] = PRIOR_SHRINK * prior[f] + (1 - PRIOR_SHRINK) * live_norm[f]
+
+    where prior is MOMENTUM_PRIOR (jt/mop) and live_norm is the positive live IC
+    weights renormalized to sum 1. Live data can TILT the composite but momentum
+    keeps a hard floor (>= PRIOR_SHRINK * its prior weight). composite_rank_ic_
+    weighted re-normalizes downstream, so only relative magnitudes matter here.
+
+    Returns a dict over all 4 FACTOR_NAMES.
     """
+    prior = {name: MOMENTUM_PRIOR.get(name, 0.0) for name in FACTOR_NAMES}
     df = read_sql(
         """
         SELECT factor_name, composite_weight
@@ -201,12 +278,13 @@ def load_ic_weights(horizon: str) -> dict[str, float]:
         params={"h": horizon},
     )
     if df.empty:
-        return {name: 0.25 for name in FACTOR_NAMES}
+        return prior
 
     raw = {str(r["factor_name"]): float(r["composite_weight"]) for _, r in df.iterrows()}
-    # Ensure all factors are represented (missing -> 0 weight).
-    weights = {name: raw.get(name, 0.0) for name in FACTOR_NAMES}
-    return weights
+    live_pos = {name: max(raw.get(name, 0.0), 0.0) for name in FACTOR_NAMES}
+    # Shrink live IC toward the durable prior (returns the prior outright at cold
+    # start when live IC has produced no positive weight).
+    return shrink_toward_prior(live_pos, prior)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -375,12 +453,25 @@ def run_for_horizon(
     log.info("Composite IC weights (horizon=%s): %s", horizon,
              {k: round(v, 3) for k, v in ic_weights.items()})
 
-    # Build a single-row DataFrame per factor for the composite helper.
-    one_row_panels = {
-        name: pd.DataFrame([series]) for name, series in latest_ranks_per_factor.items()
-    }
-    composite_df = composite_rank_ic_weighted(one_row_panels, ic_weights)
-    composite_series = composite_df.iloc[0].dropna()
+    # Guard the MOMENTUM_PRIOR floor AFTER the NaN-drop. composite_rank_ic_weighted
+    # renormalizes over only the factors that scored on the latest session, so if
+    # neither jt nor mop survives (e.g. a universe with < ~253 sessions of history
+    # where momentum is still NaN but rsi2 is alive), the composite would collapse
+    # to ~100% rsi2/bab — silently defeating the 70% momentum floor the shrinkage
+    # exists to enforce. A "momentum composite" with zero momentum is meaningless,
+    # so we skip it entirely in that case. (Unreachable on the current 708+ session
+    # universe, but a real latent trap flagged by the red-team.)
+    composite_series = pd.Series(dtype=float)
+    if any(f in latest_ranks_per_factor for f in ("jt", "mop")):
+        one_row_panels = {
+            name: pd.DataFrame([series]) for name, series in latest_ranks_per_factor.items()
+        }
+        composite_df = composite_rank_ic_weighted(one_row_panels, ic_weights)
+        composite_series = composite_df.iloc[0].dropna()
+    else:
+        log.warning(
+            "Neither jt nor mop scored on %s; SKIPPING tier1_composite so it cannot "
+            "collapse to rsi2/bab and defeat the momentum floor.", latest_idx)
 
     # ── 7. Assemble per-strategy frames ──────────────────────────────
     horizon_str = horizon  # for clarity
@@ -419,8 +510,20 @@ def run_for_horizon(
     # Per-factor streams: tier1_jt, tier1_mop, tier1_bab, tier1_rsi2
     for name, series in latest_ranks_per_factor.items():
         frames.append(_assemble(name, series, f"tier1_{name}"))
-    # Composite
+    # IC-shrunk composite (all surviving factors, momentum-anchored weights).
     frames.append(_assemble("composite", composite_series, "tier1_composite"))
+
+    # tier1_mom — the PROVEN, ACTIONABLE momentum composite: equal-weight blend of
+    # jt + mop only (no BAB/RSI2 at all). scripts/backtest_rules.py measured this as
+    # the durable net-of-cost edge (swing excess +0.48 Sharpe @30bps, regime-stable,
+    # red-team-verified). The RuleMomentumEngine trades THIS by default; the other
+    # tier1_* streams are written for research/Scorecard comparison but are not
+    # actionable (BAB/RSI2 proved to be beta, the equal-weight composite dilutes).
+    mom_members = [latest_ranks_per_factor[f] for f in ("jt", "mop")
+                   if f in latest_ranks_per_factor]
+    if mom_members:
+        mom_series = pd.concat(mom_members, axis=1).mean(axis=1).dropna()
+        frames.append(_assemble("mom", mom_series, "tier1_mom"))
 
     out = pd.concat([f for f in frames if not f.empty], ignore_index=True)
     log.info("Tier 1 engine produced %d signal rows across %d strategies",
@@ -434,6 +537,9 @@ __all__ = [
     "LONG_DECILE",
     "SHORT_DECILE",
     "BENCHMARK_INDEX",
+    "MOMENTUM_PRIOR",
+    "PRIOR_SHRINK",
+    "shrink_toward_prior",
     "load_active_universe",
     "load_close_panel",
     "compute_adv_map",

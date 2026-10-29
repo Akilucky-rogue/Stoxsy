@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Stoxsy -- Quantitative Stock Decision Engine",
-  description: "Multi-factor ML signal generation for Indian equities (Nifty 200)",
+  description: "Momentum, F&O-income and pairs signal engines for liquid Indian equities (NSE)",
 };
 
 const navItems = [
@@ -23,6 +24,10 @@ const navItems = [
   // This is where you go to see whether the system has earned the right to
   // step up the risk cap.
   { href: "/paper",     label: "Paper",     icon: "◐" },
+  // /scorecard renders the Reality Engine: each engine's MEASURED net edge from
+  // the mechanically-resolved idea-log (rule_momentum, fno_income, …) via
+  // /api/scorecard. Accuracy is reported here, never promised.
+  { href: "/scorecard", label: "Scorecard", icon: "▣" },
 ];
 
 export default function RootLayout({
@@ -41,18 +46,18 @@ export default function RootLayout({
             </div>
             <nav className="sidebar-nav">
               {navItems.map((item) => (
-                <a key={item.href} href={item.href} className="nav-link">
+                <Link key={item.href} href={item.href} className="nav-link">
                   <span className="icon">{item.icon}</span>
                   {item.label}
-                </a>
+                </Link>
               ))}
             </nav>
             <div style={{ marginTop: "auto", paddingTop: "16px", borderTop: "1px solid var(--border-color)" }}>
               <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem", color: "var(--text-muted)" }}>
-                Phase 0 — Layer 0 MVP
+                Signal-only · human-confirmed orders
               </div>
               <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.65rem", color: "var(--text-muted)", marginTop: "4px" }}>
-                Nifty 200 · Swing Horizon
+                NSE liquid · momentum · F&amp;O · pairs
               </div>
             </div>
           </aside>

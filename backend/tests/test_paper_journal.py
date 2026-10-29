@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 from qsde.execution.paper_journal import _resolve_barrier_daily
 
@@ -52,3 +53,20 @@ class TestBarrierResolution:
         ])
         status, px, _ = _resolve_barrier_daily(bars, entry_price=100, target=105, stop=95, direction=1)
         assert status == "LOSS" and px == 95
+
+
+class TestFillConvention:
+    def test_levels_keep_their_fractional_offsets_across_the_overnight_gap(self):
+        from qsde.ml.barrier import levels_at_fill
+        stop, tgt = levels_at_fill(100.0, 110.0, 98.0, 104.0)
+        assert stop == pytest.approx(107.8) and tgt == pytest.approx(114.4)
+
+    def test_short_levels_scale_the_same_way(self):
+        from qsde.ml.barrier import levels_at_fill
+        stop, tgt = levels_at_fill(100.0, 90.0, 102.0, 96.0)          # stop above, target below
+        assert stop == pytest.approx(91.8) and tgt == pytest.approx(86.4)
+
+    def test_no_reference_means_levels_are_untouched(self):
+        from qsde.ml.barrier import levels_at_fill
+        assert levels_at_fill(None, 110.0, 98.0, 104.0) == (98.0, 104.0)
+        assert levels_at_fill(100.0, 110.0, None, None) == (None, None)

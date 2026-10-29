@@ -21,15 +21,17 @@ dependencies = [
     "requests>=2.32",
 
     # ── Data ──
-    "pandas>=2.2",
+    "pandas>=2.2,<3",  # code and tests were developed on 2.3.x; 3.x changes string dtype and breaks fno/bhavcopy.py
     "numpy>=1.26",
     "yfinance>=0.2.40",
     "pyarrow>=16.0",
+    "openpyxl>=3.1",  # broker back-office reports come as .xlsx
+    "python-dateutil>=2.9",  # calendar-month holding periods (relativedelta)
 
     # ── Database ──
     "psycopg2-binary>=2.9",
     "asyncpg>=0.29",
-    "sqlalchemy>=2.0",
+    "sqlalchemy>=2.0,<2.1",  # 2.1 defaults 'postgresql://' to psycopg3; this repo uses psycopg2
     "alembic>=1.13",
     "redis>=5.0",
 
@@ -40,6 +42,7 @@ dependencies = [
     "optuna>=3.6",
     "scikit-learn>=1.5",
     "scipy>=1.13",
+    "statsmodels>=0.14",  # used by qsde.models.fracdiff (ADF); was undeclared
     "shap>=0.45",
 
     # ── Task Queue ──
@@ -48,18 +51,29 @@ dependencies = [
     # ── Monitoring ──
     "mlflow>=2.14",
 
+    # ── Auth ──
+    "argon2-cffi>=23.1",
+    "PyJWT>=2.8",
+
     # ── Notifications ──
     "python-telegram-bot>=21.0",
 
     # ── Broker / Live Data ──
     "kiteconnect>=5.0",
+    "websockets>=12.0",
+    "psutil>=5.9",  # process checks for `stoxsy stream status|stop`
 ]
+
+[project.scripts]
+stoxsy = "qsde.cli.main:main"
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.2",
     "pytest-asyncio>=0.23",
     "pytest-cov>=5.0",
+    "hypothesis>=6.100",
+    "pglast>=7.0",  # exact Postgres parser: lets tests validate SQL without a database
     "ruff>=0.4",
     "mypy>=1.10",
 ]
@@ -77,3 +91,4 @@ select = ["E", "F", "I", "N", "W"]
 [tool.pytest.ini_options]
 testpaths = ["backend/tests"]
 asyncio_mode = "auto"
+markers = ["real_data: needs the loaded market / fund datasets (skipped in CI, which has an empty database)"]

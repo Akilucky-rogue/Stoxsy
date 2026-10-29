@@ -56,9 +56,9 @@ This:
 
 1. Validates prerequisites.
 2. Re-applies migrations (no-op if already applied).
-3. Starts FastAPI backend in a new window on `http://127.0.0.1:8000`, waits for `/api/health`.
+3. Starts FastAPI backend in a new window on `http://127.0.0.1:8700`, waits for `/api/health`.
 4. Launches the Kite live tick streamer in its own window (skipped if no active Kite token).
-5. Starts Next.js frontend on `http://localhost:3000` (omit with `-NoFrontend`).
+5. Starts Next.js frontend on `http://localhost:5273` (omit with `-NoFrontend`).
 6. Runs smoke tests if `-Test`.
 
 After daily Kite re-login, restart just the streamer:
@@ -153,13 +153,13 @@ JSON snapshots of weekly drift reports persist to `backend/weekly_reports/drift_
 
 `start.ps1` waits 90 seconds for Docker Desktop. If it times out, start Docker manually and re-run with `-SkipDocker`.
 
-### Port 8000 or 3000 already in use
+### Port 8700 or 5273 already in use
 
 The launcher detects this and kills the owning process. If for some reason that fails:
 
 ```powershell
-Get-NetTCPConnection -LocalPort 8000 -State Listen | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
-Get-NetTCPConnection -LocalPort 3000 -State Listen | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
+Get-NetTCPConnection -LocalPort 8700 -State Listen | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
+Get-NetTCPConnection -LocalPort 5273 -State Listen | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
 ```
 
 ### `npm.ps1 cannot be loaded ... running scripts is disabled`
@@ -198,7 +198,7 @@ If sector is NULL, the comps engine returns "No peers found" early because it fi
 
 Zerodha access tokens expire daily at ~06:00 IST. After expiry, the daily EOD step 1 skips OHLCV refresh (other steps continue on existing data) and `start_live_stream.ps1` exits with the login URL printed. Re-login:
 
-1. Open `http://127.0.0.1:8000/api/kite/login_url` in a browser, complete the Zerodha OAuth.
+1. Open `http://127.0.0.1:8700/api/kite/login_url` in a browser, complete the Zerodha OAuth.
 2. Restart the streamer: `.\scripts\start_live_stream.ps1`.
 
 The daily EOD scheduled task tolerates an expired token — it logs the skip and proceeds; signals stay fresh on the existing OHLCV.

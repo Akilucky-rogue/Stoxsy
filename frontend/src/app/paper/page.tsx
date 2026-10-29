@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-const API_BASE = "http://127.0.0.1:8000/api";
+import { API_BASE } from "@/lib/api";
 
 // Paper-trade page — where you check whether the system has earned the right
 // to step up the risk cap. Three reads:
@@ -333,7 +333,7 @@ export default function PaperPage() {
                       {stratLabel[t.strategy] || t.strategy}
                     </td>
                     <td style={{ padding: "8px 12px", color: "var(--text-secondary)" }}>{t.entry_date}</td>
-                    <td style={{ padding: "8px 12px" }}>₹{t.entry_price.toFixed(2)}</td>
+                    <td style={{ padding: "8px 12px" }}>₹{t.entry_price != null ? t.entry_price.toFixed(2) : "—"}</td>
                     <td style={{ padding: "8px 12px", color: "var(--accent-green)" }}>
                       {t.target_price != null ? `₹${t.target_price.toFixed(2)}` : "—"}
                     </td>
@@ -411,7 +411,7 @@ export default function PaperPage() {
                     <td style={{ padding: "8px 12px", color: "var(--text-secondary)" }}>
                       {t.entry_date} → {t.exit_date || "—"}
                     </td>
-                    <td style={{ padding: "8px 12px" }}>₹{t.entry_price.toFixed(2)}</td>
+                    <td style={{ padding: "8px 12px" }}>₹{t.entry_price != null ? t.entry_price.toFixed(2) : "—"}</td>
                     <td style={{ padding: "8px 12px" }}>
                       {t.exit_price != null ? `₹${t.exit_price.toFixed(2)}` : "—"}
                     </td>

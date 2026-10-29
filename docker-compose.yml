@@ -24,7 +24,11 @@ services:
       # empty while data lived only in the container's writable layer --
       # which evaporated the first time the container was removed.
       - timescale_data:/var/lib/postgresql/data
-      - ./infra/init.sql:/docker-entrypoint-initdb.d/01_init.sql
+      # NOTE: init.sql is intentionally NOT bind-mounted. On Docker Desktop the
+      # D: drive is not always shared with the VM, in which case Docker creates an
+      # empty *directory* at the mount point and the schema never loads (seen on
+      # this machine). Run `scripts\db_bootstrap.ps1` instead: it pipes init.sql
+      # into psql and then applies every migration idempotently.
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U qsde"]

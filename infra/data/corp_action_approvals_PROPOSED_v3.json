@@ -1,0 +1,87 @@
+{
+ "version": "owner_approved_v1",
+ "note": "PROPOSED by reconcile_v3 - NOT LOADED. To approve, move the entries you accept (after reading their evidence packs) into corp_action_approvals.json and change decision to approve. Hard bounds are re-checked at apply time.",
+ "decisions": [
+  {
+   "symbol": "AURIGROW",
+   "apply_to_symbol": "GODHA",
+   "listed_ex_date": "2022-03-24",
+   "gap_date": "2022-03-24",
+   "factor": 0.1,
+   "decision": "proposed",
+   "notes": "gap 0.1046 vs 0.1000 on 2022-03-24 under GODHA (NSE rename of AURIGROW); 0 untraded sessions; persists"
+  },
+  {
+   "symbol": "CCAVENUE",
+   "apply_to_symbol": "INFIBEAM",
+   "listed_ex_date": "2022-03-14",
+   "gap_date": "2022-03-14",
+   "factor": 0.5,
+   "decision": "proposed",
+   "notes": "gap 0.4804 vs 0.5000 on 2022-03-14 under INFIBEAM (NSE rename of CCAVENUE); 0 untraded sessions; persists"
+  },
+  {
+   "symbol": "COSMOFIRST",
+   "apply_to_symbol": "COSMOFILMS",
+   "listed_ex_date": "2022-06-16",
+   "gap_date": "2022-06-16",
+   "factor": 0.6666666667,
+   "decision": "proposed",
+   "notes": "gap 0.6981 vs 0.6667 on 2022-06-16 under COSMOFILMS (NSE rename of COSMOFIRST); 0 untraded sessions; persists"
+  },
+  {
+   "symbol": "DHARAN",
+   "apply_to_symbol": "KBCGLOBAL",
+   "listed_ex_date": "2025-04-04",
+   "gap_date": "2025-04-04",
+   "factor": 0.5,
+   "decision": "proposed",
+   "notes": "gap 0.5243 vs 0.5000 on 2025-04-04 under KBCGLOBAL (NSE rename of DHARAN); 0 untraded sessions; persists"
+  },
+  {
+   "symbol": "GANESHHOU",
+   "apply_to_symbol": "GANESHHOUC",
+   "listed_ex_date": "2016-07-14",
+   "gap_date": "2016-07-14",
+   "factor": 0.6666666667,
+   "decision": "proposed",
+   "notes": "gap 0.6976 vs 0.6667 on 2016-07-14 under GANESHHOUC (NSE rename of GANESHHOU); 0 untraded sessions; persists"
+  },
+  {
+   "symbol": "LANDSMILL",
+   "apply_to_symbol": "EXCEL",
+   "listed_ex_date": "2018-01-23",
+   "gap_date": "2018-01-23",
+   "factor": 0.3333333333,
+   "decision": "proposed",
+   "notes": "gap 0.3436 vs 0.3333 on 2018-01-23 under EXCEL (NSE rename of LANDSMILL); 0 untraded sessions; persists"
+  },
+  {
+   "symbol": "MOTHERSON",
+   "apply_to_symbol": "MOTHERSUMI",
+   "listed_ex_date": "2018-10-30",
+   "gap_date": "2018-10-30",
+   "factor": 0.6666666667,
+   "decision": "proposed",
+   "notes": "gap 0.6910 vs 0.6667 on 2018-10-30 under MOTHERSUMI (NSE rename of MOTHERSON); 0 untraded sessions; persists"
+  },
+  {
+   "symbol": "SECURKLOUD",
+   "apply_to_symbol": "8KMILES",
+   "listed_ex_date": "2016-10-10",
+   "gap_date": "2016-10-10",
+   "factor": 0.375,
+   "decision": "proposed",
+   "notes": "gap 0.3865 vs 0.3750 on 2016-10-10 under 8KMILES (NSE rename of SECURKLOUD); 0 untraded sessions; persists"
+  },
+  {
+   "symbol": "UEL",
+   "apply_to_symbol": "UEL",
+   "listed_ex_date": "2025-10-10",
+   "gap_date": "2025-10-13",
+   "factor": 0.3333333333,
+   "decision": "proposed",
+   "notes": "gap 0.3168 vs 0.3333 on 2025-10-13 under UEL; 1 untraded sessions; persists"
+  }
+ ]
+}

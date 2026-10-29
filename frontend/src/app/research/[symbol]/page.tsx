@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import SymbolAnalysisPanel from "../../../components/SymbolAnalysisPanel";
 
-const API = "http://127.0.0.1:8000/api";
+import { API_BASE as API } from "@/lib/api";
 
 function fmt(v: number | null | undefined, s = "", d = 1): string {
   if (v === null || v === undefined) return "—";

@@ -1,7 +1,7 @@
 """
 QSDE FastAPI application entry point.
 
-Run with: uvicorn api.main:app --reload --port 8000
+Run with: uvicorn api.main:app --reload --port 8700
 """
 
 import logging
@@ -12,9 +12,10 @@ from pathlib import Path
 # Ensure backend directory is in path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from api.auth_deps import require_auth
 from api.responses import CleanJSONResponse
 
 log = logging.getLogger(__name__)
@@ -50,6 +51,16 @@ from api.routes.orders import router as orders_router
 from api.routes.analysis import router as analysis_router
 from api.routes.paper import router as paper_router
 from api.routes.risk import router as risk_router
+from api.routes.scorecard import router as scorecard_router
+from api.routes.auth import router as auth_router
+from api.routes.cockpit import router as cockpit_router
+from api.routes.portfolio import router as portfolio_router
+from api.routes.funds import router as funds_router
+from api.routes.live_compare import router as live_compare_router
+from api.routes.alerts import router as alerts_router
+from api.routes.me import router as me_router
+from api.routes.investor import router as investor_router
+from api.routes.trader import router as trader_router
 
 app = FastAPI(
     title="Stoxsy -- Quantitative Stock Decision Engine",
@@ -59,11 +70,13 @@ app = FastAPI(
     # endpoints don't have to. See api/responses.py.
     default_response_class=CleanJSONResponse,
     lifespan=lifespan,
+    # Every route is authenticated by default (api/auth_deps.py holds the public allow-list and the AUTH_ENFORCED switch).
+    dependencies=[Depends(require_auth)],
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_origins=["http://localhost:5273", "http://127.0.0.1:5273"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -85,6 +98,16 @@ app.include_router(orders_router,    prefix="/api", tags=["orders"])
 app.include_router(analysis_router,  prefix="/api", tags=["analysis"])
 app.include_router(paper_router,     prefix="/api", tags=["paper"])
 app.include_router(risk_router,      prefix="/api", tags=["risk"])
+app.include_router(scorecard_router, prefix="/api", tags=["scorecard"])
+app.include_router(auth_router,      prefix="/api", tags=["auth"])
+app.include_router(cockpit_router,   prefix="/api", tags=["cockpit"])
+app.include_router(portfolio_router, prefix="/api", tags=["portfolio"])
+app.include_router(funds_router,     prefix="/api", tags=["funds"])
+app.include_router(live_compare_router, prefix="/api", tags=["live-compare"])
+app.include_router(alerts_router,    prefix="/api", tags=["alerts"])
+app.include_router(me_router,        prefix="/api", tags=["modes"])
+app.include_router(investor_router,  prefix="/api", tags=["investor"])
+app.include_router(trader_router,    prefix="/api", tags=["trader"])
 
 
 @app.get("/")

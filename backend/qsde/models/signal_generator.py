@@ -6,6 +6,8 @@ import lightgbm as lgb
 from datetime import date
 from typing import Literal
 from qsde.db.connection import read_sql, execute_sql
+from qsde.factors.versions import FFD_VERSION
+from qsde.features.store import read_latest_rows
 from qsde.risk.trade_levels import compute_trade_levels
 
 log = logging.getLogger(__name__)
@@ -51,48 +53,35 @@ def generate_signals(horizon: Literal["intraday", "swing", "long"] = "swing"):
         
     model = lgb.Booster(model_file=model_path)
     
-    # 1. Fetch latest factors
+    # 1. Fetch latest factors from the Parquet feature store - the SAME store,
+    # version constant and NaN policy the training path uses (AUDIT C1). One
+    # complete row per symbol from a single date: factors are never stitched
+    # together from different days (that mixed vintages, AUDIT M2).
     log.info("Fetching latest point-in-time factors...")
-    # CRITICAL: take the LATEST value per (symbol, factor_name), not every
-    # historical row. `valid_to = 'infinity'` is true for EVERY uncorrected
-    # historical date (87M rows), so the old query fetched the whole panel and
-    # the default pivot_table aggfunc=mean AVERAGED each factor across all
-    # history — both catastrophically slow (~20 min) AND wrong (signals on
-    # time-averaged factors, not current ones). DISTINCT ON + a recent
-    # as_of_date window fixes both: ~53k rows in seconds, latest values only.
-    factors = read_sql(
-        """
-        SELECT DISTINCT ON (symbol, factor_name)
-               symbol, factor_name, factor_value
-          FROM factor_pit
-         WHERE valid_to = 'infinity'::timestamptz
-           AND as_of_date >= (CURRENT_DATE - INTERVAL '20 days')
-      ORDER BY symbol, factor_name, as_of_date DESC
-        """
-    )
+    factors_wide = read_latest_rows(max_age_days=20, factor_version=FFD_VERSION)
 
-    if factors.empty:
+    if factors_wide.empty:
         log.warning("No factors found.")
         return 0
+    factors_wide = factors_wide.drop(columns=["as_of_date", "known_at"])
 
-    # One value per (symbol, factor_name) now, so this is a pure reshape
-    # (mean over a single value is a no-op) — no cross-time averaging.
-    factors_wide = factors.pivot_table(
-        index="symbol",
-        columns="factor_name",
-        values="factor_value",
-        aggfunc="last",
-    ).reset_index()
-    
-    # Fill missing with 0
-    factors_wide = factors_wide.fillna(0)
-    
-    # Check features expected by model
+    # Serving guard (feature-store manifest policy): do not score a symbol with a fresh, unconfirmed >=18%
+    # overnight gap - it may be a split/bonus whose price-inferred confirmation needs 3 later sessions.
+    try:
+        from qsde.ingestion.corp_actions import recent_gap_symbols_from_db
+        _gap = recent_gap_symbols_from_db()
+        if _gap:
+            log.warning("Skipping %d symbol(s) with a fresh unconfirmed large gap: %s", len(_gap), _gap[:20])
+            factors_wide = factors_wide[~factors_wide["symbol"].isin(_gap)].reset_index(drop=True)
+    except Exception as e:  # noqa: BLE001
+        log.warning("recent-gap guard unavailable (%s); scoring all symbols", e)
+
+    # Features the model expects but the store lacks stay NaN (as they were in
+    # training); no zero-filling.
     model_features = model.feature_name()
-    missing_features = [f for f in model_features if f not in factors_wide.columns]
-    for f in missing_features:
-        factors_wide[f] = 0.0
-        
+    for f in (f for f in model_features if f not in factors_wide.columns):
+        factors_wide[f] = float("nan")
+
     X_pred = factors_wide[model_features]
     
     # 2. Predict
