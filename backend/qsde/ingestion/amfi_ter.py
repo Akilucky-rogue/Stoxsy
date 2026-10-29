@@ -216,3 +216,33 @@ def read_export(payload: bytes, filename: str = "") -> Export:
     frame["ter_date"] = pd.to_datetime(frame["ter_date"])
     return Export(frame=frame, mapping=mapping, unmatched_headers=unmatched, layout_hash=layout_hash, sha256=sha, sheet=sheet, n_data_rows=n_data,
                   n_parsed=len(frame), n_rejected=len(rejected), rejected=rejected, n_footer_rows=len(footer), footer_head=footer_head)
+
+
+TOTAL_MAX = 3.0                          # percent: a published total above this is flagged (not corrected)
+SUM_TOL = 0.02                           # percent: total must equal base + brokerage + transaction + statutory within this
+FLAGS = ("total_gt_3_regular", "total_gt_3_direct", "direct_not_below_regular", "sum_mismatch")
+PARTIAL_SHARE = 0.70                     # a date with fewer rows than this share of the median of the previous five dates is partial
+PARTIAL_LOOKBACK = 5
+
+
+def flag_rows(frame: pd.DataFrame) -> pd.Series:
+    """Quality flags per row (list of FLAGS names, aligned to frame.index). Values are never changed; a plan that is not offered (missing) is never flagged."""
+    r_on, d_on = frame["r_total"].notna(), frame["d_total"].notna()
+    r_sum = frame[["r_ber", "r_brokerage", "r_transaction", "r_statutory"]].sum(axis=1, min_count=4)
+    d_sum = frame[["d_ber", "d_brokerage", "d_transaction", "d_statutory"]].sum(axis=1, min_count=4)
+    masks = {"total_gt_3_regular": (r_on & (frame["r_total"] > TOTAL_MAX)),
+             "total_gt_3_direct": (d_on & (frame["d_total"] > TOTAL_MAX)),
+             "direct_not_below_regular": (r_on & d_on & (frame["d_total"] >= frame["r_total"])),
+             "sum_mismatch": ((r_on & ((frame["r_total"] - r_sum).abs() > SUM_TOL)) | (d_on & ((frame["d_total"] - d_sum).abs() > SUM_TOL)))}
+    arr = [masks[k].to_numpy() for k in FLAGS]
+    return pd.Series([[k for k, a in zip(FLAGS, row) if a] for row in zip(*arr)], index=frame.index, dtype=object)
+
+
+def partial_dates(frame: pd.DataFrame) -> list:
+    """Dates whose row count is below 70 percent of the median of the previous five dates (a download taken before AMFI finished the day). The first five dates are never partial."""
+    counts = frame.groupby(frame["ter_date"].dt.date).size().sort_index()
+    out = []
+    for i in range(PARTIAL_LOOKBACK, len(counts)):
+        if counts.iloc[i] < PARTIAL_SHARE * counts.iloc[i - PARTIAL_LOOKBACK:i].median():
+            out.append(counts.index[i])
+    return out

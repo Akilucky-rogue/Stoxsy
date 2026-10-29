@@ -117,3 +117,58 @@ def test_csv_resaved_from_excel_gives_same_rows(real):
     b = cx.frame[T.TER_COLS].reset_index(drop=True)
     a["ter_date"], b["ter_date"] = pd.to_datetime(a["ter_date"]).dt.date, pd.to_datetime(b["ter_date"]).dt.date
     pd.testing.assert_frame_equal(a, b, check_dtype=False)
+
+
+# ---- Task 2: row flags and partial days -------------------------------------------------------------------------------------------------
+
+def _merged(f, ex):
+    d = _indep(f)
+    return d.merge(ex.frame, on=["nsdl_code_raw", "ter_date"], how="inner")
+
+
+def test_flags_match_an_independent_recount(real):
+    f, ex = real
+    flags = T.flag_rows(ex.frame)
+    assert len(flags) == len(ex.frame) and list(flags.index) == list(ex.frame.index)
+    got = {k: int(flags.map(lambda x, k=k: k in x).sum()) for k in T.FLAGS}
+    d = _indep(f)
+    num = {c: pd.to_numeric(d[c]) for c in SRC_COLS_REG + SRC_COLS_DIR}
+    r_total, d_total = num[SRC_COLS_REG[4]], num[SRC_COLS_DIR[4]]
+    r_off = ~pd.concat([num[c] for c in SRC_COLS_REG], axis=1).eq(0).all(axis=1)          # plan offered = not all five values zero
+    d_off = ~pd.concat([num[c] for c in SRC_COLS_DIR], axis=1).eq(0).all(axis=1)
+    r_diff = (r_total - sum(num[c] for c in SRC_COLS_REG[:4])).abs()
+    d_diff = (d_total - sum(num[c] for c in SRC_COLS_DIR[:4])).abs()
+    want = {"total_gt_3_regular": int((r_off & (r_total > 3.0)).sum()),
+            "total_gt_3_direct": int((d_off & (d_total > 3.0)).sum()),
+            "direct_not_below_regular": int((r_off & d_off & (d_total >= r_total)).sum()),
+            "sum_mismatch": int(((r_off & (r_diff > 0.02)) | (d_off & (d_diff > 0.02))).sum())}
+    assert got == want
+    assert sum(want.values()) > 0, "the real file has no flagged rows, so this recount proves nothing"
+
+
+def test_flagged_values_are_not_modified(real):
+    f, ex = real
+    before = ex.frame.copy()
+    flags = T.flag_rows(ex.frame)
+    pd.testing.assert_frame_equal(before, ex.frame)                                   # flag_rows does not touch the frame
+    flagged = ex.frame[flags.map(len) > 0]
+    assert len(flagged) > 0
+    d = _indep(f)
+    m = d.merge(flagged, on=["nsdl_code_raw", "ter_date"], how="inner")
+    assert len(m) == len(flagged)
+    for src, dst in zip(SRC_COLS_REG + SRC_COLS_DIR, NUM_COLS):
+        keep = m[dst].notna()
+        assert (m.loc[keep, dst].astype(float) - m.loc[keep, src].astype(float)).abs().max() < 1e-9
+
+
+def test_partial_last_day_is_detected(real):
+    _, ex = real
+    if ex.sha256[:16].upper() != OCTOBER_SHA16:
+        pytest.skip("not the October 2026 file")
+    assert T.partial_dates(ex.frame) == [date(2026, 10, 29)]
+
+
+def test_the_first_five_dates_are_never_partial(real):
+    _, ex = real
+    first5 = sorted(ex.frame["ter_date"].dt.date.unique())[:5]
+    assert not set(T.partial_dates(ex.frame)) & set(first5)
