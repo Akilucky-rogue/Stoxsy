@@ -41,6 +41,7 @@ def n_ideas(uid):
     return int(read_sql("SELECT count(*) AS n FROM trader_ideas WHERE user_id = :u", params={"u": uid})["n"].iloc[0])
 
 
+@pytest.mark.real_data
 def test_without_a_trading_pot_nothing_is_sized_or_stored(who):
     c, uid, _ = who
     d = c.get("/api/trader/desk").json()
@@ -50,6 +51,7 @@ def test_without_a_trading_pot_nothing_is_sized_or_stored(who):
     assert n_ideas(uid) == 0 and audit(uid, "trader.refused") == 1                      # the refusal itself is on the record
 
 
+@pytest.mark.real_data
 def test_a_proposed_card_follows_the_definitions_and_is_research_only(who):
     c, uid, _ = who
     pot(c)
@@ -62,6 +64,7 @@ def test_a_proposed_card_follows_the_definitions_and_is_research_only(who):
     assert n_ideas(uid) == 0                                                                    # propose stores nothing
 
 
+@pytest.mark.real_data
 def test_the_write_path_re_runs_the_gate_so_a_prepared_card_cannot_skip_a_limit(who):
     c, uid, _ = who
     pot(c)
@@ -73,6 +76,7 @@ def test_the_write_path_re_runs_the_gate_so_a_prepared_card_cannot_skip_a_limit(
     assert n_ideas(uid) == 0 and audit(uid, "trader.refused") == 3
 
 
+@pytest.mark.real_data
 def test_viewers_can_read_but_not_write(who):
     c, uid, role = who
     pot(c)
@@ -83,6 +87,7 @@ def test_viewers_can_read_but_not_write(who):
     assert n_ideas(uid) == 0
 
 
+@pytest.mark.real_data
 def test_open_close_book_pnl_and_r_and_limits_see_the_open_position(who):
     c, uid, _ = who
     pot(c)
@@ -105,6 +110,7 @@ def test_open_close_book_pnl_and_r_and_limits_see_the_open_position(who):
     assert audit(uid, "trader.idea") == 1 and audit(uid, "trader.close") == 1
 
 
+@pytest.mark.real_data
 def test_one_users_ideas_do_not_count_against_another(who):
     c, uid, _ = who
     pot(c)
@@ -149,6 +155,7 @@ def test_week_start_is_monday_and_sessions_skip_weekends():
     assert store.add_sessions(date(2026, 11, 6), 3, loaded) == (date(2026, 11, 12), False)      # 9, (10 holiday) 11, 12
 
 
+@pytest.mark.real_data
 def test_alert_facts_for_the_desk_are_json_safe_and_describe_the_open_book(who):
     import json
 

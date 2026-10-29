@@ -129,6 +129,7 @@ def test_a_choice_above_what_is_allowed_is_not_used_and_a_lower_choice_is(who):
     assert g["profile"] == "conservative" and any("lower profile" in r for r in g["profile_reasons"])
 
 
+@pytest.mark.real_data
 def test_only_the_investment_pot_feeds_the_plan_and_balances_complete_the_picture(who):
     c, uid, _ = who
     answers(c)

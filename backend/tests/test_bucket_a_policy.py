@@ -1,5 +1,6 @@
 """The owner's Bucket A decisions as an INPUT to the rebuild: confirmed keep the factor (tagged), held keep it provisionally (tagged, never called validated), rejected lose it; nothing is ignored."""
 import pandas as pd
+import pytest
 
 from qsde.ingestion import bucket_a_decisions as BA
 
@@ -51,6 +52,7 @@ def test_the_recorded_policy_file_is_option_b_and_complete():
     assert sum(1 for x in d["decisions"] if x["decision"] == "reject") == 4 and len(d["decisions"]) == 69
 
 
+@pytest.mark.real_data
 def test_review_queue_lists_the_34_held_events_by_universe_impact_and_the_4_rejected_with_their_raw_gap():
     q = BA.review_queue()
     assert len(q["held"]) == 34 and len(q["rejected"]) == 4 and q["policy"]["held"] == BA.HELD_KEEP
@@ -60,6 +62,7 @@ def test_review_queue_lists_the_34_held_events_by_universe_impact_and_the_4_reje
     assert "NOT validated" in q["note"]
 
 
+@pytest.mark.real_data
 def test_the_rebuilt_series_carries_the_review_tags_and_rejected_events_are_not_applied():
     from qsde.db.connection import read_sql
 

@@ -42,6 +42,7 @@ def test_first_read_is_a_blank_investor_profile_with_no_assumed_split(who):
     assert j["effective_limits"]["risk_per_trade_pct"] == 0.25 and j["engine_approved"] is False and j["loosened_limits"] == []
 
 
+@pytest.mark.real_data
 def test_mode_switch_never_touches_the_pots_or_the_imports(who):
     c, uid, _ = who
     assert c.put("/api/me/profile", json={"investment_capital": 900000, "trading_capital": 20000, "emergency_fund": 100000}).status_code == 200
@@ -56,6 +57,7 @@ def test_mode_switch_never_touches_the_pots_or_the_imports(who):
     assert [x for x in audit(uid)["action"] if x == "mode.change"] == ["mode.change"] * 4
 
 
+@pytest.mark.real_data
 def test_an_import_into_one_pot_does_not_hide_the_other_and_the_same_symbol_can_be_in_both(who):
     c, uid, _ = who
     inv = c.post("/api/portfolio/import", json={"pot": "investment", "csv_text": CSV}).json()
@@ -81,6 +83,7 @@ def test_an_import_without_a_pot_is_refused(who):
     assert c.post("/api/portfolio/import", json={"pot": "retirement", "csv_text": CSV}).status_code == 422
 
 
+@pytest.mark.real_data
 def test_a_pot_is_assigned_once_and_never_changes(who):
     c, uid, _ = who
     iid = c.post("/api/portfolio/import", json={"pot": "trading", "csv_text": CSV}).json()["import_id"]

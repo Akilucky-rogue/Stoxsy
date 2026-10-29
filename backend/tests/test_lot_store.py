@@ -46,6 +46,7 @@ def pot_imports(uid):
     return [(r.pot if isinstance(r.pot, str) else None, int(r.n)) for r in d.itertuples()]
 
 
+@pytest.mark.real_data
 def test_the_first_file_of_a_layout_needs_a_reviewed_mapping_and_writes_nothing(uid, isins):
     prep = S.prepare("holdings", holdings_file([("RELIANCE", isins["RELIANCE"], 10, 2500)]), "h.csv")
     out = S.apply_import(prep, user_id=uid, account=ACC, role="cli", filename="h.csv", mapping_ok=False, today=TODAY)
@@ -61,6 +62,7 @@ def test_the_first_file_of_a_layout_needs_a_reviewed_mapping_and_writes_nothing(
     assert S.apply_import(tprep, user_id=uid, account=ACC, role="cli", filename="t.csv", mapping_ok=False, today=TODAY)["status"].startswith("REFUSED")
 
 
+@pytest.mark.real_data
 def test_a_demat_file_with_mixed_positions_is_split_by_the_owners_triage_and_untriaged_holdings_lock_ideas(uid, isins):
     rows = [("RELIANCE", isins["RELIANCE"], 10, 2500), ("TCS", isins["TCS"], 20, 3500), ("HDFCBANK", isins["HDFCBANK"], 30, 1600)]
     out = load_holdings(uid, rows, mapping_ok=True, triage={"RELIANCE": "trading", "TCS": "investment"})
@@ -76,6 +78,7 @@ def test_a_demat_file_with_mixed_positions_is_split_by_the_owners_triage_and_unt
     assert set(made) == {"investment", "unassigned"} and LG.untriaged(read_sql, uid) == []
 
 
+@pytest.mark.real_data
 def test_a_security_pot_is_set_once_and_a_reimport_does_not_reset_it_or_the_recorded_stop(uid, isins):
     rows = [("RELIANCE", isins["RELIANCE"], 10, 2500), ("TCS", isins["TCS"], 20, 3500)]
     load_holdings(uid, rows, mapping_ok=True, triage={"RELIANCE": "trading", "TCS": "investment"})
@@ -100,6 +103,7 @@ def test_a_security_pot_is_set_once_and_a_reimport_does_not_reset_it_or_the_reco
             S.release_triage(cur, uid, "cli", ACC, "RELIANCE")
 
 
+@pytest.mark.real_data
 def test_a_position_that_is_sold_empties_its_pot_so_the_old_import_stops_counting(uid, isins):
     load_holdings(uid, [("RELIANCE", isins["RELIANCE"], 10, 2500), ("TCS", isins["TCS"], 20, 3500)], mapping_ok=True, triage={"RELIANCE": "trading", "TCS": "investment"})
     assert len(LG.latest_trading_imports(read_sql, uid)) == 1
@@ -111,6 +115,7 @@ def test_a_position_that_is_sold_empties_its_pot_so_the_old_import_stops_countin
         S.set_triage(c.cursor(), uid, "cli", ACC, {"RELIANCE": "investment"})
 
 
+@pytest.mark.real_data
 def test_triage_naming_a_symbol_that_is_not_in_the_file_is_refused_before_anything_is_written(uid, isins):
     prep = S.prepare("holdings", holdings_file([("RELIANCE", isins["RELIANCE"], 10, 2500)]), "h.csv")
     with pytest.raises(ValueError, match="not in this file"):
@@ -122,6 +127,7 @@ TRADES = ("Trade Date,Symbol,ISIN,Buy/Sell,Qty,Rate,Trade No\n"
           "10-04-2025,RELIANCE,{i},Buy,6,2400,A1\n20-05-2025,RELIANCE,{i},Buy,4,2450,A2\n25-06-2025,RELIANCE,{i},Sell,3,2600,A3\n")
 
 
+@pytest.mark.real_data
 def test_tradebook_lots_are_fifo_reconciled_to_the_holdings_and_overlapping_files_do_not_double_count(uid, isins):
     load_holdings(uid, [("RELIANCE", isins["RELIANCE"], 7, 2420)], mapping_ok=True, triage={"RELIANCE": "trading"})
     a = S.apply_import(S.prepare("tradebook", TRADES.format(i=isins["RELIANCE"]).encode(), "fy25.csv"), user_id=uid, account=ACC, role="cli", filename="fy25.csv", mapping_ok=True, today=TODAY)
@@ -134,6 +140,7 @@ def test_tradebook_lots_are_fifo_reconciled_to_the_holdings_and_overlapping_file
     assert set(lots["status"]) == {"UNRECONCILED_SURPLUS"}                                                 # holdings snapshot says 7, files imply 9: flagged, not silently trimmed
 
 
+@pytest.mark.real_data
 def test_holdings_with_no_trades_get_date_pending_lots_and_a_gap_is_reported_exactly(uid, isins):
     load_holdings(uid, [("RELIANCE", isins["RELIANCE"], 10, 2420), ("TCS", isins["TCS"], 5, 3500)], mapping_ok=True, triage={"RELIANCE": "trading", "TCS": "investment"})
     d = read_sql("SELECT symbol, status, buy_date, quantity::float8 AS q FROM portfolio_tax_lots WHERE run_id = (SELECT max(id) FROM lot_runs WHERE user_id = :u) ORDER BY symbol", params={"u": uid})
@@ -158,6 +165,7 @@ def test_mf_lots_are_tagged_direct_or_regular_from_the_scheme_master_and_stay_un
     assert read_sql("SELECT pot FROM security_pot WHERE user_id = :u", params={"u": uid})["pot"].tolist() == ["investment"]
 
 
+@pytest.mark.real_data
 def test_nothing_personal_from_the_banner_reaches_the_database(uid, isins):
     load_holdings(uid, [("RELIANCE", isins["RELIANCE"], 10, 2500)], mapping_ok=True, triage={"RELIANCE": "trading"})
     d = read_sql("SELECT issues::text AS i, mapping::text AS m, filename FROM lot_loads WHERE user_id = :u", params={"u": uid}).iloc[0]

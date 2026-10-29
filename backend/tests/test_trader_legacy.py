@@ -78,6 +78,7 @@ def pot(c, amount=1_000_000):
     assert c.put("/api/me/profile", json={"investment_capital": 40_000_000, "trading_capital": amount, "emergency_fund": 0}).status_code == 200
 
 
+@pytest.mark.real_data
 def test_imported_positions_lock_new_ideas_until_each_has_a_stop_then_count_toward_open_risk(who):
     c, uid = who
     pot(c)
@@ -110,6 +111,7 @@ def test_stops_can_only_be_set_for_symbols_in_the_latest_trading_import(who):
     assert c.put("/api/trader/triage/RELIANCE", json={"stop_price": 0}).status_code == 422                                # a stop must be positive
 
 
+@pytest.mark.real_data
 def test_restricted_list_starts_empty_blocks_a_symbol_until_released_and_is_audited(who):
     c, uid = who
     pot(c)
@@ -129,6 +131,7 @@ def test_restricted_list_starts_empty_blocks_a_symbol_until_released_and_is_audi
     assert n("trader.restricted.add") == 1 and n("trader.restricted.release") == 1
 
 
+@pytest.mark.real_data
 def test_a_restriction_with_a_past_end_date_no_longer_blocks(who):
     c, uid = who
     pot(c)

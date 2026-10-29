@@ -44,6 +44,7 @@ def load(uid, *syms, triage=None):
     return S.apply_import(S.prepare("holdings", holdings_csv(*syms), "h.csv"), user_id=uid, account=ACC, role="cli", filename="h.csv", mapping_ok=True, triage=triage)
 
 
+@pytest.mark.real_data
 def test_untriaged_holdings_lock_new_ideas_until_each_has_a_pot(who):
     c, uid, _ = who
     assert c.put("/api/me/profile", json={"investment_capital": 40_000_000, "trading_capital": 1_000_000, "emergency_fund": 0}).status_code == 200
@@ -61,6 +62,7 @@ def test_untriaged_holdings_lock_new_ideas_until_each_has_a_pot(who):
     assert d["unprotected"] == [SYM]
 
 
+@pytest.mark.real_data
 def test_triage_writes_need_a_trader_and_are_validated(who):
     c, uid, role = who
     load(uid, SYM, "TCS", triage={"TCS": "investment"})
@@ -74,6 +76,7 @@ def test_triage_writes_need_a_trader_and_are_validated(who):
     assert c.put("/api/portfolio/triage", json={"account": ACC, "assignments": {SYM: "gold"}}).status_code == 422
 
 
+@pytest.mark.real_data
 def test_lots_endpoint_reports_pot_class_status_and_what_is_not_computed(who):
     c, uid, _ = who
     assert c.get("/api/portfolio/lots").json()["lots"] == []
@@ -83,6 +86,7 @@ def test_lots_endpoint_reports_pot_class_status_and_what_is_not_computed(who):
     assert "UNVERIFIED" in j["policy"]["status"] and any("exemption" in x for x in j["policy"]["not_computed"]) and any("places no orders" in n for n in j["notes"])
 
 
+@pytest.mark.real_data
 def test_cli_import_dry_run_writes_nothing_and_the_inbox_is_read_from_the_data_directory(who, tmp_path, monkeypatch, capsys):
     c, uid, _ = who
     monkeypatch.setattr(paths, "DATA", tmp_path)
@@ -101,6 +105,7 @@ def test_cli_import_dry_run_writes_nothing_and_the_inbox_is_read_from_the_data_d
     assert cli.main(["lots", "--user", uid]) == 0
 
 
+@pytest.mark.real_data
 def test_cli_pot_all_is_an_explicit_choice_and_triage_file_is_validated(who, tmp_path, capsys):
     c, uid, _ = who
     f = tmp_path / "h.csv"
@@ -114,6 +119,7 @@ def test_cli_pot_all_is_an_explicit_choice_and_triage_file_is_validated(who, tmp
     assert "symbol,pot" in capsys.readouterr().out
 
 
+@pytest.mark.real_data
 def test_cli_restricted_list_is_audited_and_blocks_the_desk(who, capsys):
     c, uid, _ = who
     assert c.put("/api/me/profile", json={"investment_capital": 40_000_000, "trading_capital": 1_000_000, "emergency_fund": 0}).status_code == 200
