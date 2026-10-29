@@ -246,3 +246,109 @@ def partial_dates(frame: pd.DataFrame) -> list:
         if counts.iloc[i] < PARTIAL_SHARE * counts.iloc[i - PARTIAL_LOOKBACK:i].median():
             out.append(counts.index[i])
     return out
+
+
+# ---- matching TER schemes (NSDL codes) to mf_scheme_master ----------------------------------------------------------------------------
+
+KEY_VERSION = "name_key_v1"
+ACTIVE_DAYS = 90
+SUGGEST_CUTOFF = 0.92
+_PLAN_WORDS = re.compile(r"\b(?:direct|regular)\s*(?:plan)?\b|\bgrowth\b|\bidcw\b|\bdividend\b|\b(?:payout|re-?\s?investment|reinvestment)\b|\boption\b|\bplan\b|\bbonus\b"
+                         r"|\b(?:weekly|monthly|quarterly|daily|annual|fortnightly|half[ -]?yearly)\b|\bincome distribution cum capital withdrawal\b|\bcapital withdrawal\b")
+_GROWTH = re.compile(r"\bgrowth\b")
+_IDCW = re.compile(r"\b(?:idcw|dividend|payout|reinvestment|income distribution)\b")
+
+
+def name_key(name) -> str:
+    """name_key_v1: lowercase, '&' to 'and', plan and option words removed, then letters and digits only."""
+    s = str(name).lower().replace("&", " and ")
+    return re.sub(r"[^a-z0-9]+", "", _PLAN_WORDS.sub(" ", s))
+
+
+def option_class(name) -> Optional[str]:
+    """'growth' or 'idcw' when the scheme name says exactly one of them, else None."""
+    s = str(name).lower()
+    g, d = bool(_GROWTH.search(s)), bool(_IDCW.search(s))
+    return "growth" if g and not d else "idcw" if d and not g else None
+
+
+def ter_schemes(frame: pd.DataFrame) -> pd.DataFrame:
+    """One row per NSDL code: latest name and category, and which plans are offered (any non-missing total in the file)."""
+    g = frame.sort_values("ter_date").groupby("nsdl_code")
+    out = g.agg(name=("name", "last"), scheme_category=("scheme_category", "last"),
+                r_offered=("r_total", lambda s: bool(s.notna().any())), d_offered=("d_total", lambda s: bool(s.notna().any())))
+    return out.reset_index()
+
+
+@dataclass
+class Match:
+    mapped: pd.DataFrame
+    unmatched: pd.DataFrame
+    suggestions: pd.DataFrame
+
+
+def match_schemes(ter: pd.DataFrame, master: pd.DataFrame, today: date) -> Match:
+    """Join TER schemes to master schemes by name key. Nothing is guessed: every code and every active master scheme ends up mapped or listed with a reason.
+    TER reasons: no_name_key, ambiguous_key, no_plan_match. Master reasons (active schemes only): not_in_file, ambiguous_key, plan_unknown, plan_not_offered."""
+    import difflib
+
+    t = ter.copy()
+    t["key"] = t["name"].map(name_key)
+    m = master.copy()
+    m["key"] = m["name"].map(name_key)
+    m["active"] = pd.to_datetime(m["last_nav_date"]) >= pd.Timestamp(today) - pd.Timedelta(days=ACTIVE_DAYS)
+    by_key = {k: g for k, g in m.groupby("key")}
+    mapped, um, master_reason = [], [], {}
+
+    def plan_for(row, r_on, d_on):
+        """The TER plan that applies to a master scheme: its own plan when known (and offered), else the single plan the file offers for the code."""
+        d = row.is_direct
+        if d is not None and not pd.isna(d):
+            plan, on = ("direct", d_on) if bool(d) else ("regular", r_on)
+            return (plan, None) if on else (None, "plan_not_offered")
+        if r_on != d_on:
+            return ("regular" if r_on else "direct", None)
+        return (None, "plan_unknown")
+
+    for key, tg in t.groupby("key"):
+        mg = by_key.get(key)
+        if mg is None:
+            um += [("ter", r.nsdl_code, None, r.name, "no_name_key") for r in tg.itertuples()]
+            continue
+        pairs = []
+        if len(tg) == 1:
+            pairs = [(tg.iloc[0], mg)]
+        else:
+            oc = tg["name"].map(option_class)
+            if oc.notna().all() and oc.nunique() == len(tg):
+                pairs = [(r, mg[mg["is_growth"] == (c == "growth")]) for (_, r), c in zip(tg.iterrows(), oc)]
+            else:
+                um += [("ter", r.nsdl_code, None, r.name, "ambiguous_key") for r in tg.itertuples()]
+        used = set()
+        for r, rows in pairs:
+            n_before = len(mapped)
+            for x in rows.itertuples():
+                used.add(x.scheme_code)
+                plan, why = plan_for(x, bool(r["r_offered"]), bool(r["d_offered"]))
+                if plan:
+                    mapped.append((r["nsdl_code"], int(x.scheme_code), plan))
+                else:
+                    master_reason[x.scheme_code] = why
+            if len(mapped) == n_before:
+                um.append(("ter", r["nsdl_code"], None, r["name"], "ambiguous_key" if rows.empty else "no_plan_match"))
+        for x in mg.itertuples():
+            if x.scheme_code not in used:
+                master_reason[x.scheme_code] = "ambiguous_key"
+    mapped_df = pd.DataFrame(mapped, columns=["nsdl_code", "scheme_code", "plan"])
+    got = set(mapped_df["scheme_code"])
+    keys_in_file = set(t["key"])
+    for x in m[m["active"] & ~m["scheme_code"].isin(got)].itertuples():
+        um.append(("master", None, int(x.scheme_code), x.name, master_reason.get(x.scheme_code) or ("not_in_file" if x.key not in keys_in_file else "ambiguous_key")))
+    unmatched = pd.DataFrame(um, columns=["side", "nsdl_code", "scheme_code", "name", "reason"])
+    mkeys = list(by_key)
+    sug = []
+    for r in unmatched[(unmatched["side"] == "ter") & (unmatched["reason"] == "no_name_key")].itertuples():
+        for c in difflib.get_close_matches(name_key(r.name), mkeys, n=3, cutoff=SUGGEST_CUTOFF):
+            sug.append((r.nsdl_code, r.name, by_key[c]["name"].iloc[0]))
+    suggestions = pd.DataFrame(sug, columns=["nsdl_code", "name", "candidate_master_name"])
+    return Match(mapped=mapped_df, unmatched=unmatched, suggestions=suggestions)
