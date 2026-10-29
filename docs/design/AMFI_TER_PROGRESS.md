@@ -8,7 +8,7 @@ Status key: TODO, ACTIVE, BLOCKED (waiting on someone), DONE (acceptance met, ev
 |---|---|---|---|---|
 | M0 | A real AMFI TER file in hand | At least one real `.xlsx` or `.csv` is in `C:\Stoxsy\data\inbox\amfi_ter\` (latest complete month, all fund houses) | Owner | **DONE** 2026-10-30: one 4 MB `.xlsx`, all fund houses in one file, accepted by AMFI's "All" filter |
 | M1 | Real layout known | Read-only inspection recorded below: sheets, header row, every column name and type, row count, date format, whether a scheme code / ISIN exists, how plans are represented, banner rows | Claude | **DONE** 2026-10-30 (findings below; no database writes) |
-| M2 | Plan approved | Implementation plan written from the real layout (not from assumptions) and approved by the owner | Claude, Owner | **ACTIVE** (design changes from M1 need owner decisions first) |
+| M2 | Plan approved | Implementation plan written from the real layout (not from assumptions) and approved by the owner | Claude, Owner | **ACTIVE**: spec v2 approved 2026-10-30; plan written (`docs/superpowers/plans/2026-10-30-amfi-ter-part-a.md`, 7 tasks), waiting for the owner's review and choice of execution method |
 | M3 | Reader works on the real file | Dry run: every TER column mapped; parsed + rejected = source rows (no silent drops); no data written | Claude | TODO |
 | M4 | Storage and loader | Migration 062 applied to the live database (owner OK asked first); layout approved with `--mapping-ok` after the owner reviews the dry run; real file loaded; re-running skips it; row counts reconcile | Claude, Owner | TODO |
 | M5 | Matching and coverage (roadmap gate 1.1) | Matched / unmatched counts against `mf_scheme_master`, every unmatched row has a reason, coverage of in-scope schemes reproducible by hand, report in `data/reports/amfi/` | Claude | TODO |
@@ -53,3 +53,4 @@ Daily rows, not monthly; the source key is the NSDL code, not the AMFI numeric s
 ## Log
 - 2026-10-30: spec written and committed locally; inbox folder created at `C:\Stoxsy\data\inbox\amfi_ter\`; `openpyxl` confirmed installed in the project environment.
 - 2026-10-30: M0 done (owner saved the real file). M1 done: layout inspected read-only (no database writes); findings above change the storage design; M2 needs three owner decisions.
+- 2026-10-30: owner decided: store as published and flag; one wide row per scheme per day; keep every daily row. Spec v2 approved. Part A plan written: Tasks 1 to 3 = M3 (reader, flags, matching), Task 4 = M4 first half (migration 062, owner gate), Task 5 = M4 (loader), Task 6 = M5 and M6 (coverage, doctor, daily step, runbook), Task 7 = first real load with owner gates (sign-off for M4 to M6).
