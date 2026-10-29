@@ -6,6 +6,10 @@ Status: DRAFT for owner review, 2026-10-30. Roadmap item 1.1 (`docs/design/PLATF
 - **Source: AMFI's "TER of MF Schemes" page, manual download only.** AMFI's terms of use allow personal, non-commercial use, forbid storing "any significant portion" electronically and any use not agreed in writing, and say nothing about automated access. The page's data comes from AMFI's own internal `/api/` routes, which are not a published API. No automated access is built; if AMFI gives written permission later, that is a new decision.
 - **File format: support both** `.xlsx` (read with `openpyxl` when installed, otherwise a clear "save as CSV" refusal) and `.csv`.
 - **Scope: all three parts together** (A ingestion plus daily inbox scan, B API and Funds page, C cost-aware ranking), one spec, built in order.
+- **Real data only, no synthetic data anywhere.** Nothing is built against a guessed layout: the first step is the owner downloading a real month, and the reader is written against that file. Tests read the owner's real files from the inbox and are tagged `real_data` (they run locally; CI skips them). No AMFI rows are committed to the repo (public repo, AMFI storage terms). Pure logic is checked against the real file's own headers and values.
+- **Load order: latest month first**, verified end to end and against the scheme master; earlier months only after the pipeline is proven.
+- **Progress** is tracked in `docs/design/AMFI_TER_PROGRESS.md` (milestones, acceptance checks, status), updated as each is met and summarised at the end of each step.
+- `openpyxl` is already installed in the project environment; `.xlsx` and `.csv` are both supported.
 
 ## What was verified and what was not
 - Verified (2026-10-30): the page has five filters (financial year, month, fund type, category, fund house) and an Excel download; rows carry `D_BaseTER`, `D_TER` (direct), `R_BaseTER`, `R_TER` (regular) and `TER_Date`; the legal basis is SEBI circular 2018/91 as amended by 2019/42 (daily, scheme-wise, downloadable spreadsheet on AMC and AMFI sites).
@@ -53,18 +57,18 @@ Status: DRAFT for owner review, 2026-10-30. Roadmap item 1.1 (`docs/design/PLATF
 - Daily routine step `amfi_ter_inbox` (non-required): runs `load_amfi_ter.py --inbox`. Empty inbox: exit 0, message only. A file in an unapproved layout is **refused with exit 0 and a message** (a waiting review is not a pipeline failure); `doctor` shows it.
 - `stoxsy doctor` line "fund expense ratios": latest `ter_date`, coverage percent, files waiting; WARN (never FAIL) when the latest month is more than 45 days old or a file is waiting for review.
 
-### Tests (all self-seeding so they run in CI on an empty database; none are `real_data`)
-Synthetic CSV and (when `openpyxl` is present, otherwise skipped) `.xlsx` fixtures: banner rows, alias headers, both plans per row, bad dates, out-of-range TER, idempotent reload, restatement, layout gate (refused then approved), name match / ambiguous / unmatched, coverage figure, dry run writes nothing, raw file landed unchanged (hash equal).
+### Tests (real data only; all tagged `real_data`, so they run locally and CI skips them)
+Run against the owner's real files in `<data>/inbox/amfi_ter/` and the loaded database. They skip with a clear message when no real file is present. They check: the header mapping covers every TER column of the real file, banner rows skipped, both plans per row, no row silently dropped (parsed + rejected = source rows), out-of-range and unreadable values reported, idempotent reload (same SHA-256 skipped, row counts unchanged), restatement counting on a re-downloaded overlapping file, layout gate (refused, then approved), name match / ambiguous / unmatched counts add up, coverage figure reproducible by hand from the loaded rows, dry run writes nothing, raw file landed unchanged (hash equal).
 
 ### Acceptance (A)
-Synthetic suite green in CI; with the owner's first real file: dry run shows a sensible mapping and sample, load succeeds, report shows coverage against the 1.1 gate with unmatched rows explained.
+With the owner's first real file: dry run shows a sensible mapping and sample, load succeeds, the report shows coverage against the 1.1 gate with unmatched rows explained, and the real-data tests pass locally.
 
 ## Part B: API and Funds page
 - `GET /api/funds/schemes` and `/api/funds/schemes/{code}` gain a `ter` object: `{plan, base_ter, total_ter, ter_date, source: "AMFI", stale: bool, other_plan: {plan, total_ter} | null, annual_saving_pp: number | null}` (`null` when the scheme has no TER row). Query parameters `max_ter` and `sort=ter` are added to the list.
 - `web/src/pages/Funds.tsx`: a TER column; `web/src/components/FundDetail.tsx`: a cost panel showing regular and direct total TER, the difference in percentage points and "about X rupees per 1 lakh per year" (difference times 1,00,000), each labelled "AMFI, as of <month>, indicative; excludes brokerage and transaction costs".
 - A TER older than two calendar months is shown as `stale` and greyed, never hidden or silently reused as current.
 - No recommendation wording ("best", "buy", "switch to direct" as advice). The page states the difference, not what to do.
-- Tests: API tests with seeded `mf_ter` rows (null TER, stale TER, both plans, filter and sort); component tests alongside `FundDetail.test.tsx`.
+- Tests (`real_data`): API tests against the loaded real `mf_ter` rows (a scheme with no TER, a stale month, both plans, filter and sort); component tests alongside `FundDetail.test.tsx` use values read from the real API response, not invented ones.
 - Acceptance (B): suites green; one real fund checked by eye against the downloaded AMFI file.
 
 ## Part C: cost-aware peer ranking (not a return forecast)
@@ -73,11 +77,11 @@ Synthetic suite green in CI; with the owner's first real file: dry run shows a s
 - A peer group needs at least 8 members **with a valid TER**; otherwise `status = "insufficient_peers"` and no rank is shown. A stale or missing TER gives `status = "no_current_ter"`.
 - Stored in the fund snapshot (`mf_fund_snapshot.cost jsonb`, migration 063), computed by the existing `fund_snapshot` step, exposed as `cost` next to `peers` in the Funds API and as a small block on the detail panel.
 - The cheapest-quartile-in-peer-group set is documented as **the baseline any later fund model must beat** (roadmap Phase 3: fund performance persistence is weak, so "lowest cost" is the bar). Nothing here forecasts returns, scores a fund as good or bad, or advises a switch.
-- Tests: peer group sizes 7 / 8 / 9, ties, a poor-quality member excluded, stale TER, direct and regular pairs, percentile edge cases; all on seeded rows.
+- Tests (`real_data`): on real peer groups from the loaded data, find and check the actual cases that occur (a group just under and just over 8, ties, a poor-quality member excluded, a stale TER, direct and regular pairs, percentile edge cases); where the real data has no instance of a case, the case is reported as "not covered", not simulated.
 - Acceptance (C): suites green; for a real peer group, percentiles reproduce by hand from the loaded `mf_ter` rows.
 
 ## Order, gating and risks
-- Build order A, then B, then C. B and C can be built and tested on synthetic rows, but **their acceptance needs real data loaded by the owner**; until then they ship dark (columns show "no TER loaded").
+- Build order A, then B, then C, each started only after the previous part's acceptance is met on real data loaded by the owner. There is no synthetic stand-in: until real data is loaded, B and C are not built.
 - Risk: the real file layout differs from the aliases. Contained to `amfi_ter.read_export`; the layout gate catches it before anything is written.
 - Risk: names in the sheet do not match `mf_scheme_master`. Mitigated by the explicit unmatched table and coverage gate; the fix is a reviewed alias list, never fuzzy matching in the load path.
 - Risk: AMFI changes the page or its download. Manual flow degrades to "no new file"; `doctor` warns after 45 days.
