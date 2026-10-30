@@ -26,7 +26,7 @@ import psycopg2.extras
 from qsde.ingestion.amfi_ter_db import INBOX, coverage, inbox_files, report_info, write_report  # noqa: F401  (re-exported for callers and tests)
 
 NUM = ["r_ber", "r_brokerage", "r_transaction", "r_statutory", "r_total", "d_ber", "d_brokerage", "d_transaction", "d_statutory", "d_total"]
-RESTATEMENT_TOL = 0.0005
+RESTATEMENT_TOL = 0.00005                           # AMFI publishes in steps of 0.0001; stored values are exact, so any real change exceeds this
 
 
 def _none(x):
@@ -85,6 +85,9 @@ def _load(conn, path: Path, payload: bytes, ex, dry_run: bool, mapping_ok: bool,
     if not approved and not mapping_ok:                                       # the first file of a layout must be checked by a person
         return {"status": "REFUSED: first file of this layout needs a reviewed mapping. Run with --dry-run, check column_mapping and sample against the file, then repeat with --mapping-ok", **info}
 
+    cur.execute("SELECT max(date_max) AS d FROM mf_ter_files")
+    newest_before = cur.fetchone()["d"]
+    newest = newest_before is None or d_max >= newest_before                 # an older month loaded later must not re-derive (and overwrite) the mapping from older names
     now = datetime.now(timezone.utc)
     landing = landing or LandingZone()
     rec = landing.write("amfi_ter", RawItem(payload, now, None, {"origin": "manual_download", "filename": path.name, "page": "AMFI TER of MF Schemes (Download Excel)"}, path.suffix.lstrip(".") or "xlsx"))
@@ -129,8 +132,8 @@ def _load(conn, path: Path, payload: bytes, ex, dry_run: bool, mapping_ok: bool,
     psycopg2.extras.execute_values(cur, f"INSERT INTO mf_ter (nsdl_code, ter_date, {', '.join(NUM)}, flags, file_id, known_at) VALUES %s ON CONFLICT (nsdl_code, ter_date) DO NOTHING", recs, page_size=5000)
     cur.execute("SELECT count(*) AS n FROM mf_ter WHERE file_id = %s", (file_id,))
     rows_new = int(cur.fetchone()["n"])
-    pairs = _write_mapping(cur, ter["nsdl_code"].tolist(), match, file_id)
-    return {"file": path.name, "status": "loaded", "file_id": file_id, "parsed": ex.n_parsed, "rejected": ex.n_rejected, "rows_new": rows_new, "overlap_rows": overlap, "restatements": restated,
+    pairs = _write_mapping(cur, ter["nsdl_code"].tolist(), match, file_id) if newest else []
+    return {"file": path.name, "status": "loaded", "mapping_kept": not newest, "file_id": file_id, "parsed": ex.n_parsed, "rejected": ex.n_rejected, "rows_new": rows_new, "overlap_rows": overlap, "restatements": restated,
             "flagged_rows": n_flagged, "mapped_rows": len(pairs), "landed": str(rec.path), "partial_dates": [str(d) for d in partial]}
 
 
@@ -194,7 +197,7 @@ def main() -> int:
     if a.inbox and not files and not a.report and not a.rematch:
         print(f"nothing to load in {INBOX}: download the month from AMFI's TER page (Download Excel) and save it there")
         return 0
-    loaded = False
+    loaded, rc = False, 0
     if a.rematch and not a.dry_run:
         from qsde.db.connection import get_sync_conn
 
@@ -205,9 +208,9 @@ def main() -> int:
             r = load_file(p, a.dry_run, a.mapping_ok)
             print(json.dumps(r, default=str))
             loaded = loaded or r.get("status") == "loaded"
-        except ValueError as e:
+        except ValueError as e:                                              # a refused file: report it, keep going with the others, exit 2 at the end
             print(f"REJECTED {p.name}: {e}")
-            return 2
+            rc = 2
     if (loaded or a.report or a.rematch) and not a.dry_run:
         from datetime import date
 
@@ -215,7 +218,7 @@ def main() -> int:
 
         with get_sync_conn() as c:
             print("report:", write_report(report_info(c, date.today())))
-    return 0
+    return rc
 
 
 if __name__ == "__main__":

@@ -110,8 +110,11 @@ def parse_date(v) -> Optional[date]:
 def parse_number(v) -> Optional[float]:
     if _blank(v):
         return None
+    s = str(v).strip().rstrip("%")
+    if "," in s:                                                          # decimal comma or thousands separator: never guessed, the row is rejected
+        return None
     try:
-        x = float(str(v).strip().replace(",", "").rstrip("%"))
+        x = float(s)
     except ValueError:
         return None
     return x if math.isfinite(x) else None
@@ -126,12 +129,17 @@ def _rows_xlsx(payload: bytes):
 
 
 def _rows_csv(payload: bytes):
+    if payload[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        raise ValueError("this is a UTF-16 text file: save it as CSV (comma delimited, UTF-8) or use AMFI's .xlsx download")
+    text = None
     for enc in ("utf-8-sig", "cp1252"):
         try:
             text = payload.decode(enc)
             break
         except UnicodeDecodeError:
             continue
+    if text is None:
+        raise ValueError("cannot decode this file as UTF-8 or Windows-1252 text")
     yield "csv", [list(r) for r in csv.reader(io.StringIO(text))]
 
 
@@ -146,7 +154,12 @@ def read_export(payload: bytes, filename: str = "") -> Export:
     """Parse an AMFI TER download (.xlsx or .csv). Raises ValueError, naming the cause, for every hard refusal."""
     sha = hashlib.sha256(payload).hexdigest()
     is_xlsx = payload[:2] == b"PK" or filename.lower().endswith((".xlsx", ".xlsm"))
-    sheets = _rows_xlsx(payload) if is_xlsx else _rows_csv(payload)
+    try:
+        sheets = list(_rows_xlsx(payload) if is_xlsx else _rows_csv(payload))
+    except ValueError:
+        raise
+    except Exception as e:                                                # noqa: BLE001  (BadZipFile, openpyxl and csv errors are a refusal, never a traceback)
+        raise ValueError(f"cannot read this file as {'an .xlsx workbook' if is_xlsx else 'a csv text file'} ({type(e).__name__}): is it an AMFI TER download?") from e
     sheet, rows, h = None, None, None
     for title, rs in sheets:
         h = _find_header(rs)
@@ -197,7 +210,7 @@ def read_export(payload: bytes, filename: str = "") -> Export:
         data.append({"nsdl_code_raw": str(code), "nsdl_code": normalise_code(code), "name": str(name).strip(),
                      "scheme_type": None if _blank(cell(r, "scheme_type")) else str(cell(r, "scheme_type")).strip(),
                      "scheme_category": None if _blank(cell(r, "scheme_category")) else str(cell(r, "scheme_category")).strip(),
-                     "ter_date": d, **nums})
+                     "ter_date": d, "_row": i + 1, **nums})
     footer = rows[end:]
     footer_head = ""
     for r in footer:
@@ -206,6 +219,15 @@ def read_export(payload: bytes, filename: str = "") -> Export:
                 raise ValueError("data after the footer: a row with a scheme code and a date follows the blank row that ends the data")
             if not footer_head:
                 footer_head = next(str(v).strip() for v in r if not _blank(v))
+    seen, kept = set(), []
+    for rec in data:
+        key = (rec["nsdl_code"], rec["ter_date"])
+        if key in seen:
+            rejected.append({"row": rec["_row"], "reason": "duplicate scheme code and date (the first row is kept)"})
+            continue
+        seen.add(key)
+        kept.append(rec)
+    data = kept
     if n_data == 0:
         raise ValueError("no data rows found below the header")
     if len(rejected) > REJECT_MAX_SHARE * n_data:

@@ -15,7 +15,7 @@
 - **No AMFI rows in git** (public repo): no fixtures, no pasted values in tests, docs or commit messages; counts and header names only. Reports go to `data/reports/amfi/` (outside the repo).
 - Values are stored **as published**; flags never change a value. Zero for a whole plan means not offered and is stored NULL.
 - `TOTAL_MAX = 3.0` percent; `SUM_TOL = 0.02`; `REJECT_MAX_SHARE = 0.02` (more than 2 percent rejected data rows refuses the file); partial day = row count below 70 percent of the median of the previous five dates; stale = latest complete date more than 45 days old; key version `name_key_v1`.
-- Columns are `numeric(7,3)`; `mf_ter` primary key `(nsdl_code, ter_date)`; inserts `ON CONFLICT DO NOTHING`; `known_at` = retrieval time of the landed file.
+- Columns are exact `NUMERIC` (no fixed decimals; migration 062 declared `numeric(7,3)`, which rounded AMFI's 4-decimal values, corrected by migration 063); `mf_ter` primary key `(nsdl_code, ter_date)`; inserts `ON CONFLICT DO NOTHING`; `known_at` = retrieval time of the landed file.
 - Writes happen in **one transaction**; the database write functions take a connection and never commit; only the CLI commits.
 - Applying migration 062 (and 063 later) to the live database, and the first real load, need the owner's explicit OK at the step marked **OWNER GATE**.
 - Commits are local; nothing is pushed without the owner's OK (public repo).

@@ -172,3 +172,13 @@ def test_the_first_five_dates_are_never_partial(real):
     _, ex = real
     first5 = sorted(ex.frame["ter_date"].dt.date.unique())[:5]
     assert not set(T.partial_dates(ex.frame)) & set(first5)
+
+
+def test_unreadable_xlsx_is_a_refusal_not_a_crash():
+    """Review finding 6: bytes that are not a workbook but are named .xlsx must raise the ValueError the loader turns into REJECTED, not a zipfile or openpyxl traceback."""
+    cands = sorted(data_path("landing", "bse_corporate_actions").rglob("*.csv"))
+    if not cands:
+        pytest.skip("no real non-TER file available")
+    with pytest.raises(ValueError) as e:
+        T.read_export(cands[0].read_bytes(), "x.xlsx")
+    assert "xlsx" in str(e.value).lower() or "workbook" in str(e.value).lower()

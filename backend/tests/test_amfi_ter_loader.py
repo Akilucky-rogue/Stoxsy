@@ -20,7 +20,7 @@ def test_062_tables_and_keys_exist():
                      WHERE i.indrelid = 'mf_ter'::regclass AND i.indisprimary ORDER BY array_position(i.indkey::int[], a.attnum::int)""")
     assert list(pk["attname"]) == ["nsdl_code", "ter_date"]
     col = read_sql("SELECT data_type, numeric_precision, numeric_scale FROM information_schema.columns WHERE table_name = 'mf_ter' AND column_name = 'r_total'").iloc[0]
-    assert (col["data_type"], int(col["numeric_precision"]), int(col["numeric_scale"])) == ("numeric", 7, 3)
+    assert col["data_type"] == "numeric" and pd.isna(col["numeric_precision"]), "values must be exact numeric (no fixed decimals): AMFI publishes up to 4"
     uniq = read_sql("""SELECT count(*) AS n FROM pg_index i JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
                        WHERE i.indrelid = 'mf_ter_files'::regclass AND i.indisunique AND a.attname = 'sha256' AND i.indnatts = 1""")
     assert int(uniq["n"].iloc[0]) == 1
@@ -41,6 +41,7 @@ import psycopg2.extras  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from amfi_ter_support import independent_frame, real_files, require_real_file  # noqa: E402
+from qsde.config.paths import data_path  # noqa: E402
 from qsde.config import settings  # noqa: E402
 from qsde.stream.landing import LandingZone  # noqa: E402
 
@@ -179,3 +180,68 @@ def test_rematch_rebuilds_the_mapping_from_stored_rows(world):
     assert cur.fetchall() == before and r["mapped_rows"] == len(before)
     cur.execute("SELECT count(*) AS n FROM mf_ter_unmatched WHERE file_id = (SELECT max(id) FROM mf_ter_files)")
     assert cur.fetchone()["n"] == r["unmatched_rows"]
+
+
+def _wrong_layout_file():
+    cands = sorted(data_path("landing", "bse_corporate_actions").rglob("*.csv"))
+    if not cands:
+        pytest.skip("no real non-TER file available")
+    return cands[0]
+
+
+def test_stored_values_equal_published_exactly(world):
+    """Review finding 1: AMFI publishes up to 4 decimals; nothing may be rounded on the way in."""
+    from decimal import Decimal
+
+    f, conn, landing, _ = world
+    r = L.load_file(f, dry_run=False, mapping_ok=True, conn=conn, landing=landing)
+    cur = conn.cursor()
+    cur.execute(f"SELECT nsdl_code, ter_date, {', '.join(L.NUM)} FROM mf_ter WHERE file_id = %s", (r["file_id"],))
+    stored = pd.DataFrame(cur.fetchall())
+    d = independent_frame(f)
+    src = list(d.columns[5:])
+    d["nsdl_code"] = d[d.columns[0]].str.replace(r"\s+", "", regex=True).str.replace(r"\?$", "", regex=True)
+    d["ter_date"] = pd.to_datetime(d["TER Date"]).dt.date
+    m = d.merge(stored, on=["nsdl_code", "ter_date"], suffixes=("", "_db"))
+    assert len(m) == len(d) == len(stored)
+    bad = 0
+    for plan_cols, db_cols in ((src[:5], L.NUM[:5]), (src[5:], L.NUM[5:])):
+        offered = ~m[plan_cols].apply(lambda c: c.astype(float)).eq(0).all(axis=1)
+        for sc, dc in zip(plan_cols, db_cols):
+            pub = m.loc[offered, sc].map(lambda x: Decimal(str(x).strip()))
+            sto = m.loc[offered, dc].map(lambda x: None if pd.isna(x) else Decimal(str(x)))
+            bad += int((pub != sto).sum())
+    assert bad == 0, f"{bad} stored values differ from what AMFI published"
+
+
+def test_a_rejected_file_does_not_wedge_the_inbox(tmp_path, monkeypatch, capsys):
+    """Review finding 2: a bad file that sorts first must not stop the good file behind it, and the exit code must still say something was rejected."""
+    real = require_real_file()
+    bad, good = tmp_path / "a_wrong_layout.csv", tmp_path / "ter.xlsx"
+    shutil.copy2(_wrong_layout_file(), bad)
+    shutil.copy2(real, good)
+    for p in (bad, good):
+        os.utime(p, (time.time() - 300, time.time() - 300))
+    monkeypatch.setattr(L, "INBOX", tmp_path)
+    monkeypatch.setattr(sys, "argv", ["load_amfi_ter.py", "--inbox", "--dry-run"])
+    rc = L.main()
+    out = capsys.readouterr().out
+    assert rc == 2 and "REJECTED a_wrong_layout.csv" in out
+    assert '"file": "ter.xlsx"' in out                                                   # the good file behind the bad one was still reached (dry run, or already loaded)
+
+
+def test_older_file_does_not_touch_the_mapping(world):
+    """Review finding 3: a file older than one already loaded must not re-derive (and overwrite) the mapping. The real rows are loaded, then their bookkeeping dates are moved
+    forward inside this rolled-back transaction so that the same real file now counts as the older of two."""
+    f, conn, landing, _ = world
+    first = L.load_file(f, dry_run=False, mapping_ok=True, conn=conn, landing=landing)
+    cur = conn.cursor()
+    cur.execute("UPDATE mf_ter_files SET sha256 = %s, date_min = date_min + 40, date_max = date_max + 40 WHERE id = %s", ("0" * 64, first["file_id"]))
+    cur.execute("DELETE FROM mf_ter WHERE file_id = %s", (first["file_id"],))
+    cur.execute("DELETE FROM mf_ter_map")
+    cur.execute("DELETE FROM mf_ter_unmatched")
+    r = L.load_file(f, dry_run=False, mapping_ok=True, conn=conn, landing=landing)
+    assert r["status"] == "loaded" and r["rows_new"] == r["parsed"] and r["mapping_kept"] is True
+    cur.execute("SELECT (SELECT count(*) FROM mf_ter_map) AS m, (SELECT count(*) FROM mf_ter_unmatched WHERE file_id = %s) AS u", (r["file_id"],))
+    row = cur.fetchone()
+    assert row["m"] == 0 and row["u"] == 0
