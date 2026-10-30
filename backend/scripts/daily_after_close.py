@@ -40,6 +40,7 @@ STEPS = [
     ("signal", True, "defensive signal for the latest session", [PY, str(HERE / "defensive_eval.py"), "--latest"]),
     ("log_cards", False, "log the signal in the prediction ledger (before the next open)", [PY, str(HERE / "log_cards.py")]),
     ("resolve", False, "resolve logged predictions whose window has elapsed", [PY, str(HERE / "live_loop.py"), "resolve"]),
+    ("amfi_ter_inbox", False, "AMFI TER files waiting in the inbox (manual download; a first-layout file is refused until reviewed)", [PY, str(HERE / "load_amfi_ter.py"), "--inbox"]),
     ("fund_snapshot", False, "fund returns / risk / quality snapshot", [PY, str(HERE / "fund_snapshot.py")]),
     ("alerts", False, "evaluate alerts", [PY, str(HERE / "run_alerts.py")]),
 ]

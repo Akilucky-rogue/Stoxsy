@@ -134,6 +134,27 @@ def check_alerts() -> Check:
     return Check("fail" if crit else "warn" if n.get("warning", 0) else "ok", "alerts", f"{crit} critical, {n.get('warning', 0)} warning, {n.get('info', 0)} info open")
 
 
+def check_fund_ter(today=None, conn=None) -> Check:
+    """Fund expense ratios (AMFI TER, manual download): latest complete date, coverage of active schemes, files waiting. Never FAIL: the data is loaded by hand."""
+    from qsde.ingestion import amfi_ter_db as D
+
+    today = today or pd.Timestamp.now(tz="Asia/Kolkata").date()
+    if conn is not None:
+        cov = D.coverage(conn, today)
+    else:
+        from qsde.db.connection import get_sync_conn
+
+        with get_sync_conn() as c:
+            cov = D.coverage(c, today)
+    waiting = f"; {cov['files_waiting']} file(s) waiting in {D.INBOX} (run load_amfi_ter.py --inbox --dry-run)" if cov["files_waiting"] else ""
+    d = cov["latest_complete_date"]
+    if d is None:
+        return Check("warn", "fund expense ratios", f"no expense ratios loaded: download a month from AMFI's TER page into {D.INBOX}{waiting}")
+    age = (today - d).days
+    msg = f"latest complete {d}, {age} days old; {cov['mapped']} of {cov['in_scope']} active schemes covered ({cov['pct']}%){waiting}"
+    return Check("warn" if age > D.STALE_DAYS or cov["files_waiting"] else "ok", "fund expense ratios", msg)
+
+
 def run_all() -> list:
     out = [_safe("runtime", check_runtime), _safe("data directory", check_paths), _safe("disk space", check_disk), _safe("database", check_database)]
     for name, fn in (("data freshness", freshness), ("heartbeats", heartbeats)):
@@ -141,7 +162,7 @@ def run_all() -> list:
             out += fn()
         except Exception as e:                                       # noqa: BLE001
             out.append(Check("fail", name, f"could not run: {type(e).__name__}: {str(e)[:160]}"))
-    out += [_safe("Kite session", check_kite), _safe("exchange calendar", check_calendar), _safe("alerts", check_alerts)]
+    out += [_safe("fund expense ratios", check_fund_ter), _safe("Kite session", check_kite), _safe("exchange calendar", check_calendar), _safe("alerts", check_alerts)]
     return out
 
 
