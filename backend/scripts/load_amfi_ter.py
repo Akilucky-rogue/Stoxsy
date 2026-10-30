@@ -9,6 +9,7 @@ Steps per file: parse (no side effects) -> skip if its SHA-256 is already loaded
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import sys
@@ -33,19 +34,35 @@ def _none(x):
     return None if x is None or (isinstance(x, float) and math.isnan(x)) else x
 
 
+def origin_of(filename: str) -> str:
+    """How a file reached the inbox, recorded with the landed raw copy: `stoxsy fetch-ter` names its files ter_revised_MM-YYYY__<date>.xlsx; anything else was saved by hand."""
+    return "fetch_ter" if filename.startswith("ter_revised_") else "manual_download"
+
+
 def load_file(path: Path, dry_run: bool, mapping_ok: bool = False, conn=None, landing=None) -> dict:
-    """Parse, gate, land and load one file. With `conn` the caller owns the transaction (nothing is committed or closed here); without it one is opened and committed on success."""
+    """Parse, gate, land and load one file. With `conn` the caller owns the transaction (nothing is committed or closed here); without it one is opened and committed on success.
+    A file whose SHA-256 is already in the ledger is recognised BEFORE it is parsed, so the nightly inbox step costs the same however many months have accumulated."""
     from qsde.ingestion import amfi_ter as A
 
     path = Path(path)
     payload = path.read_bytes()
-    ex = A.read_export(payload, path.name)                                  # ValueError = refused file, before any database access
+    sha = hashlib.sha256(payload).hexdigest()
     if conn is not None:
-        return _load(conn, path, payload, ex, dry_run, mapping_ok, landing)
+        return _load_new(conn, path, payload, sha, dry_run, mapping_ok, landing, A)
     from qsde.db.connection import get_sync_conn
 
     with get_sync_conn() as c:
-        return _load(c, path, payload, ex, dry_run, mapping_ok, landing)
+        return _load_new(c, path, payload, sha, dry_run, mapping_ok, landing, A)
+
+
+def _load_new(conn, path: Path, payload: bytes, sha: str, dry_run: bool, mapping_ok: bool, landing, A) -> dict:
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM mf_ter_files WHERE sha256 = %s", (sha,))
+    row = cur.fetchone()
+    if row:
+        return {"file": path.name, "status": "already loaded", "file_id": int(row["id"])}
+    ex = A.read_export(payload, path.name)                                  # ValueError = refused file, before anything is written
+    return _load(conn, path, payload, ex, dry_run, mapping_ok, landing)
 
 
 def _load(conn, path: Path, payload: bytes, ex, dry_run: bool, mapping_ok: bool, landing) -> dict:
@@ -90,7 +107,7 @@ def _load(conn, path: Path, payload: bytes, ex, dry_run: bool, mapping_ok: bool,
     newest = newest_before is None or d_max >= newest_before                 # an older month loaded later must not re-derive (and overwrite) the mapping from older names
     now = datetime.now(timezone.utc)
     landing = landing or LandingZone()
-    rec = landing.write("amfi_ter", RawItem(payload, now, None, {"origin": "manual_download", "filename": path.name, "page": "AMFI TER of MF Schemes (Download Excel)"}, path.suffix.lstrip(".") or "xlsx"))
+    rec = landing.write("amfi_ter", RawItem(payload, now, None, {"origin": origin_of(path.name), "filename": path.name, "page": "AMFI TER of MF Schemes (Download Excel)"}, path.suffix.lstrip(".") or "xlsx"))
     J = psycopg2.extras.Json
     cur.execute("""INSERT INTO mf_ter_layouts (layout_hash, headers, approved, approved_at) VALUES (%s, %s, %s, CASE WHEN %s THEN NOW() END)
                    ON CONFLICT (layout_hash) DO UPDATE SET approved = mf_ter_layouts.approved OR EXCLUDED.approved, approved_at = COALESCE(mf_ter_layouts.approved_at, EXCLUDED.approved_at)""",

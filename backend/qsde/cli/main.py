@@ -101,8 +101,8 @@ def cmd_fetch_ter(args) -> int:
     from qsde.ingestion import amfi_ter_fetch as F
 
     with get_sync_conn() as conn, conn.cursor() as cur:
-        loaded = F.loaded_months(cur)
-    res = F.run(date.today(), loaded, check_only=args.check, months=args.month, recent=args.recent, limit=args.limit)
+        loaded, fetched = F.loaded_months(cur)
+    res = F.run(date.today(), loaded, fetched, check_only=args.check, months=args.month, recent=args.recent, limit=args.limit)
     if not res["wanted"]:
         _print("nothing to fetch: the months AMFI lists are already loaded up to date")
         return 0

@@ -272,3 +272,24 @@ def test_the_same_month_in_two_formats_adds_no_rows_and_no_restatements(world):
     a = L.load_file(f, dry_run=False, mapping_ok=True, conn=conn, landing=landing)
     b = L.load_file(csv, dry_run=False, mapping_ok=True, conn=conn, landing=landing)
     assert b["status"] == "loaded" and b["rows_new"] == 0 and b["overlap_rows"] == a["parsed"] == b["parsed"] and b["restatements"] == 0
+
+
+def test_landed_origin_says_whether_the_file_was_fetched_by_the_command_or_saved_by_hand():
+    assert L.origin_of("ter_revised_10-2026__2026-10-30.xlsx") == "fetch_ter"
+    for name in ("ter-of-mf-schemes.xlsx", "September_ter-of-mf-schemes.csv", "ter-of-mf-schemes (1).xlsx"):
+        assert L.origin_of(name) == "manual_download"
+
+
+def test_an_already_loaded_file_is_recognised_without_parsing_it_again(world, monkeypatch):
+    """The nightly inbox step meets every old file every night: the SHA-256 check must come before the (seconds-long) parse, so the cost stays flat as months accumulate."""
+    f, conn, landing, _ = world
+    first = L.load_file(f, dry_run=False, mapping_ok=True, conn=conn, landing=landing)
+    assert first["status"] == "loaded"
+    from qsde.ingestion import amfi_ter as A
+
+    def boom(*a, **k):
+        raise AssertionError("the file was parsed although its SHA-256 is already in the ledger")
+
+    monkeypatch.setattr(A, "read_export", boom)
+    again = L.load_file(f, dry_run=False, mapping_ok=True, conn=conn, landing=landing)
+    assert again["status"] == "already loaded" and again["file_id"] == first["file_id"]

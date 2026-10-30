@@ -33,21 +33,32 @@ def test_plan_fetches_a_month_never_loaded_and_a_month_that_stopped_short():
     today = date(2026, 10, 30)
     avail = ["10-2026", "09-2026", "08-2026"]
     loaded = {"10-2026": date(2026, 10, 29), "09-2026": date(2026, 9, 30)}
-    assert F.plan(avail, loaded, today, recent=3, limit=5) == ["08-2026"]                              # October is current to yesterday; September is whole
-    assert F.plan(avail, {"10-2026": date(2026, 10, 20), "09-2026": date(2026, 9, 30), "08-2026": date(2026, 8, 31)}, today) == ["10-2026"]   # October is 10 days behind
-    assert F.plan(avail, {"10-2026": date(2026, 10, 29), "09-2026": date(2026, 9, 28), "08-2026": date(2026, 8, 31)}, today) == ["09-2026"]    # a finished month that stopped short is fetched again
+    seen = {"10-2026": date(2026, 10, 30), "09-2026": date(2026, 10, 10)}
+    assert F.plan(avail, loaded, seen, today, recent=3, limit=5) == ["08-2026"]                         # October is current to yesterday; September is whole and settled
+    assert F.plan(avail, {**loaded, "10-2026": date(2026, 10, 20)}, seen, today) == ["10-2026"]          # October is 10 days behind
+    assert F.plan(avail, {**loaded, "09-2026": date(2026, 9, 28)}, seen, today) == ["09-2026"]           # a finished month that stopped short is fetched again
+
+
+def test_plan_fetches_a_finished_month_once_more_after_late_filings_settle():
+    """AMFI fills in late: a month's last days and some schemes' early days arrive after the month ends, so a month last fetched before it settled is fetched again."""
+    today = date(2026, 10, 30)
+    loaded = {"10-2026": date(2026, 10, 29), "09-2026": date(2026, 9, 30)}
+    assert F.plan(["10-2026", "09-2026"], loaded, {"10-2026": date(2026, 10, 30), "09-2026": date(2026, 9, 30)}, today) == ["09-2026"]   # last fetched on its last day
+    assert F.plan(["10-2026", "09-2026"], loaded, {"10-2026": date(2026, 10, 30), "09-2026": date(2026, 10, 2)}, today) == ["09-2026"]    # two days after the end: not yet settled
+    assert F.plan(["10-2026", "09-2026"], loaded, {"10-2026": date(2026, 10, 30), "09-2026": date(2026, 10, 3)}, today) == []            # three days after: settled
+    assert F.plan(["10-2026", "09-2026"], loaded, {"10-2026": date(2026, 10, 30)}, today) == ["09-2026"]                                   # never recorded as fetched
 
 
 def test_plan_looks_only_at_recent_months_and_never_exceeds_the_limit():
     today = date(2026, 10, 30)
     avail = ["10-2026", "09-2026", "08-2026", "07-2026", "06-2026"]
-    assert F.plan(avail, {}, today) == ["10-2026", "09-2026"]                                         # default: this and last month only
-    assert F.plan(avail, {}, today, recent=5, limit=3) == ["10-2026", "09-2026", "08-2026"]           # newest first, capped
-    assert F.plan(avail, {}, date(2026, 10, 30), recent=5, limit=0) == []
+    assert F.plan(avail, {}, {}, today) == ["10-2026", "09-2026"]                                      # default: this and last month only
+    assert F.plan(avail, {}, {}, today, recent=5, limit=3) == ["10-2026", "09-2026", "08-2026"]        # newest first, capped
+    assert F.plan(avail, {}, {}, today, recent=5, limit=0) == []
 
 
 def test_plan_ignores_months_not_yet_started():
-    assert F.plan(["11-2026", "10-2026"], {}, date(2026, 10, 30), recent=2) == ["10-2026"]
+    assert F.plan(["11-2026", "10-2026"], {}, {}, date(2026, 10, 30), recent=2) == ["10-2026"]
 
 
 def test_check_payload_accepts_a_real_workbook_and_refuses_anything_else():

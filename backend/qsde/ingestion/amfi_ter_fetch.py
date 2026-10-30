@@ -25,7 +25,8 @@ XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 PAUSE_SECONDS = 5                                  # between two workbook requests
 RECENT_MONTHS = 2                                  # by default look only at this month and last
 MAX_PER_RUN = 3                                    # workbooks fetched per run, whatever else is missing
-STALE_DAYS = 2                                     # a month is behind when its newest loaded day is older than this many days
+STALE_DAYS = 2                                     # the current month is behind when its newest loaded day is older than this many days
+SETTLE_DAYS = 3                                    # AMFI fills in late: a finished month is settled once a copy was fetched this many days after its end
 MONTH_RE = re.compile(r"^(0[1-9]|1[0-2])-(\d{4})$")
 
 
@@ -57,14 +58,20 @@ def parse_months(payload) -> list[str]:
     return sorted(seen, key=_key, reverse=True)
 
 
-def plan(available: list[str], loaded_max: dict[str, date], today: date, recent: int = RECENT_MONTHS, limit: int = MAX_PER_RUN) -> list[str]:
-    """Months to fetch, newest first: among the `recent` newest started months, those never loaded or loaded only up to before their end (or before `today` - STALE_DAYS for the current month)."""
+def plan(available: list[str], loaded_max: dict[str, date], fetched: dict[str, date], today: date, recent: int = RECENT_MONTHS, limit: int = MAX_PER_RUN) -> list[str]:
+    """Months to fetch, newest first, among the `recent` newest started months: never loaded; the current month when its newest loaded day is before `today` - STALE_DAYS;
+    a finished month that stops before its last day or whose newest copy was fetched before it settled (SETTLE_DAYS after its end, because AMFI files late)."""
     started = [m for m in available if _key(m) <= (today.year, today.month)][:recent]
     out = []
     for m in started:
         yyyy, mm = _key(m)
-        needed = min(date(yyyy, mm, monthrange(yyyy, mm)[1]), today - timedelta(days=STALE_DAYS))
-        if m not in loaded_max or loaded_max[m] < needed:
+        month_end = date(yyyy, mm, monthrange(yyyy, mm)[1])
+        if m not in loaded_max:
+            out.append(m)
+        elif month_end >= today:                                                           # the current month
+            if loaded_max[m] < today - timedelta(days=STALE_DAYS):
+                out.append(m)
+        elif loaded_max[m] < month_end or fetched.get(m, date.min) < month_end + timedelta(days=SETTLE_DAYS):
             out.append(m)
     return out[:max(limit, 0)]
 
@@ -140,13 +147,16 @@ def save(body: bytes, month: str, today: date, inbox: Path = INBOX) -> Path | No
     return final
 
 
-def loaded_months(cur) -> dict[str, date]:
-    """Newest loaded TER day per 'MM-YYYY' month, from the database."""
+def loaded_months(cur) -> tuple[dict[str, date], dict[str, date]]:
+    """From the database: the newest loaded TER day per 'MM-YYYY' month, and the day the newest copy of each month was loaded (a file's `retrieved_at`, i.e. when we got it)."""
     cur.execute("SELECT to_char(date_trunc('month', ter_date), 'MM-YYYY') AS m, max(ter_date) AS d FROM mf_ter GROUP BY 1")
-    return {r["m"]: r["d"] for r in cur.fetchall()}
+    newest = {r["m"]: r["d"] for r in cur.fetchall()}
+    cur.execute("""SELECT to_char(g, 'MM-YYYY') AS m, max(f.retrieved_at AT TIME ZONE 'Asia/Kolkata')::date AS d
+                   FROM mf_ter_files f, generate_series(date_trunc('month', f.date_min), date_trunc('month', f.date_max), interval '1 month') g GROUP BY 1""")
+    return newest, {r["m"]: r["d"] for r in cur.fetchall()}
 
 
-def run(today: date, loaded_max: dict[str, date], check_only: bool = False, months: list[str] | None = None, recent: int = RECENT_MONTHS, limit: int = MAX_PER_RUN,
+def run(today: date, loaded_max: dict[str, date], fetched: dict[str, date], check_only: bool = False, months: list[str] | None = None, recent: int = RECENT_MONTHS, limit: int = MAX_PER_RUN,
         inbox: Path = INBOX, session=None, pause: float = PAUSE_SECONDS) -> dict:
     """Decide what is missing, then fetch and keep it. Returns {'wanted': [...], 'saved': [paths], 'unchanged': [months]}; `check_only` asks AMFI only for the month list."""
     s = session or _session()
@@ -156,7 +166,7 @@ def run(today: date, loaded_max: dict[str, date], check_only: bool = False, mont
             raise ValueError("months must look like MM-YYYY (e.g. 10-2026)")
     else:
         available = sorted({m for fy in {financial_year(today.strftime("%m-%Y")), financial_year((today.replace(day=1) - timedelta(days=1)).strftime("%m-%Y"))} for m in list_months(fy, s)}, key=_key, reverse=True)
-        wanted = plan(available, loaded_max, today, recent, limit)
+        wanted = plan(available, loaded_max, fetched, today, recent, limit)
     out = {"wanted": wanted, "saved": [], "unchanged": []}
     if check_only:
         return out

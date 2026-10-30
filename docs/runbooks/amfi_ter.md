@@ -17,7 +17,7 @@ stoxsy fetch-ter              # fetches those (newest first, at most 3, 5 s apar
 stoxsy fetch-ter --month 10-2026 --no-load     # one named month, saved but not loaded
 ```
 - It fetches AMFI's own workbook (`.../api/populate-te-rdata-revised?...&excel=true`), never the table page by page. About 20 seconds and 4 MB per month.
-- By default it looks only at this month and last. A month is wanted when it was never loaded, or its newest loaded day is before the month's end (the current month: before two days ago). Use `--recent N` to look further back (still capped by `--limit`).
+- By default it looks only at this month and last. A month is wanted when it was never loaded; or it is the current month and its newest loaded day is more than two days old; or it is a finished month that stops before its last day, or whose newest copy was fetched less than three days after it ended (AMFI files late, so a month is fetched once more after it settles). Use `--recent N` to look further back (still capped by `--limit`).
 - It identifies itself honestly (`Stoxsy-personal/1.0`), sends no cookies, and stops at once on any HTTP 4xx. It is **not** part of the daily routine: you run it.
 - Files are saved as `ter_revised_MM-YYYY__<date>.xlsx`; identical bytes already in the inbox are not saved twice. Then the usual rules apply (dry run first for a new layout; `--mapping-ok`).
 - Please keep to a monthly rhythm. The permission question for AMFI is still open (see the progress log).
