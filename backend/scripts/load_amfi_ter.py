@@ -12,7 +12,6 @@ import argparse
 import json
 import math
 import sys
-import time
 import warnings
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,33 +23,10 @@ warnings.filterwarnings("ignore")
 import pandas as pd
 import psycopg2.extras
 
-INBOX = data_path("inbox", "amfi_ter")
-IGNORED_SUFFIXES = (".crdownload", ".part", ".tmp")
-RECENT_SECONDS = 60
+from qsde.ingestion.amfi_ter_db import INBOX, coverage, inbox_files, report_info, write_report  # noqa: F401  (re-exported for callers and tests)
+
 NUM = ["r_ber", "r_brokerage", "r_transaction", "r_statutory", "r_total", "d_ber", "d_brokerage", "d_transaction", "d_statutory", "d_total"]
 RESTATEMENT_TOL = 0.0005
-
-
-def inbox_files(inbox: Path = INBOX, now: float | None = None) -> tuple[list, list]:
-    """(files to load, one message per ignored file). Ignored: Excel lock files, partial downloads, other file types, and anything modified in the last 60 seconds (may still be copying)."""
-    now = time.time() if now is None else now
-    files, msgs = [], []
-    if not Path(inbox).exists():
-        return files, [f"inbox {inbox} does not exist"]
-    for p in sorted(Path(inbox).iterdir()):
-        if not p.is_file():
-            continue
-        if p.name.startswith("~$"):
-            msgs.append(f"ignored {p.name}: Excel lock file (the workbook is open in Excel)")
-        elif p.suffix.lower() in IGNORED_SUFFIXES:
-            msgs.append(f"ignored {p.name}: partial download")
-        elif p.suffix.lower() not in (".xlsx", ".csv"):
-            msgs.append(f"ignored {p.name}: not an .xlsx or .csv file")
-        elif now - p.stat().st_mtime < RECENT_SECONDS:
-            msgs.append(f"ignored {p.name}: modified in the last {RECENT_SECONDS} seconds (may still be copying); run again in a minute")
-        else:
-            files.append(p)
-    return files, msgs
 
 
 def _none(x):
@@ -172,25 +148,38 @@ def main() -> int:
     ap.add_argument("--file")
     ap.add_argument("--inbox", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--report", action="store_true", help="write data/reports/amfi/amfi_ter.md from what is loaded (also done after every load)")
     ap.add_argument("--mapping-ok", action="store_true", help="I have checked the column mapping and sample of a dry run against the real file")
     a = ap.parse_args()
     if a.file:
         files, msgs = [Path(a.file)], []
     elif a.inbox:
         files, msgs = inbox_files(INBOX)
+    elif a.report:
+        files, msgs = [], []
     else:
-        ap.error("give --file or --inbox")
+        ap.error("give --file, --inbox or --report")
     for m in msgs:
         print(m)
-    if a.inbox and not files:
+    if a.inbox and not files and not a.report:
         print(f"nothing to load in {INBOX}: download the month from AMFI's TER page (Download Excel) and save it there")
         return 0
+    loaded = False
     for p in files:
         try:
-            print(json.dumps(load_file(p, a.dry_run, a.mapping_ok), default=str))
+            r = load_file(p, a.dry_run, a.mapping_ok)
+            print(json.dumps(r, default=str))
+            loaded = loaded or r.get("status") == "loaded"
         except ValueError as e:
             print(f"REJECTED {p.name}: {e}")
             return 2
+    if (loaded or a.report) and not a.dry_run:
+        from datetime import date
+
+        from qsde.db.connection import get_sync_conn
+
+        with get_sync_conn() as c:
+            print("report:", write_report(report_info(c, date.today())))
     return 0
 
 
