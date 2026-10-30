@@ -61,7 +61,7 @@ def _load(conn, path: Path, payload: bytes, ex, dry_run: bool, mapping_ok: bool,
     frame = ex.frame.assign(flags=A.flag_rows(ex.frame))
     partial = A.partial_dates(ex.frame)
     ter = A.ter_schemes(ex.frame)
-    cur.execute("SELECT scheme_code, name, amc, category_raw, is_direct, is_growth, last_nav_date FROM mf_scheme_master")
+    cur.execute("SELECT scheme_code, name, amc, category_raw, is_direct, is_growth, is_etf, last_nav_date FROM mf_scheme_master")
     master = pd.DataFrame(cur.fetchall())
     if master.empty:
         raise ValueError("mf_scheme_master is empty: TER rows cannot be matched to schemes")
@@ -129,18 +129,47 @@ def _load(conn, path: Path, payload: bytes, ex, dry_run: bool, mapping_ok: bool,
     psycopg2.extras.execute_values(cur, f"INSERT INTO mf_ter (nsdl_code, ter_date, {', '.join(NUM)}, flags, file_id, known_at) VALUES %s ON CONFLICT (nsdl_code, ter_date) DO NOTHING", recs, page_size=5000)
     cur.execute("SELECT count(*) AS n FROM mf_ter WHERE file_id = %s", (file_id,))
     rows_new = int(cur.fetchone()["n"])
-    cur.execute("DELETE FROM mf_ter_map WHERE nsdl_code = ANY(%s)", (ter["nsdl_code"].tolist(),))
+    pairs = _write_mapping(cur, ter["nsdl_code"].tolist(), match, file_id)
+    return {"file": path.name, "status": "loaded", "file_id": file_id, "parsed": ex.n_parsed, "rejected": ex.n_rejected, "rows_new": rows_new, "overlap_rows": overlap, "restatements": restated,
+            "flagged_rows": n_flagged, "mapped_rows": len(pairs), "landed": str(rec.path), "partial_dates": [str(d) for d in partial]}
+
+
+def _write_mapping(cur, codes: list, match, file_id: int) -> list:
+    """Replace the derived link tables for these TER codes: mf_ter_map (one code per scheme and plan) and the unmatched list of this file."""
+    from qsde.ingestion import amfi_ter as A
+
+    cur.execute("DELETE FROM mf_ter_map WHERE nsdl_code = ANY(%s)", (codes,))
     pairs = [(int(r.scheme_code), r.plan) for r in match.mapped.itertuples()]
     if pairs:
         psycopg2.extras.execute_values(cur, "DELETE FROM mf_ter_map m USING (VALUES %s) v(scheme_code, plan) WHERE m.scheme_code = v.scheme_code AND m.plan = v.plan", pairs)
         psycopg2.extras.execute_values(cur, "INSERT INTO mf_ter_map (nsdl_code, scheme_code, plan, key_version) VALUES %s",
                                        [(r.nsdl_code, int(r.scheme_code), r.plan, A.KEY_VERSION) for r in match.mapped.itertuples()], page_size=2000)
+    cur.execute("DELETE FROM mf_ter_unmatched WHERE file_id = %s", (file_id,))
     un = match.unmatched
     if len(un):
         psycopg2.extras.execute_values(cur, "INSERT INTO mf_ter_unmatched (file_id, side, nsdl_code, scheme_code, name, reason) VALUES %s",
                                        [(file_id, r.side, _none(r.nsdl_code), None if pd.isna(r.scheme_code) else int(r.scheme_code), _none(r.name), r.reason) for r in un.itertuples()], page_size=2000)
-    return {"file": path.name, "status": "loaded", "file_id": file_id, "parsed": ex.n_parsed, "rejected": ex.n_rejected, "rows_new": rows_new, "overlap_rows": overlap, "restatements": restated,
-            "flagged_rows": n_flagged, "mapped_rows": len(pairs), "landed": str(rec.path), "partial_dates": [str(d) for d in partial]}
+    return pairs
+
+
+def rematch(conn) -> dict:
+    """Rebuild the derived links (mf_ter_map and the latest file's unmatched list) from what is already stored, without re-reading a file. Use after the scheme master or the key rule changes."""
+    from qsde.ingestion import amfi_ter as A
+
+    cur = conn.cursor()
+    cur.execute("SELECT max(id) AS id, max(date_max) AS d FROM mf_ter_files")
+    row = cur.fetchone()
+    if row["id"] is None:
+        raise ValueError("no TER file is loaded: nothing to match")
+    cur.execute("""SELECT s.nsdl_code, s.name, s.scheme_category, bool_or(t.r_total IS NOT NULL) AS r_offered, bool_or(t.d_total IS NOT NULL) AS d_offered
+                   FROM mf_ter_scheme s JOIN mf_ter t USING (nsdl_code) GROUP BY s.nsdl_code, s.name, s.scheme_category""")
+    ter = pd.DataFrame(cur.fetchall())
+    cur.execute("SELECT scheme_code, name, amc, category_raw, is_direct, is_growth, is_etf, last_nav_date FROM mf_scheme_master")
+    master = pd.DataFrame(cur.fetchall())
+    match = A.match_schemes(ter, master, row["d"])
+    pairs = _write_mapping(cur, ter["nsdl_code"].tolist(), match, int(row["id"]))
+    return {"codes": len(ter), "mapped_rows": len(pairs), "unmatched_rows": len(match.unmatched), "ter_unmatched": match.unmatched.query("side == 'ter'")["reason"].value_counts().to_dict(),
+            "master_gaps": match.unmatched.query("side == 'master'")["reason"].value_counts().to_dict()}
 
 
 def main() -> int:
@@ -148,6 +177,7 @@ def main() -> int:
     ap.add_argument("--file")
     ap.add_argument("--inbox", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--rematch", action="store_true", help="rebuild the links to mf_scheme_master from the stored rows (after the master or the key rule changes), then write the report")
     ap.add_argument("--report", action="store_true", help="write data/reports/amfi/amfi_ter.md from what is loaded (also done after every load)")
     ap.add_argument("--mapping-ok", action="store_true", help="I have checked the column mapping and sample of a dry run against the real file")
     a = ap.parse_args()
@@ -155,16 +185,21 @@ def main() -> int:
         files, msgs = [Path(a.file)], []
     elif a.inbox:
         files, msgs = inbox_files(INBOX)
-    elif a.report:
+    elif a.report or a.rematch:
         files, msgs = [], []
     else:
-        ap.error("give --file, --inbox or --report")
+        ap.error("give --file, --inbox, --report or --rematch")
     for m in msgs:
         print(m)
-    if a.inbox and not files and not a.report:
+    if a.inbox and not files and not a.report and not a.rematch:
         print(f"nothing to load in {INBOX}: download the month from AMFI's TER page (Download Excel) and save it there")
         return 0
     loaded = False
+    if a.rematch and not a.dry_run:
+        from qsde.db.connection import get_sync_conn
+
+        with get_sync_conn() as c:
+            print(json.dumps(rematch(c), default=str))
     for p in files:
         try:
             r = load_file(p, a.dry_run, a.mapping_ok)
@@ -173,7 +208,7 @@ def main() -> int:
         except ValueError as e:
             print(f"REJECTED {p.name}: {e}")
             return 2
-    if (loaded or a.report) and not a.dry_run:
+    if (loaded or a.report or a.rematch) and not a.dry_run:
         from datetime import date
 
         from qsde.db.connection import get_sync_conn

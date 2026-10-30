@@ -164,3 +164,17 @@ def test_inbox_ignores_lock_and_partial_files(tmp_path):
     text = " ".join(messages)
     for name in ("~$ter-of-mf-schemes.xlsx", "x.xlsx.crdownload", "y.part", "z.tmp", "fresh.xlsx"):
         assert name in text
+
+
+def test_rematch_rebuilds_the_mapping_from_stored_rows(world):
+    f, conn, landing, _ = world
+    L.load_file(f, dry_run=False, mapping_ok=True, conn=conn, landing=landing)
+    cur = conn.cursor()
+    cur.execute("SELECT nsdl_code, scheme_code, plan FROM mf_ter_map ORDER BY 1, 2, 3")
+    before = cur.fetchall()
+    cur.execute("DELETE FROM mf_ter_map")                                                  # start from nothing: what a changed master or key rule would force
+    r = L.rematch(conn)
+    cur.execute("SELECT nsdl_code, scheme_code, plan FROM mf_ter_map ORDER BY 1, 2, 3")
+    assert cur.fetchall() == before and r["mapped_rows"] == len(before)
+    cur.execute("SELECT count(*) AS n FROM mf_ter_unmatched WHERE file_id = (SELECT max(id) FROM mf_ter_files)")
+    assert cur.fetchone()["n"] == r["unmatched_rows"]

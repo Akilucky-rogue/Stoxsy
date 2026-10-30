@@ -24,7 +24,7 @@ MASTER_REASONS = {"not_in_file", "ambiguous_key", "plan_unknown", "plan_not_offe
 def world():
     f = require_real_file()
     ex = T.read_export(f.read_bytes(), f.name)
-    master = read_sql("SELECT scheme_code, name, amc, category_raw, is_direct, is_growth, last_nav_date FROM mf_scheme_master")
+    master = read_sql("SELECT scheme_code, name, amc, category_raw, is_direct, is_growth, is_etf, last_nav_date FROM mf_scheme_master")
     if master.empty:
         pytest.skip("mf_scheme_master is empty")
     ter = T.ter_schemes(ex.frame)
@@ -53,11 +53,25 @@ def test_every_ter_scheme_is_mapped_or_listed(world):
 
 def test_mapping_uses_the_right_plan(world):
     _, ter, master, m = world
-    j = m.mapped.merge(master[["scheme_code", "is_direct"]], on="scheme_code").merge(ter[["nsdl_code", "r_offered", "d_offered"]], on="nsdl_code")
-    assert not j.query("plan == 'regular' and is_direct == True").shape[0] and not j.query("plan == 'direct' and is_direct == False").shape[0]
+    j = m.mapped.merge(master[["scheme_code", "is_direct", "is_etf"]], on="scheme_code").merge(ter[["nsdl_code", "r_offered", "d_offered"]], on="nsdl_code")
+    funds = j[j["is_etf"] != True]                                                  # noqa: E712  (ETFs have no plan: they take the one plan AMFI offers)
+    assert not funds.query("plan == 'regular' and is_direct == True").shape[0] and not funds.query("plan == 'direct' and is_direct == False").shape[0]
     plan_less = j[j["is_direct"].isna()]
     assert ((plan_less["plan"] == "regular") & plan_less["r_offered"] & ~plan_less["d_offered"] | (plan_less["plan"] == "direct") & plan_less["d_offered"] & ~plan_less["r_offered"]).all()
     assert (((j["plan"] == "regular") & j["r_offered"]) | ((j["plan"] == "direct") & j["d_offered"])).all()          # never mapped to a plan that is not offered
+
+
+def test_etfs_take_the_one_offered_plan(world):
+    _, ter, master, m = world
+    t = ter.assign(k=ter["name"].map(T.name_key))
+    t = t[t["k"].map(t["k"].value_counts()) == 1]
+    t = t[t["r_offered"] ^ t["d_offered"]]
+    etf = master[master["is_etf"] == True].assign(k=lambda d: d["name"].map(T.name_key))     # noqa: E712
+    want = {(int(r.scheme_code), "regular" if x.r_offered else "direct") for x in t.itertuples() for r in etf[etf["k"] == x.k].itertuples()}
+    if not want:
+        pytest.skip("no ETF in the real file with exactly one plan offered")
+    assert want <= set(zip(m.mapped["scheme_code"], m.mapped["plan"]))
+    assert len(want) >= 18
 
 
 def test_no_master_scheme_gets_two_codes_for_one_plan(world):

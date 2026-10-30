@@ -301,7 +301,10 @@ def match_schemes(ter: pd.DataFrame, master: pd.DataFrame, today: date) -> Match
     mapped, um, master_reason = [], [], {}
 
     def plan_for(row, r_on, d_on):
-        """The TER plan that applies to a master scheme: its own plan when known (and offered), else the single plan the file offers for the code."""
+        """The TER plan that applies to a master scheme. ETFs have no plan: they take the one plan the file fills in. Otherwise its own plan when known (and offered), else the single offered plan."""
+        etf = getattr(row, "is_etf", None)
+        if etf is not None and not pd.isna(etf) and bool(etf) and r_on != d_on:
+            return ("regular" if r_on else "direct", None)
         d = row.is_direct
         if d is not None and not pd.isna(d):
             plan, on = ("direct", d_on) if bool(d) else ("regular", r_on)

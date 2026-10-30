@@ -43,13 +43,15 @@ def test_coverage_reproduces_by_hand(world):
     cov = D.coverage(conn, TODAY)
     latest = _latest_complete(ex)
     cur = conn.cursor()
-    cur.execute("SELECT scheme_code, name, amc, category_raw, is_direct, is_growth, last_nav_date FROM mf_scheme_master")
+    cur.execute("SELECT scheme_code, name, amc, category_raw, is_direct, is_growth, is_etf, last_nav_date FROM mf_scheme_master")
     master = pd.DataFrame(cur.fetchall())
     scope = master[pd.to_datetime(master["last_nav_date"]) >= pd.Timestamp(TODAY) - pd.Timedelta(days=90)]
     match = A.match_schemes(A.ter_schemes(ex.frame), master, ex.frame["ter_date"].max().date())
-    day = ex.frame[ex.frame["ter_date"].dt.date == latest].set_index("nsdl_code")
-    has_value = match.mapped.apply(lambda r: r["nsdl_code"] in day.index and pd.notna(day.loc[r["nsdl_code"], "r_total" if r["plan"] == "regular" else "d_total"]), axis=1)
-    mapped = set(match.mapped[has_value]["scheme_code"]) & set(scope["scheme_code"])
+    upto = ex.frame[ex.frame["ter_date"].dt.date <= latest]                                   # carry-forward: latest TER on or before that day, at most 7 days old
+    last = {"regular": upto[upto["r_total"].notna()].groupby("nsdl_code")["ter_date"].max().dt.date.to_dict(),
+            "direct": upto[upto["d_total"].notna()].groupby("nsdl_code")["ter_date"].max().dt.date.to_dict()}
+    fresh = match.mapped.apply(lambda r: (last[r["plan"]].get(r["nsdl_code"]) or date(1900, 1, 1)) >= latest - timedelta(days=7), axis=1)
+    mapped = set(match.mapped[fresh]["scheme_code"]) & set(scope["scheme_code"])
     assert cov["latest_complete_date"] == latest
     assert cov["in_scope"] == len(scope) and cov["mapped"] == len(mapped)
     assert cov["pct"] == round(100 * len(mapped) / len(scope), 1)

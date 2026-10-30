@@ -17,6 +17,7 @@ INBOX = data_path("inbox", "amfi_ter")
 IGNORED_SUFFIXES = (".crdownload", ".part", ".tmp")
 RECENT_SECONDS = 60
 ACTIVE_DAYS = 90
+CARRY_DAYS = 7                                    # a TER is a standing rate: a scheme's latest TER up to this many days before the latest complete day still counts
 STALE_DAYS = 45
 REPORT_NAME_LIMIT = 400
 
@@ -57,16 +58,21 @@ def latest_complete_date(cur) -> Optional[date]:
 
 
 def _gaps(cur, today: date, latest: Optional[date]) -> tuple[int, list]:
-    """(in-scope count, [(scheme_code, name, reason)] for in-scope schemes without a TER on the latest complete date)."""
+    """(in-scope count, [(scheme_code, name, reason)] for in-scope schemes whose latest TER on or before `latest` is missing or older than CARRY_DAYS)."""
     cur.execute("""WITH scope AS (SELECT scheme_code, name FROM mf_scheme_master WHERE last_nav_date >= %s::date - %s),
-                        ok AS (SELECT DISTINCT m.scheme_code FROM mf_ter_map m JOIN mf_ter t ON t.nsdl_code = m.nsdl_code AND t.ter_date = %s
-                               WHERE (m.plan = 'regular' AND t.r_total IS NOT NULL) OR (m.plan = 'direct' AND t.d_total IS NOT NULL))
-                   SELECT s.scheme_code, s.name, (o.scheme_code IS NOT NULL) AS ok,
-                          (SELECT u.reason FROM mf_ter_unmatched u WHERE u.side = 'master' AND u.scheme_code = s.scheme_code ORDER BY u.file_id DESC LIMIT 1) AS reason,
-                          EXISTS (SELECT 1 FROM mf_ter_map mm WHERE mm.scheme_code = s.scheme_code) AS in_map
-                   FROM scope s LEFT JOIN ok o USING (scheme_code)""", (today, ACTIVE_DAYS, latest))
+                        lr AS (SELECT m.scheme_code, max(t.ter_date) AS last_date FROM mf_ter_map m
+                               JOIN mf_ter t ON t.nsdl_code = m.nsdl_code AND t.ter_date <= %s AND ((m.plan = 'regular' AND t.r_total IS NOT NULL) OR (m.plan = 'direct' AND t.d_total IS NOT NULL))
+                               GROUP BY m.scheme_code)
+                   SELECT s.scheme_code, s.name, lr.last_date, EXISTS (SELECT 1 FROM mf_ter_map mm WHERE mm.scheme_code = s.scheme_code) AS in_map,
+                          (SELECT u.reason FROM mf_ter_unmatched u WHERE u.side = 'master' AND u.scheme_code = s.scheme_code ORDER BY u.file_id DESC LIMIT 1) AS reason
+                   FROM scope s LEFT JOIN lr USING (scheme_code)""", (today, ACTIVE_DAYS, latest))
     rows = cur.fetchall()
-    gaps = [(r["scheme_code"], r["name"], r["reason"] or ("no_row_on_latest_date" if r["in_map"] else "not_in_any_loaded_file")) for r in rows if not r["ok"]]
+    gaps = []
+    for r in rows:
+        if latest is not None and r["last_date"] is not None and (latest - r["last_date"]).days <= CARRY_DAYS:
+            continue
+        why = (f"stale_over_{CARRY_DAYS}_days" if r["last_date"] is not None else "no_ter_row" if r["in_map"] else (r["reason"] or "not_in_any_loaded_file"))
+        gaps.append((r["scheme_code"], r["name"], why))
     return len(rows), gaps
 
 
@@ -105,7 +111,7 @@ def write_report(info: dict, out_dir: Path | None = None) -> Path:
          "## Coverage (roadmap gate 1.1)", "",
          f"- latest complete TER date: {cov['latest_complete_date']}",
          f"- in-scope schemes (NAV in the last {ACTIVE_DAYS} days): {cov['in_scope']}",
-         f"- with a TER on that date: {cov['mapped']} ({cov['pct']}%)",
+         f"- with a TER (latest on or before that date, at most {CARRY_DAYS} days old): {cov['mapped']} ({cov['pct']}%)",
          f"- files waiting in the inbox: {cov['files_waiting']}", "",
          "| gap reason | schemes |", "|---|---|", *[f"| {k} | {v} |" for k, v in sorted(cov["by_reason"].items())], "",
          "## Files", "", "| file | data rows | parsed | rejected | flagged | footer rows | dates | last day partial | restatements | sha256 |", "|---|---|---|---|---|---|---|---|---|---|",
