@@ -127,11 +127,12 @@ def test_reload_is_skipped(world):
 def test_load_is_all_or_nothing(world):
     f, conn, landing, _ = world
     before = _counts(conn)
+    cur = conn.cursor()
+    cur.execute("SAVEPOINT before_load")                                                 # the fixture's own clearing of an earlier real load must survive this test
     L.load_file(f, dry_run=False, mapping_ok=True, conn=conn, landing=landing)
     assert _counts(conn)["mf_ter_files"] == before["mf_ter_files"] + 1
-    conn.rollback()                                                                      # what a failure mid-load does: the whole load disappears
-    after = _counts(conn)
-    assert all(after[t] <= before[t] for t in TABLES) and after["mf_ter_files"] == before["mf_ter_files"]
+    cur.execute("ROLLBACK TO SAVEPOINT before_load")                                     # what a failure mid-load does: the whole load disappears, in every table
+    assert _counts(conn) == before
 
 
 def test_overlapping_month_counts_restatements(world):
