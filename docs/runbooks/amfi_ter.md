@@ -1,6 +1,6 @@
 # AMFI expense ratios (TER): how to download and load
 
-AMFI publishes each scheme's total expense ratio daily on its "TER of MF Schemes" page. AMFI's terms allow personal, non-commercial use and forbid bulk electronic storage and automated access that it has not agreed, so the download is **manual** and the data stays on your PC (it is never committed to the repository). Design: `docs/design/AMFI_TER_DESIGN.md`.
+AMFI publishes each scheme's total expense ratio daily on its "TER of MF Schemes" page. AMFI's terms allow personal, non-commercial use and forbid bulk electronic storage and automated access that it has not agreed, so the download is **run by you, about once a month** (by hand, or with `stoxsy fetch-ter` below, which makes the same single request the page's Download Excel button makes) and the data stays on your PC (it is never committed to the repository). Design: `docs/design/AMFI_TER_DESIGN.md`.
 
 ## Download (one file per month; page checked 2026-10-30)
 1. Open https://www.amfiindia.com/ter-of-mf-schemes in your normal browser.
@@ -8,6 +8,19 @@ AMFI publishes each scheme's total expense ratio daily on its "TER of MF Schemes
 3. Click **Go**, then **Download Excel**.
 4. Save the file into `C:\Stoxsy\data\inbox\amfi_ter\` and keep the name AMFI gives it. If you download the current month, its last day may be incomplete; that is expected and handled (the loader marks that day partial and coverage uses the last complete day).
 5. **Close the workbook** if you opened it: Excel leaves a `~$...` lock file and the loader ignores a file changed in the last minute. Do not edit or re-save the file; the loader reads AMFI's own bytes (saving a CSV copy next to it is fine, it is a separate file).
+
+## Or fetch it with a command (once a month)
+
+```
+stoxsy fetch-ter --check      # asks AMFI only for its month list; says which months are missing or stopped short
+stoxsy fetch-ter              # fetches those (newest first, at most 3, 5 s apart), saves them to the inbox, then runs the reviewed loader
+stoxsy fetch-ter --month 10-2026 --no-load     # one named month, saved but not loaded
+```
+- It fetches AMFI's own workbook (`.../api/populate-te-rdata-revised?...&excel=true`), never the table page by page. About 20 seconds and 4 MB per month.
+- By default it looks only at this month and last. A month is wanted when it was never loaded, or its newest loaded day is before the month's end (the current month: before two days ago). Use `--recent N` to look further back (still capped by `--limit`).
+- It identifies itself honestly (`Stoxsy-personal/1.0`), sends no cookies, and stops at once on any HTTP 4xx. It is **not** part of the daily routine: you run it.
+- Files are saved as `ter_revised_MM-YYYY__<date>.xlsx`; identical bytes already in the inbox are not saved twice. Then the usual rules apply (dry run first for a new layout; `--mapping-ok`).
+- Please keep to a monthly rhythm. The permission question for AMFI is still open (see the progress log).
 
 ## Load
 Run from `C:\Stoxsy\stoxsy`:

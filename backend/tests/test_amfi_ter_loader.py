@@ -187,7 +187,13 @@ def test_rematch_rebuilds_the_mapping_from_stored_rows(world):
     cur.execute("DELETE FROM mf_ter_map")                                                  # start from nothing: what a changed master or key rule would force
     r = L.rematch(conn)
     cur.execute(stored)
-    assert cur.fetchall() == before and r["mapped_rows"] == len(before)
+    after = cur.fetchall()
+    # Only the newest file rebuilds the mapping on load, so after loading an OLDER month the stored map may lack schemes that only that month holds; a rebuild from the stored rows
+    # legitimately adds them. So: the rebuild loses nothing the load mapped, reports what it holds, and gives the same result when run again.
+    assert all(row in after for row in before) and r["mapped_rows"] == len(after)
+    r2 = L.rematch(conn)
+    cur.execute(stored)
+    assert cur.fetchall() == after and r2["mapped_rows"] == r["mapped_rows"]
     cur.execute("SELECT count(*) AS n FROM mf_ter_unmatched WHERE file_id = (SELECT max(id) FROM mf_ter_files)")
     assert cur.fetchone()["n"] == r["unmatched_rows"]
 
