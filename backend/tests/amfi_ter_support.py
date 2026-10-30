@@ -14,6 +14,7 @@ from qsde.config.paths import data_path
 INBOX = data_path("inbox", "amfi_ter")
 IGNORED_SUFFIXES = (".crdownload", ".part", ".tmp")
 SKIP_MESSAGE = "no real AMFI TER file in the inbox"
+OCTOBER_SHA16 = "0C1DD64F0A4EB231"
 
 
 def real_files(inbox: Path = INBOX) -> list[Path]:
@@ -45,3 +46,17 @@ def independent_frame(path: Path) -> pd.DataFrame:
     blank = df.isna().all(axis=1)
     cut = int(blank.idxmax()) if blank.any() else len(df)
     return df.iloc[:cut].reset_index(drop=True)
+
+
+def real_xlsx_files(inbox: Path = INBOX) -> list[Path]:
+    return [p for p in real_files(inbox) if p.suffix.lower() == ".xlsx"]
+
+
+def real_file_by_sha16(sha16: str) -> Path:
+    """The real workbook whose SHA-256 starts with `sha16`, or skip: for the facts that are known only about one specific download."""
+    import hashlib
+
+    for p in real_xlsx_files():
+        if hashlib.sha256(p.read_bytes()).hexdigest()[:16].upper() == sha16.upper():
+            return p
+    pytest.skip(f"the real file {sha16} is not in the inbox")

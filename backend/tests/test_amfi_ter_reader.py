@@ -10,7 +10,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from amfi_ter_support import INBOX, independent_frame, require_real_file  # noqa: E402
+from amfi_ter_support import INBOX, SKIP_MESSAGE, independent_frame, real_xlsx_files  # noqa: E402
 from qsde.config.paths import data_path  # noqa: E402
 from qsde.ingestion import amfi_ter as T  # noqa: E402
 
@@ -23,9 +23,12 @@ SRC_COLS_DIR = [c.replace("Regular Plan", "Direct Plan") for c in SRC_COLS_REG]
 NUM_COLS = ["r_ber", "r_brokerage", "r_transaction", "r_statutory", "r_total", "d_ber", "d_brokerage", "d_transaction", "d_statutory", "d_total"]
 
 
-@pytest.fixture(scope="module")
-def real():
-    f = require_real_file()
+@pytest.fixture(scope="module", params=real_xlsx_files() or [None], ids=lambda p: p.name if p else "no-real-file")
+def real(request):
+    """Every real month in the inbox is read and checked, not just the first."""
+    f = request.param
+    if f is None:
+        pytest.skip(SKIP_MESSAGE)
     return f, T.read_export(f.read_bytes(), f.name)
 
 

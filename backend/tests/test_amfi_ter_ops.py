@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from amfi_ter_support import real_files  # noqa: E402
-from test_amfi_ter_loader import world  # noqa: E402,F401  (the real-file / rollback-only connection fixture)
+from test_amfi_ter_loader import world, world_october  # noqa: E402,F401  (the real-file / rollback-only connection fixtures)
 from qsde.ingestion import amfi_ter as A  # noqa: E402
 from qsde.ingestion import amfi_ter_db as D  # noqa: E402
 from qsde.ops import checks as C  # noqa: E402
@@ -62,10 +62,8 @@ def test_coverage_reproduces_by_hand(world):
     assert cov["files_waiting"] == len(waiting)
 
 
-def test_latest_complete_date_excludes_the_partial_day(world):
-    _, conn, ex, _ = _loaded(world)
-    if ex.sha256[:16].upper() != OCTOBER_SHA16:
-        pytest.skip("not the October 2026 file")
+def test_latest_complete_date_excludes_the_partial_day(world_october):
+    _, conn, ex, _ = _loaded(world_october)
     assert D.coverage(conn, TODAY)["latest_complete_date"] == date(2026, 10, 28)
 
 

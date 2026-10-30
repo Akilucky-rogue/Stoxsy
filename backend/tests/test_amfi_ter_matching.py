@@ -10,7 +10,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from amfi_ter_support import require_real_file  # noqa: E402
+from amfi_ter_support import SKIP_MESSAGE, real_xlsx_files  # noqa: E402
 from qsde.db.connection import read_sql  # noqa: E402
 from qsde.ingestion import amfi_ter as T  # noqa: E402
 
@@ -20,9 +20,11 @@ OCTOBER_SHA16 = "0C1DD64F0A4EB231"
 MASTER_REASONS = {"not_in_file", "ambiguous_key", "plan_unknown", "plan_not_offered"}
 
 
-@pytest.fixture(scope="module")
-def world():
-    f = require_real_file()
+@pytest.fixture(scope="module", params=real_xlsx_files() or [None], ids=lambda p: p.name if p else "no-real-file")
+def world(request):
+    f = request.param
+    if f is None:
+        pytest.skip(SKIP_MESSAGE)
     ex = T.read_export(f.read_bytes(), f.name)
     master = read_sql("SELECT scheme_code, name, amc, category_raw, is_direct, is_growth, is_etf, last_nav_date FROM mf_scheme_master")
     if master.empty:

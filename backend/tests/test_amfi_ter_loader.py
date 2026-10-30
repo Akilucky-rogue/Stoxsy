@@ -40,7 +40,7 @@ import psycopg2  # noqa: E402
 import psycopg2.extras  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from amfi_ter_support import independent_frame, real_files, require_real_file  # noqa: E402
+from amfi_ter_support import OCTOBER_SHA16, independent_frame, real_file_by_sha16, real_files, require_real_file  # noqa: E402
 from qsde.config.paths import data_path  # noqa: E402
 from qsde.config import settings  # noqa: E402
 from qsde.stream.landing import LandingZone  # noqa: E402
@@ -57,16 +57,14 @@ def _counts(conn):
     return out
 
 
-@pytest.fixture()
-def world(tmp_path):
-    """A rollback-only connection to the real database, a temp landing folder, and the real file with any earlier load of it cleared INSIDE the transaction (restored by the rollback)."""
-    f = require_real_file()
+def _make_world(f, tmp_path):
+    """A rollback-only connection to the real database, a temp landing folder, and every real inbox file with any earlier load of it cleared INSIDE the transaction (restored by the rollback)."""
     conn = psycopg2.connect(settings.database_url, cursor_factory=psycopg2.extras.RealDictCursor)
-    sha = hashlib.sha256(f.read_bytes()).hexdigest()
+    shas = [hashlib.sha256(p.read_bytes()).hexdigest() for p in real_files()]               # every real inbox file, so the tests behave the same whatever is already loaded
     cur = conn.cursor()
-    cur.execute("SELECT layout_hash FROM mf_ter_files WHERE sha256 = %s", (sha,))
+    cur.execute("SELECT layout_hash FROM mf_ter_files WHERE sha256 = ANY(%s)", (shas,))
     layouts = [r["layout_hash"] for r in cur.fetchall()]
-    cur.execute("DELETE FROM mf_ter_files WHERE sha256 = %s", (sha,))
+    cur.execute("DELETE FROM mf_ter_files WHERE sha256 = ANY(%s)", (shas,))
     for h in layouts:
         cur.execute("DELETE FROM mf_ter_layouts WHERE layout_hash = %s AND NOT EXISTS (SELECT 1 FROM mf_ter_files WHERE layout_hash = %s)", (h, h))
     from qsde.ingestion import amfi_ter as A
@@ -74,6 +72,17 @@ def world(tmp_path):
     yield f, conn, LandingZone(tmp_path / "landing"), tmp_path
     conn.rollback()
     conn.close()
+
+
+@pytest.fixture()
+def world(tmp_path):
+    yield from _make_world(require_real_file(), tmp_path)
+
+
+@pytest.fixture()
+def world_october(tmp_path):
+    """The same, for the October 2026 download specifically (facts that are known only about that file)."""
+    yield from _make_world(real_file_by_sha16(OCTOBER_SHA16), tmp_path)
 
 
 def test_dry_run_writes_nothing(world):
@@ -172,11 +181,12 @@ def test_rematch_rebuilds_the_mapping_from_stored_rows(world):
     f, conn, landing, _ = world
     L.load_file(f, dry_run=False, mapping_ok=True, conn=conn, landing=landing)
     cur = conn.cursor()
-    cur.execute("SELECT nsdl_code, scheme_code, plan FROM mf_ter_map ORDER BY 1, 2, 3")
+    stored = "SELECT nsdl_code, scheme_code, plan FROM mf_ter_map WHERE nsdl_code IN (SELECT DISTINCT nsdl_code FROM mf_ter) ORDER BY 1, 2, 3"          # codes that have stored rows
+    cur.execute(stored)
     before = cur.fetchall()
     cur.execute("DELETE FROM mf_ter_map")                                                  # start from nothing: what a changed master or key rule would force
     r = L.rematch(conn)
-    cur.execute("SELECT nsdl_code, scheme_code, plan FROM mf_ter_map ORDER BY 1, 2, 3")
+    cur.execute(stored)
     assert cur.fetchall() == before and r["mapped_rows"] == len(before)
     cur.execute("SELECT count(*) AS n FROM mf_ter_unmatched WHERE file_id = (SELECT max(id) FROM mf_ter_files)")
     assert cur.fetchone()["n"] == r["unmatched_rows"]
@@ -245,3 +255,14 @@ def test_older_file_does_not_touch_the_mapping(world):
     cur.execute("SELECT (SELECT count(*) FROM mf_ter_map) AS m, (SELECT count(*) FROM mf_ter_unmatched WHERE file_id = %s) AS u", (r["file_id"],))
     row = cur.fetchone()
     assert row["m"] == 0 and row["u"] == 0
+
+
+def test_the_same_month_in_two_formats_adds_no_rows_and_no_restatements(world):
+    """Real check of the overlap path (review focus 2): the owner's Excel workbook and its Save As CSV are the same month twice."""
+    f, conn, landing, _ = world
+    csv = f.with_suffix(".csv")
+    if not csv.exists():
+        pytest.skip("ask the owner to Save As CSV")
+    a = L.load_file(f, dry_run=False, mapping_ok=True, conn=conn, landing=landing)
+    b = L.load_file(csv, dry_run=False, mapping_ok=True, conn=conn, landing=landing)
+    assert b["status"] == "loaded" and b["rows_new"] == 0 and b["overlap_rows"] == a["parsed"] == b["parsed"] and b["restatements"] == 0
