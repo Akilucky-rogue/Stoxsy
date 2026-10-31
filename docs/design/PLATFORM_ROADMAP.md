@@ -3,7 +3,7 @@
 Status: DRAFT for owner approval, 2026-10-23; revised 2026-10-31 (see the revision section below). Principle for every phase: **raw first, point-in-time (`known_at`), validated before use, evidence-labelled, nothing preset, nothing promoted without the gate.**
 "ML and DL for all" means every asset class gets candidate models measured under the same honest harness. It does not mean every model is trusted: each earns RESEARCH, PAPER or APPROVED on evidence, and no engine is approved today.
 
-## Revision 2026-10-31: the goal restated, and what we do for it (DRAFT for owner approval)
+## Revision 2026-10-31: the goal restated, and what we do for it (APPROVED by the owner 2026-10-31, except the clean-up list, still under review)
 
 **Goal, as confirmed by the owner on 2026-10-31.** Stoxsy is a private research and decision-support assistant that acts like a personal financial advisor.
 - **For whom:** the owner first. It is designed so other people could use it later, but the Phase 5 hard gate is unchanged: nobody else is onboarded and no personalised recommendation is given to anyone else until counsel confirms the regulatory route.
@@ -18,6 +18,8 @@ Status: DRAFT for owner approval, 2026-10-23; revised 2026-10-31 (see the revisi
 **One recorded decision this revision touches (owner to confirm).** On 2026-10-25: "local Gemma first; a paid frontier API only as an optional fallback". On 2026-10-31 the owner has a paid Gemini key and wants it used. Proposed reading: Gemini for explanations built from public data; local Gemma reserved for anything that would involve the owner's own holdings or broker files, if that boundary is ever widened.
 
 **Done since 2026-10-23.** 1.1 expense ratios: Part A (ingestion, revisions, `fetch-ter`), Part B (API and Funds page); nightly routine, CLI, doctor and alerts working; broker-file import and lots built; UI reviewed.
+
+**Owner decisions, 2026-10-31.** (1) Assistant model: confirmed as proposed: Gemini for explanations built from public data; a local model for anything private, if that boundary is ever widened. (2) This plan (workstreams A to F, in this order) is approved as written. (3) The clean-up list is under owner review; no file moves until the owner approves it (A is blocked on that review, so B to D are not started). (4) Who it is for: the owner first, others later behind the unchanged Phase 5 gate. (5) Advisor depth: a full goal-based plan.
 
 ### Work, in order
 
