@@ -2,7 +2,7 @@
 
 Reads the scheme master and the derived snapshot (returns with explicit statuses, risk, data-quality badge, peer context). Every return carries its basis label;
 a missing figure says why (insufficient history, stale start NAV, NAV discontinuity) instead of being extrapolated or silently dropped.
-Expense ratio, holdings / overlap and AUM are not loaded and are not shown.
+Expense ratios come from AMFI's own monthly TER files (qsde/funds/ter.py), shown as published and broken into their parts; holdings / overlap and AUM are not loaded and are not shown.
 """
 from __future__ import annotations
 
@@ -15,17 +15,22 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from qsde.db.connection import read_sql
+from qsde.funds import ter as TER
 from qsde.funds.snapshot import BASIS_TEXT
+from qsde.ingestion.amfi_ter_db import CARRY_DAYS
 
 router = APIRouter()
 DISCLAIMER = ("Research and decision support, not investment advice. Past NAV performance is not a forecast. NAV is raw as published by AMFI; "
-              "expense ratio, holdings / overlap and AUM are not loaded yet.")
+              "expense ratios are AMFI's own published figures, shown as published; holdings / overlap and AUM are not loaded yet.")
 METHOD = ("Cumulative return = NAV(latest) / NAV(on or before latest - horizon) - 1. An annualised figure (CAGR) is shown only from 1Y and is never mixed into the cumulative one. "
           "A horizon is not shown when the scheme has no NAV that far back, when its start NAV is more than 7 days stale, or when a single-day NAV move above 50% falls inside it "
           "(unit consolidation or bad print: not a return); the reason is given instead. Volatility, drawdown and downside deviation use ~3 years of daily NAV changes. "
           "Growth options: total return after expenses. IDCW / payout lines and ETFs: price return only (payouts are not in the NAV file). "
+          "Expense: the base expense ratio (AMFI's BER) is the fund's ongoing annual cost; brokerage and transaction cost are the trading costs the fund paid, averaged over the reference period "
+          "and reset every month, so they jump at each month's start; statutory levies are the GST on the base ratio plus trade-related charges; the total is as published by AMFI and is the sum of those parts. "
+          "The figure is from the latest complete day AMFI has filed (an older figure is labelled with its date); a flagged figure is shown as published with the reason, never corrected. "
           "Peer context compares only like with like (same asset class, category and plan; growth lines, or ETFs of one asset class), needs 8+ peers, and excludes schemes with a poor data-quality badge.")
-SORTS = {"name": "m.name", "ret_1y": "s.ret_1y", "ret_3y": "s.ret_3y", "ret_5y": "s.ret_5y", "vol_3y": "s.vol_3y", "maxdd_3y": "s.maxdd_3y"}
+SORTS = {"name": "m.name", "ret_1y": "s.ret_1y", "ret_3y": "s.ret_3y", "ret_5y": "s.ret_5y", "vol_3y": "s.vol_3y", "maxdd_3y": "s.maxdd_3y", "ter_base": "t.ter_base", "ter_total": "t.ter_total"}
 
 
 class FundRow(BaseModel):
@@ -51,12 +56,14 @@ class FundRow(BaseModel):
     quality: Optional[dict] = None
     peers: Optional[dict] = None
     snapshot_as_of: Optional[str] = None
+    expense: Optional[dict] = None
 
 
 class FundList(BaseModel):
     n_matching: int
     offset: int
     rows: list[FundRow]
+    expense_as_of: Optional[str] = None
     methodology: str = METHOD
     disclaimer: str = DISCLAIMER
 
@@ -74,7 +81,7 @@ def _j(x):
     return json.loads(x) if isinstance(x, str) else x
 
 
-def _row(r, nav: Optional[dict] = None) -> FundRow:
+def _row(r, nav: Optional[dict] = None, exp: Optional[dict] = None) -> FundRow:
     snap = pd.notna(getattr(r, "basis", None))
     code = int(r.scheme_code)
     n = (nav or {}).get(code)
@@ -83,7 +90,7 @@ def _row(r, nav: Optional[dict] = None) -> FundRow:
                    is_growth=None if pd.isna(r.is_growth) else bool(r.is_growth), lifecycle=r.lifecycle, last_nav=None if n is None else n[1],
                    last_nav_date=None if n is None else str(n[0]), basis=r.basis if snap else None, basis_text=BASIS_TEXT.get(r.basis) if snap else None,
                    returns=_j(r.returns) or {} if snap else {}, risk=_j(r.risk) or {} if snap else {}, quality=_j(r.quality) if snap else None,
-                   peers=_j(r.peers) if snap else None, snapshot_as_of=str(pd.Timestamp(r.as_of).date()) if snap else None)
+                   peers=_j(r.peers) if snap else None, snapshot_as_of=str(pd.Timestamp(r.as_of).date()) if snap else None, expense=(exp or {}).get(code))
 
 
 def _last_navs(codes: list) -> dict:
@@ -105,12 +112,23 @@ def facets():
     return Facets(asset_classes=rec(ac), fund_groups=rec(fg), amcs=rec(am), categories=rec(ca))
 
 
+# Sort key for the expense sorts: the base and total of each mapped scheme's newest row within the carry window, taking the newest revision if AMFI ever changed that day (same rule as qsde/funds/ter.py).
+_TER_SORT_CTE = """WITH mp AS (SELECT DISTINCT ON (mm.scheme_code) mm.scheme_code, mm.plan, mm.nsdl_code FROM mf_ter_map mm JOIN mf_scheme_master ms ON ms.scheme_code = mm.scheme_code
+                              ORDER BY mm.scheme_code, (mm.plan = CASE WHEN ms.is_direct THEN 'direct' ELSE 'regular' END) DESC),
+     t AS (SELECT mp.scheme_code,
+                  CASE WHEN rv.new_values IS NULL THEN CASE mp.plan WHEN 'direct' THEN x.d_ber ELSE x.r_ber END ELSE (rv.new_values->>(left(mp.plan, 1) || '_ber'))::numeric END AS ter_base,
+                  CASE WHEN rv.new_values IS NULL THEN CASE mp.plan WHEN 'direct' THEN x.d_total ELSE x.r_total END ELSE (rv.new_values->>(left(mp.plan, 1) || '_total'))::numeric END AS ter_total
+           FROM mp JOIN LATERAL (SELECT * FROM mf_ter y WHERE y.nsdl_code = mp.nsdl_code AND y.ter_date <= CAST(:day AS date) AND y.ter_date > CAST(:day AS date) - CAST(:carry AS integer)
+                                 ORDER BY y.ter_date DESC LIMIT 1) x ON TRUE
+           LEFT JOIN LATERAL (SELECT r.new_values FROM mf_ter_revisions r WHERE r.nsdl_code = mp.nsdl_code AND r.ter_date = x.ter_date ORDER BY r.id DESC LIMIT 1) rv ON TRUE)"""
+
+
 @router.get("/funds/schemes", response_model=FundList)
 def fund_schemes(q: Optional[str] = Query(None, max_length=60), asset_class: Optional[str] = Query(None, pattern="^(equity|debt|hybrid|commodity|international|solution|other)$"),
                  amc: Optional[str] = Query(None, max_length=120), fund_group: Optional[str] = Query(None, max_length=40), category: Optional[str] = Query(None, max_length=160),
                  plan: Optional[str] = Query(None, pattern="^(direct|regular)$"), option: str = Query("growth", pattern="^(growth|idcw|etf|any)$"),
                  status: str = Query("active", pattern="^(active|all)$"), quality: Optional[str] = Query(None, pattern="^(ok|caution|poor)$"),
-                 sort: str = Query("name", pattern="^(name|ret_1y|ret_3y|ret_5y|vol_3y|maxdd_3y)$"), order: str = Query("asc", pattern="^(asc|desc)$"),
+                 sort: str = Query("name", pattern="^(name|ret_1y|ret_3y|ret_5y|vol_3y|maxdd_3y|ter_base|ter_total)$"), order: str = Query("asc", pattern="^(asc|desc)$"),
                  limit: int = Query(40, ge=1, le=100), offset: int = Query(0, ge=0, le=100000)):
     where, params = ["TRUE"], {}
     if q:
@@ -137,10 +155,17 @@ def fund_schemes(q: Optional[str] = Query(None, max_length=60), asset_class: Opt
     frm = "FROM mf_scheme_master m LEFT JOIN mf_fund_snapshot s USING (scheme_code)"
     n = int(read_sql(f"SELECT count(*) AS n {frm} WHERE {w}", params=params)["n"].iloc[0])
     nulls = "NULLS LAST"
-    d = read_sql(f"SELECT m.*, s.as_of, s.basis, s.returns, s.risk, s.quality, s.peers FROM mf_scheme_master m LEFT JOIN mf_fund_snapshot s USING (scheme_code) "
+    day = TER.expense_as_of()
+    cte, join = "", ""
+    if sort.startswith("ter_"):
+        cte, join = _TER_SORT_CTE, "LEFT JOIN t ON t.scheme_code = m.scheme_code"
+        params.update({"day": day, "carry": CARRY_DAYS})
+    d = read_sql(f"{cte} SELECT m.*, s.as_of, s.basis, s.returns, s.risk, s.quality, s.peers FROM mf_scheme_master m LEFT JOIN mf_fund_snapshot s USING (scheme_code) {join} "
                  f"WHERE {w} ORDER BY {SORTS[sort]} {order} {nulls}, m.name, m.scheme_code LIMIT :lim OFFSET :off", params={**params, "lim": limit, "off": offset})
-    nav = _last_navs([int(c) for c in d["scheme_code"]])
-    return FundList(n_matching=n, offset=offset, rows=[_row(r, nav) for r in d.itertuples()])
+    codes = [int(c) for c in d["scheme_code"]]
+    nav = _last_navs(codes)
+    exp = TER.expense_for(codes, day)
+    return FundList(n_matching=n, offset=offset, rows=[_row(r, nav, exp) for r in d.itertuples()], expense_as_of=str(day) if day else None)
 
 
 class Series(BaseModel):
@@ -155,6 +180,7 @@ class FundDetail(BaseModel):
     series: Optional[Series] = None
     benchmark: Optional[dict] = None
     events: dict
+    expense_history: list[dict] = []
     methodology: str = METHOD
     disclaimer: str = DISCLAIMER
 
@@ -171,7 +197,8 @@ def fund_detail(scheme_code: int, window: str = Query("3y", pattern="^(1y|3y|5y|
     nav = read_sql("SELECT date, nav FROM mf_nav WHERE scheme_code = :c ORDER BY date", params={"c": scheme_code})
     nav["date"] = pd.to_datetime(nav["date"])
     s = nav.set_index("date")["nav"].astype(float)
-    row = _row(d.iloc[0:1].itertuples().__next__(), {scheme_code: (s.index[-1].date(), float(s.iloc[-1]))} if len(s) else None)
+    day = TER.expense_as_of()
+    row = _row(d.iloc[0:1].itertuples().__next__(), {scheme_code: (s.index[-1].date(), float(s.iloc[-1]))} if len(s) else None, TER.expense_for([scheme_code], day))
     r = s.pct_change().dropna()
     jumps = r[r.abs() > 0.5]
     gp = s.index.to_series().diff().dt.days
@@ -202,4 +229,4 @@ def fund_detail(scheme_code: int, window: str = Query("3y", pattern="^(1y|3y|5y|
                     if len(b) >= 2:
                         bench = {"label": "Nifty 50 ETF (NIFTYBEES) price return: a tradable proxy for the index, shown for context only" + (f"; shown from {b.index[0].date()} because of a unit change in the ETF's price on {cut.date()}" if cut is not None else ""),
                                  "dates": [str(x.date()) for x in b.index], "value": [float(x) for x in (b / b.iloc[0] * 100.0).values]}
-    return FundDetail(fund=row, window=window, series=series, benchmark=bench, events=events)
+    return FundDetail(fund=row, window=window, series=series, benchmark=bench, events=events, expense_history=TER.expense_history(scheme_code, 12, day))
