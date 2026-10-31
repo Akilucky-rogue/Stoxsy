@@ -140,7 +140,7 @@ def _load(conn, path: Path, payload: bytes, ex, dry_run: bool, mapping_ok: bool,
         any_diff = diff.any(axis=1)
         restated = int(any_diff.sum())
         for i in j.index[any_diff]:
-            revisions.append((j.at[i, "nsdl_code"], j.at[i, "ter_date"].date(), {c: _none(j.at[i, c + "_old"]) for c in NUM}, {c: _none(j.at[i, c]) for c in NUM}, [c for c in NUM if diff.at[i, c]]))
+            revisions.append((j.at[i, "nsdl_code"], j.at[i, "ter_date"].date(), {c: _none(j.at[i, c + "_old"]) for c in NUM}, {c: _none(j.at[i, c]) for c in NUM}, [c for c in NUM if diff.at[i, c]], list(j.at[i, "flags"])))
     issues = {"rejected_head": ex.rejected[:10], "restatements": restated, "overlap_rows": overlap, "footer_head": ex.footer_head[:200]}
     cur.execute("""INSERT INTO mf_ter_files (sha256, filename, layout_hash, n_data_rows, n_parsed, n_rejected, n_flagged, n_footer_rows, footer_head, date_min, date_max, last_date_partial,
                                              issues, retrieved_at, known_at, landing_path) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
@@ -148,8 +148,8 @@ def _load(conn, path: Path, payload: bytes, ex, dry_run: bool, mapping_ok: bool,
                  bool(partial and partial[-1] == d_max), J(issues), now, now, str(rec.path)))
     file_id = int(cur.fetchone()["id"])
     if revisions:
-        psycopg2.extras.execute_values(cur, "INSERT INTO mf_ter_revisions (nsdl_code, ter_date, file_id, known_at, old_values, new_values, changed) VALUES %s",
-                                       [(code, d, file_id, now, J(o), J(n), ch) for code, d, o, n, ch in revisions], page_size=1000)
+        psycopg2.extras.execute_values(cur, "INSERT INTO mf_ter_revisions (nsdl_code, ter_date, file_id, known_at, old_values, new_values, changed, flags) VALUES %s",
+                                       [(code, d, file_id, now, J(o), J(n), ch, fl) for code, d, o, n, ch, fl in revisions], page_size=1000)
     s = frame.sort_values("ter_date").groupby("nsdl_code").agg(raw_code=("nsdl_code_raw", "last"), scheme_name=("name", "last"), stype=("scheme_type", "last"), category=("scheme_category", "last"),
                                                               first_d=("ter_date", "min"), last_d=("ter_date", "max"), variants=("name", lambda x: sorted(set(x))))
     psycopg2.extras.execute_values(cur, """INSERT INTO mf_ter_scheme (nsdl_code, nsdl_code_raw, name, scheme_type, scheme_category, first_seen, last_seen, name_variants) VALUES %s

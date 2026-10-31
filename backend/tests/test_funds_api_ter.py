@@ -86,3 +86,17 @@ def test_wording_no_longer_says_expense_ratio_is_missing_but_says_what_it_is(cli
     assert "expense ratio, holdings" not in j["disclaimer"] and "holdings / overlap and AUM are not loaded" in j["disclaimer"]
     for word in ("base expense ratio", "brokerage", "transaction cost", "statutory", "reset"):
         assert word in j["methodology"].lower()
+
+
+def test_the_sort_key_uses_the_same_carry_limit_as_the_rows(client):
+    """A figure exactly CARRY_DAYS old is shown as ok, so it must sort with the figures, not with the unknowns."""
+    from datetime import timedelta
+
+    from api.routes import funds as F
+    from qsde.db.connection import read_sql
+    from qsde.ingestion.amfi_ter_db import CARRY_DAYS
+
+    r = read_sql("SELECT m.scheme_code, max(t.ter_date) AS d FROM mf_ter_map m JOIN mf_ter t ON t.nsdl_code = m.nsdl_code GROUP BY m.scheme_code ORDER BY m.scheme_code LIMIT 1").iloc[0]
+    day = (r["d"] + timedelta(days=CARRY_DAYS)).date() if hasattr(r["d"], "date") else r["d"] + timedelta(days=CARRY_DAYS)
+    t = read_sql(f"{F._TER_SORT_CTE} SELECT * FROM t WHERE scheme_code = :c", params={"day": day, "carry": CARRY_DAYS, "c": int(r["scheme_code"])})
+    assert len(t) == 1

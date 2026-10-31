@@ -170,3 +170,47 @@ def test_a_revision_overrides_the_first_seen_value_when_read(conn, as_of):
     finally:
         cur.execute("ROLLBACK TO SAVEPOINT rev")
     assert T.expense_for([code], as_of, conn=conn)[code]["base"] == before["base"]
+
+
+def _with_revision(conn, code, as_of, new_values, flags):
+    """Run `fn` with one revision for the scheme's newest row inside a savepoint; returns the expense entry read while it exists."""
+    import json
+
+    cur = conn.cursor()
+    before = T.expense_for([code], as_of, conn=conn)[code]
+    cur.execute("SELECT nsdl_code FROM mf_ter_map WHERE scheme_code = %s", (code,))
+    nsdl = cur.fetchone()["nsdl_code"]
+    cur.execute("SELECT id FROM mf_ter_files ORDER BY id LIMIT 1")
+    fid = cur.fetchone()["id"]
+    cur.execute("SAVEPOINT rev2")
+    try:
+        cur.execute("INSERT INTO mf_ter_revisions (nsdl_code, ter_date, file_id, known_at, old_values, new_values, changed, flags) VALUES (%s, %s, %s, now(), %s, %s, %s, %s)",
+                    (nsdl, before["as_of"], fid, json.dumps({}), json.dumps(new_values), ["r_total"], flags))
+        return before, T.expense_for([code], as_of, conn=conn)[code]
+    finally:
+        cur.execute("ROLLBACK TO SAVEPOINT rev2")
+
+
+def test_a_revision_brings_its_own_flags_not_the_first_seen_rows_flags(conn, as_of):
+    cur = conn.cursor()
+    cur.execute("""SELECT m.scheme_code, m.plan FROM mf_ter_map m JOIN LATERAL (SELECT flags, r_total, d_total FROM mf_ter WHERE nsdl_code = m.nsdl_code AND ter_date <= %s ORDER BY ter_date DESC LIMIT 1) t ON TRUE
+                   WHERE cardinality(t.flags) > 0 AND t.r_total IS NOT NULL AND m.plan = 'regular' LIMIT 1""", (as_of,))
+    flagged = cur.fetchone()["scheme_code"]
+    before, after = _with_revision(conn, flagged, as_of, {"r_ber": 1.4, "r_total": 1.4}, [])          # AMFI restates a flagged figure to a clean one
+    assert before["flags"] and after["flags"] == [] and after["flag_text"] == [] and after["total"] == 1.4
+    cur.execute("""SELECT m.scheme_code FROM mf_ter_map m JOIN LATERAL (SELECT flags FROM mf_ter WHERE nsdl_code = m.nsdl_code AND ter_date <= %s ORDER BY ter_date DESC LIMIT 1) t ON TRUE
+                   WHERE cardinality(t.flags) = 0 AND m.plan = 'regular' LIMIT 1""", (as_of,))
+    clean = cur.fetchone()["scheme_code"]
+    before, after = _with_revision(conn, clean, as_of, {"r_ber": 3.4, "r_total": 3.4}, ["total_gt_3_regular"])   # a clean figure restated to a flagged one
+    assert before["flags"] == [] and after["flags"] == ["total_gt_3_regular"] and after["flag_text"]
+
+
+def test_a_figure_exactly_at_the_carry_limit_is_still_ok(conn, as_of):
+    cur = conn.cursor()
+    cur.execute("SELECT m.scheme_code, max(t.ter_date) AS d FROM mf_ter_map m JOIN mf_ter t ON t.nsdl_code = m.nsdl_code AND t.ter_date <= %s GROUP BY m.scheme_code LIMIT 1", (as_of,))
+    r = cur.fetchone()
+    from datetime import timedelta
+
+    day = r["d"] + timedelta(days=CARRY_DAYS)
+    e = T.expense_for([r["scheme_code"]], day, conn=conn)[r["scheme_code"]]
+    assert e["status"] in ("ok", "not_offered") and e["as_of"] == str(r["d"])                         # 7 days old is within the 7-day carry (the doctor counts it covered)

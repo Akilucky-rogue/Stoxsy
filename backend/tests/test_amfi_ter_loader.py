@@ -308,8 +308,9 @@ def test_a_value_that_differs_from_what_is_stored_is_kept_as_a_revision_and_the_
         pytest.skip("no CSV twin of the October workbook in the inbox")
     L.load_file(f, dry_run=False, mapping_ok=True, conn=conn, landing=landing)
     cur = conn.cursor()
-    cur.execute("SELECT nsdl_code, ter_date, r_total FROM mf_ter WHERE r_total IS NOT NULL ORDER BY nsdl_code, ter_date LIMIT 3")
+    cur.execute("SELECT nsdl_code, ter_date, r_total, flags FROM mf_ter WHERE r_total IS NOT NULL AND cardinality(flags) > 0 ORDER BY nsdl_code, ter_date LIMIT 3")
     keep = cur.fetchall()
+    assert len(keep) == 3 and all(r["flags"] for r in keep)                                          # real flagged rows, so the flags check below is not vacuous
     for r in keep:
         cur.execute("UPDATE mf_ter SET r_total = r_total + 0.0100 WHERE nsdl_code = %s AND ter_date = %s", (r["nsdl_code"], r["ter_date"]))
     b = L.load_file(csv, dry_run=False, mapping_ok=True, conn=conn, landing=landing)
@@ -321,10 +322,14 @@ def test_a_value_that_differs_from_what_is_stored_is_kept_as_a_revision_and_the_
         assert rv["nsdl_code"] == r["nsdl_code"] and rv["ter_date"] == r["ter_date"] and rv["changed"] == ["r_total"]
         assert float(rv["old_values"]["r_total"]) == pytest.approx(float(r["r_total"]) + 0.01) and float(rv["new_values"]["r_total"]) == pytest.approx(float(r["r_total"]))
         assert rv["known_at"] is not None
+        assert rv["flags"] == list(r["flags"]) and rv["flags"]                                           # the revision carries the flags of ITS values (AMFI's real value is flagged)
         cur.execute("SELECT r_total FROM mf_ter WHERE nsdl_code = %s AND ter_date = %s", (r["nsdl_code"], r["ter_date"]))
         assert float(cur.fetchone()["r_total"]) == pytest.approx(float(r["r_total"]) + 0.01)            # the first-seen value is untouched
     cur.execute("SELECT issues->>'restatements' AS n FROM mf_ter_files WHERE id = %s", (b["file_id"],))
     assert cur.fetchone()["n"] == "3"
+    cur.execute("DELETE FROM mf_ter_files WHERE id = %s", (b["file_id"],))                             # drop-and-reload of a file must not be blocked by its revisions
+    cur.execute("SELECT count(*) AS n FROM mf_ter_revisions WHERE file_id = %s", (b["file_id"],))
+    assert cur.fetchone()["n"] == 0
 
 
 def test_the_same_changed_value_in_a_later_file_is_not_a_second_revision(world_october):

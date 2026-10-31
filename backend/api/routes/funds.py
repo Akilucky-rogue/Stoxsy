@@ -118,7 +118,7 @@ _TER_SORT_CTE = """WITH mp AS (SELECT DISTINCT ON (mm.scheme_code) mm.scheme_cod
      t AS (SELECT mp.scheme_code,
                   CASE WHEN rv.new_values IS NULL THEN CASE mp.plan WHEN 'direct' THEN x.d_ber ELSE x.r_ber END ELSE (rv.new_values->>(left(mp.plan, 1) || '_ber'))::numeric END AS ter_base,
                   CASE WHEN rv.new_values IS NULL THEN CASE mp.plan WHEN 'direct' THEN x.d_total ELSE x.r_total END ELSE (rv.new_values->>(left(mp.plan, 1) || '_total'))::numeric END AS ter_total
-           FROM mp JOIN LATERAL (SELECT * FROM mf_ter y WHERE y.nsdl_code = mp.nsdl_code AND y.ter_date <= CAST(:day AS date) AND y.ter_date > CAST(:day AS date) - CAST(:carry AS integer)
+           FROM mp JOIN LATERAL (SELECT * FROM mf_ter y WHERE y.nsdl_code = mp.nsdl_code AND y.ter_date <= CAST(:day AS date) AND y.ter_date >= CAST(:day AS date) - CAST(:carry AS integer)
                                  ORDER BY y.ter_date DESC LIMIT 1) x ON TRUE
            LEFT JOIN LATERAL (SELECT r.new_values FROM mf_ter_revisions r WHERE r.nsdl_code = mp.nsdl_code AND r.ter_date = x.ter_date ORDER BY r.id DESC LIMIT 1) rv ON TRUE)"""
 

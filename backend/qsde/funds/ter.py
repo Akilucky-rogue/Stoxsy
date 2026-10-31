@@ -59,16 +59,17 @@ def expense_for(codes: list, as_of: Optional[date] = None, conn=None) -> dict:
         cur.execute(f"""WITH m AS (SELECT DISTINCT ON (mm.scheme_code) mm.scheme_code, mm.plan, mm.nsdl_code
                                    FROM mf_ter_map mm LEFT JOIN mf_scheme_master ms ON ms.scheme_code = mm.scheme_code WHERE mm.scheme_code = ANY(%s)
                                    ORDER BY mm.scheme_code, (mm.plan = CASE WHEN ms.is_direct THEN 'direct' ELSE 'regular' END) DESC)
-                        SELECT m.scheme_code, m.plan, t.ter_date, t.flags, {', '.join('t.' + k for k in _COLS)}, rv.new_values
+                        SELECT m.scheme_code, m.plan, t.ter_date, t.flags, {', '.join('t.' + k for k in _COLS)}, rv.new_values, rv.flags AS rv_flags
                         FROM m LEFT JOIN LATERAL (SELECT * FROM mf_ter x WHERE x.nsdl_code = m.nsdl_code AND x.ter_date <= %s ORDER BY x.ter_date DESC LIMIT 1) t ON TRUE
-                        LEFT JOIN LATERAL (SELECT r.new_values FROM mf_ter_revisions r WHERE r.nsdl_code = m.nsdl_code AND r.ter_date = t.ter_date ORDER BY r.id DESC LIMIT 1) rv ON TRUE""",
+                        LEFT JOIN LATERAL (SELECT r.new_values, r.flags FROM mf_ter_revisions r WHERE r.nsdl_code = m.nsdl_code AND r.ter_date = t.ter_date ORDER BY r.id DESC LIMIT 1) rv ON TRUE""",
                     ([int(k) for k in codes], day))
         out = {int(k): _empty("not_covered", "AMFI's TER lists have no match for this scheme (closed, not listed, or its name could not be matched)") for k in codes}
         for r in cur.fetchall():
             if r["ter_date"] is None:
                 out[r["scheme_code"]] = _empty("not_covered", f"matched to an AMFI scheme, but AMFI has no row up to {day}", r["plan"])
                 continue
-            parts, flags = _parts(r, r["plan"]), list(r["flags"] or [])
+            parts = _parts(r, r["plan"])
+            flags = list((r["rv_flags"] if r["new_values"] is not None else r["flags"]) or [])             # a revision brings the flags of its own values
             age = (day - r["ter_date"]).days
             if parts["total"] is None:
                 status, reason = "not_offered", "AMFI lists no expense ratio for this plan (not offered)"
