@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { BASIS_SHORT, FundDetailPanel, QualityBadge, RetCell } from "../components/FundDetail";
+import { BASIS_SHORT, ExpenseCell, FundDetailPanel, QualityBadge, RetCell } from "../components/FundDetail";
 import { Chip, Empty, ErrorState, Evidence, PageHead, Segmented, Skeleton } from "../components/ui";
 import { num, pct, shortDate } from "../lib/format";
 import { FUND_PAGE, useFundFacets, useFunds, type FundParams } from "../lib/queries";
@@ -11,7 +11,7 @@ const CLASSES = [
 ];
 const SORTS = [
   { value: "name", label: "Name" }, { value: "ret_1y", label: "1Y return" }, { value: "ret_3y", label: "3Y return" }, { value: "ret_5y", label: "5Y return" },
-  { value: "vol_3y", label: "Volatility" }, { value: "maxdd_3y", label: "Worst fall" },
+  { value: "vol_3y", label: "Volatility" }, { value: "maxdd_3y", label: "Worst fall" }, { value: "ter_base", label: "Expense (base)" }, { value: "ter_total", label: "Expense (total)" },
 ];
 const lbl = (s: string) => s.replace(/_/g, " ");
 
@@ -34,7 +34,7 @@ export function Funds() {
       <div className="notice">
         Every figure carries its basis: <strong>total return after expenses</strong> (growth options), <strong>price return only</strong> (IDCW / payout lines: payouts are not in the NAV file) or <strong>ETF price return</strong>.
         Returns up to 6 months are cumulative; 1Y, 3Y and 5Y are per year. A missing figure says why (insufficient history, a unit change inside the window) and is never extrapolated.
-        Expense ratio, holdings overlap and AUM are not loaded. Past performance is not a forecast or advice.
+        The <strong>Expense</strong> column is the base expense ratio from AMFI's monthly files (hover for the total as published; the detail panel shows every part). Holdings overlap and AUM are not loaded. Past performance is not a forecast or advice.
       </div>
 
       <div className="card">
@@ -88,7 +88,7 @@ export function Funds() {
               <table>
                 <thead>
                   <tr>
-                    <th>Scheme</th><th>Basis</th><th className="num">NAV</th><th className="num">3M</th><th className="num">6M</th>
+                    <th>Scheme</th><th>Basis</th><th className="num">NAV</th><th className="num" title="Base expense ratio, from AMFI. Hover a figure for the total as published.">Expense</th><th className="num">3M</th><th className="num">6M</th>
                     <th className="num">1Y /yr</th><th className="num">3Y /yr</th><th className="num">5Y /yr</th><th className="num">Volatility</th><th className="num">Worst fall</th><th className="num">1Y vs peers</th><th>Data</th>
                   </tr>
                 </thead>
@@ -101,6 +101,7 @@ export function Funds() {
                         <td className="wrap"><strong>{r.name}</strong><div className="muted" style={{ fontSize: "0.78rem" }}>{r.amc ?? ""} · {r.category ?? ""} · code {r.scheme_code}</div></td>
                         <td className="wrap" style={{ fontSize: "0.8rem" }}>{r.basis ? <Chip title={r.basis_text ?? undefined}>{BASIS_SHORT[r.basis]}</Chip> : <span className="muted">{r.lifecycle === "inactive_no_recent_nav" ? "closed / no recent NAV" : "no snapshot"}</span>}</td>
                         <td className="num">{num(r.last_nav, 4)}<div className="muted" style={{ fontSize: "0.72rem" }}>{shortDate(r.last_nav_date)}</div></td>
+                        <td className="num"><ExpenseCell e={r.expense} /></td>
                         <td className="num"><RetCell c={r.returns["3M"]} annual={false} /></td><td className="num"><RetCell c={r.returns["6M"]} annual={false} /></td>
                         <td className="num"><RetCell c={r.returns["1Y"]} annual /></td><td className="num"><RetCell c={r.returns["3Y"]} annual /></td><td className="num"><RetCell c={r.returns["5Y"]} annual />
                         </td>

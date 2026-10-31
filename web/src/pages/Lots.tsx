@@ -96,7 +96,16 @@ export function Lots() {
       <TriagePanel canWrite={canWrite} />
       {q.isLoading && <Skeleton rows={4} />}
       {q.isError && <ErrorState error={q.error} onRetry={() => q.refetch()} />}
-      {q.data && q.data.lots.length === 0 && <Empty>No lots yet. Bring files in with <code>stoxsy import holdings</code>, then <code>stoxsy import tradebook</code> or the broker's lot report (dry run first). {q.data.notes[0]}</Empty>}
+      {q.data && q.data.lots.length === 0 && (
+        <Empty>
+          <p style={{ margin: 0 }}>No lots yet. Two steps:</p>
+          <ol style={{ textAlign: "left", display: "inline-block", margin: "6px 0" }}>
+            <li>Import your holdings on <Link to="/portfolio">My portfolio</Link>.</li>
+            <li>Then bring in your tradebook or the broker's lot report with <code>stoxsy import tradebook</code> (dry run first). There is no upload form for this step yet.</li>
+          </ol>
+          {q.data.notes.filter((n) => !/^no tax lots yet/i.test(n)).map((n) => <p key={n} className="muted" style={{ margin: "4px 0 0" }}>{n}</p>)}
+        </Empty>
+      )}
       {q.data && q.data.lots.length > 0 && (() => {
         const d = q.data;
         const dated = d.lots.filter((l) => l.buy_date).length;

@@ -108,7 +108,7 @@ export interface SystemStatus {
   current_snapshots: { snapshot_id: string; factor_version: string; universe_version: string; n_rows: number; n_symbols: number; date_max: string; built_at: string }[];
   series_labels?: Record<string, string>;
   adjustment_series: { version: string; kind: string; validation_status: string; n_events: number | null; rows: number; built_at: string }[];
-  auth_enforced: boolean; promotion_enabled: boolean; scheduled_downloads_enabled: boolean; notes: string[];
+  auth_enforced: boolean; promotion_enabled: boolean; scheduled_downloads_enabled: boolean; nightly_routine?: { last_beat: string; status: string; age_hours: number } | null; notes: string[];
   exchanges: Record<string, { prices: string; in_universe_signals_cards: boolean; last_session?: string | null; sessions?: number; cross_listing?: Record<string, number>; reason?: string }>;
 }
 export interface ReportItem { group: string; name: string; title: string; bytes: number; modified: string; superseded: boolean }
@@ -149,18 +149,24 @@ export type ReturnCell = { status: "ok"; cumulative: number; annualised: number 
 export interface RiskCell { status: string; detail?: string; ann_volatility?: number; max_drawdown?: number; current_drawdown?: number; downside_deviation?: number; observations?: number; start?: string; end?: string }
 export interface FundQuality { level: "ok" | "caution" | "poor"; reasons: string[]; flags: Record<string, number | boolean> }
 export interface FundPeers { key: string; group_size: number; horizons: Record<string, { percentile: number | null; median: number; n: number }> }
+export interface FundExpense {
+  status: "ok" | "not_offered" | "stale" | "not_covered"; reason: string | null; as_of: string | null; plan: string | null;
+  base: number | null; brokerage: number | null; transaction: number | null; statutory: number | null; total: number | null; flags: string[]; flag_text: string[];
+}
+export interface ExpensePoint { month: string; as_of: string; base: number | null; brokerage: number | null; transaction: number | null; statutory: number | null; total: number | null }
 export interface FundRow {
   scheme_code: number; name: string; amc: string | null; category: string | null; asset_class: string | null; fund_group: string | null; plan: string | null; option_type: string | null;
   is_etf: boolean; is_index: boolean; is_direct: boolean | null; is_growth: boolean | null; lifecycle: string | null; last_nav: number | null; last_nav_date: string | null;
-  basis: string | null; basis_text: string | null; returns: Record<string, ReturnCell>; risk: RiskCell; quality: FundQuality | null; peers: FundPeers | null; snapshot_as_of: string | null;
+  basis: string | null; basis_text: string | null; returns: Record<string, ReturnCell>; risk: RiskCell; quality: FundQuality | null; peers: FundPeers | null; snapshot_as_of: string | null; expense?: FundExpense | null;
 }
-export interface FundList { n_matching: number; offset: number; rows: FundRow[]; methodology: string; disclaimer: string }
+export interface FundList { n_matching: number; offset: number; rows: FundRow[]; expense_as_of?: string | null; methodology: string; disclaimer: string }
 export interface FundFacets { asset_classes: { name: string; n: number }[]; fund_groups: { name: string; n: number }[]; amcs: { name: string; n: number }[]; categories: { asset_class: string; name: string; n: number }[] }
 export interface FundDetail {
   fund: FundRow; window: string; methodology: string; disclaimer: string;
   series: { dates: string[]; value: number[]; drawdown: number[] } | null;
   benchmark: { label: string; dates: string[]; value: number[] } | null;
   events: { unit_changes: { date: string; move: number }[]; gaps_over_30d: { from: string; to: string; days: number }[] };
+  expense_history?: ExpensePoint[];
 }
 
 export interface HoldingRow {

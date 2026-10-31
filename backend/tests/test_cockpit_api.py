@@ -58,7 +58,9 @@ def test_system_status_shape(client):
     assert r.status_code == 200
     j = r.json()
     assert {"database", "ohlcv_latest", "auth_enforced", "promotion_enabled", "current_snapshots", "adjustment_series"} <= set(j)
-    assert j["promotion_enabled"] is False and j["scheduled_downloads_enabled"] is False
+    assert j["promotion_enabled"] is False
+    n = j["nightly_routine"]                                  # from the routine's own heartbeat: none on an empty database, a recent one where the routine runs
+    assert j["scheduled_downloads_enabled"] is bool(n and n["age_hours"] <= 96)
 
 
 def test_decision_cards_endpoint_validates_parameters_and_returns_a_typed_book(client, monkeypatch):

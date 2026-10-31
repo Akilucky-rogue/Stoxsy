@@ -2,6 +2,18 @@ import { Chip, ErrorState, PageHead, Skeleton, Tile, type Tone } from "../compon
 import { shortDate } from "../lib/format";
 import { useSystem } from "../lib/queries";
 
+/** The tile for the nightly after-close routine, from that routine's own heartbeat (not a setting): when it last finished and how it ended. */
+export function nightlyTile(n: { last_beat: string; status: string; age_hours: number } | null | undefined, fresh: boolean): { label: string; value: string; tone?: Tone; sub: string } {
+  const label = "Nightly routine";
+  if (!n) return { label, value: "Not seen", sub: "no run recorded on this database: the after-close routine has not run here" };
+  const ago = n.age_hours < 48 ? `${Math.round(n.age_hours)} h ago` : `${Math.round(n.age_hours / 24)} days ago`;
+  const sub = `${ago} · the after-close routine that downloads NSE, BSE and AMFI data on weekdays`;
+  if (n.status === "failed") return { label, value: `Failed ${shortDate(n.last_beat)}`, tone: "bad", sub };
+  if (n.status === "degraded") return { label, value: `Ran ${shortDate(n.last_beat)} with problems`, tone: "bad", sub };
+  if (!fresh) return { label, value: `Overdue: last ran ${shortDate(n.last_beat)}`, sub };
+  return { label, value: `Ran ${shortDate(n.last_beat)}`, tone: "ok", sub };
+}
+
 const statusTone = (s: string): Tone => (s === "validated" ? "ok" : s === "failed" ? "bad" : "warn");
 
 export function System() {
@@ -17,7 +29,7 @@ export function System() {
             <Tile label="Database" value={s.data.database === "ok" ? "Healthy" : "Error"} tone={s.data.database === "ok" ? "ok" : "bad"} sub={s.data.database !== "ok" ? s.data.database : undefined} />
             <Tile label="Prices through" value={shortDate(s.data.ohlcv_latest)} sub={`raw archive through ${shortDate(s.data.eod_raw_latest)}`} />
             <Tile label="Sign-in" value={s.data.auth_enforced ? "Required" : "Local mode"} tone={s.data.auth_enforced ? "ok" : undefined} sub={s.data.auth_enforced ? undefined : "AUTH_ENFORCED is off"} />
-            <Tile label="Scheduled downloads" value={s.data.scheduled_downloads_enabled ? "On" : "Off"} sub="any network source needs owner approval" />
+            <Tile {...nightlyTile(s.data.nightly_routine, s.data.scheduled_downloads_enabled)} />
           </section>
 
           <div className="card">

@@ -95,6 +95,30 @@ def cmd_ingest(args) -> int:
     return subprocess.run(argv, cwd=str(SCRIPTS.parent)).returncode
 
 
+def cmd_fetch_ter(args) -> int:
+    """Fetch AMFI's monthly TER workbook(s) into the inbox, then load them with the reviewed loader. About one request a month; see qsde/ingestion/amfi_ter_fetch.py."""
+    from qsde.db.connection import get_sync_conn
+    from qsde.ingestion import amfi_ter_fetch as F
+
+    with get_sync_conn() as conn, conn.cursor() as cur:
+        loaded, fetched = F.loaded_months(cur)
+    res = F.run(date.today(), loaded, fetched, check_only=args.check, months=args.month, recent=args.recent, limit=args.limit)
+    if not res["wanted"]:
+        _print("nothing to fetch: the months AMFI lists are already loaded up to date")
+        return 0
+    _print("wanted: " + ", ".join(res["wanted"]))
+    if args.check:
+        return 0
+    for p in res["saved"]:
+        _print(f"saved {p.name}")
+    for m in res["unchanged"]:
+        _print(f"{m}: AMFI's file is identical to one already in the inbox; kept nothing new")
+    if not res["saved"] or args.no_load:
+        return 0
+    _print("loading the inbox with the reviewed loader...")
+    return subprocess.run([sys.executable, str(SCRIPTS / "load_amfi_ter.py"), "--inbox"], cwd=str(SCRIPTS.parent)).returncode
+
+
 def cmd_alerts(args) -> int:
     if args.action == "run":
         return subprocess.run([sys.executable, str(SCRIPTS / "run_alerts.py")], cwd=str(SCRIPTS.parent)).returncode
@@ -318,6 +342,13 @@ def build_parser() -> argparse.ArgumentParser:
     i.add_argument("what", choices=sorted(INGEST))
     i.add_argument("--dry-run", action="store_true")
     i.set_defaults(fn=cmd_ingest)
+    ft = sub.add_parser("fetch-ter", help="fetch AMFI's monthly TER workbook into the inbox and load it (about once a month)")
+    ft.add_argument("--check", action="store_true", help="only ask AMFI which months exist and say what would be fetched")
+    ft.add_argument("--month", action="append", metavar="MM-YYYY", help="fetch this month (repeatable) instead of working out what is missing")
+    ft.add_argument("--recent", type=int, default=2, help="how many of the newest months to look at (default 2)")
+    ft.add_argument("--limit", type=int, default=3, help="most workbooks fetched in one run (default 3)")
+    ft.add_argument("--no-load", action="store_true", help="save to the inbox but do not load")
+    ft.set_defaults(fn=cmd_fetch_ter)
     a = sub.add_parser("alerts", help="open alerts, or `alerts run` to re-evaluate")
     a.add_argument("action", nargs="?", choices=["list", "run"], default="list")
     a.set_defaults(fn=cmd_alerts)

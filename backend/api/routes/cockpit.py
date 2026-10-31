@@ -93,8 +93,23 @@ class SystemStatus(BaseModel):
     auth_enforced: bool
     promotion_enabled: bool
     scheduled_downloads_enabled: bool = False
+    nightly_routine: Optional[dict] = None
     exchanges: dict = {}
     notes: list[str]
+
+
+NIGHTLY_FRESH_HOURS = 96                 # a Friday run still counts on Monday morning; a one-day exchange holiday does not flip it
+
+
+def _nightly_routine() -> Optional[dict]:
+    """The nightly after-close routine's own heartbeat: when it last finished and how it ended. None when it has never run on this database."""
+    from datetime import datetime, timezone
+
+    d = read_sql("SELECT last_beat, status FROM ops_heartbeat WHERE component = 'daily_pipeline'")
+    if d.empty:
+        return None
+    last = d["last_beat"].iloc[0].to_pydatetime()
+    return {"last_beat": last.astimezone(timezone.utc).isoformat(), "status": d["status"].iloc[0], "age_hours": round((datetime.now(timezone.utc) - last).total_seconds() / 3600, 2)}
 
 
 @router.get("/system/status", response_model=SystemStatus)
@@ -116,6 +131,10 @@ def system_status():
     except Exception as ex:  # noqa: BLE001
         return SystemStatus(database=f"error: {type(ex).__name__}", ohlcv_latest=None, eod_raw_latest=None, current_snapshots=[],
                             adjustment_series=[], auth_enforced=settings.auth_enforced, promotion_enabled=False, notes=["database unreachable"])
+    try:
+        nightly = _nightly_routine()
+    except Exception:  # noqa: BLE001
+        nightly = None
     promo = os.environ.get("QSDE_ML_PROMOTION_ENABLED", "false").strip().lower() == "true"
     if promo:
         notes.append("model promotion is ENABLED in the environment")
@@ -124,7 +143,8 @@ def system_status():
     rec = lambda df: json.loads(df.to_json(orient="records", date_format="iso"))      # noqa: E731
     return SystemStatus(database=db, ohlcv_latest=str(pd.Timestamp(o).date()) if pd.notna(o) else None,
                         eod_raw_latest=str(pd.Timestamp(e).date()) if pd.notna(e) else None, current_snapshots=rec(snaps),
-                        adjustment_series=rec(adj), series_labels=SERIES_LABELS, auth_enforced=settings.auth_enforced, promotion_enabled=promo, exchanges=exchanges, notes=notes)
+                        adjustment_series=rec(adj), series_labels=SERIES_LABELS, auth_enforced=settings.auth_enforced, promotion_enabled=promo, exchanges=exchanges, notes=notes,
+                        nightly_routine=nightly, scheduled_downloads_enabled=bool(nightly and nightly["age_hours"] <= NIGHTLY_FRESH_HOURS))
 
 
 # ── research reports ─────────────────────────────────────────────────
