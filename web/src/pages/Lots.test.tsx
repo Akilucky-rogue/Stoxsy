@@ -74,9 +74,13 @@ describe("Lots page", () => {
     expect(JSON.parse(put!.body!)).toEqual({ account: "choice", assignments: { CCC: "trading" } });
   });
 
-  it("an empty book explains how to bring files in", async () => {
-    mock({ ...report, lots: [], notes: ["no tax lots yet"] }, { accounts: [], unassigned: [], rule: "" });
-    wrap();
-    expect(await screen.findByText(/stoxsy import holdings/)).toBeTruthy();
+  it("an empty book explains the two steps once, links to the holdings import, and says the second step is a command", async () => {
+    mock({ ...report, lots: [], notes: ["no tax lots yet: import a holdings file, then a tradebook or the broker's lot report", "an unrelated note worth keeping"] }, { accounts: [], unassigned: [], rule: "" });
+    const { container } = wrap();
+    expect(await screen.findByText(/stoxsy import tradebook/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: /My portfolio/ }).getAttribute("href")).toBe("/portfolio");
+    expect(screen.getByText(/no upload form for this step yet/)).toBeTruthy();
+    expect((container.textContent ?? "").match(/no tax lots yet/gi) ?? []).toHaveLength(0);                 // the server's note repeats the message: not shown twice
+    expect(container.textContent).toContain("an unrelated note worth keeping");
   });
 });

@@ -88,8 +88,8 @@ export function Funds() {
               <table>
                 <thead>
                   <tr>
-                    <th>Scheme</th><th>Basis</th><th className="num">NAV</th><th className="num">3M</th><th className="num">6M</th>
-                    <th className="num">1Y /yr</th><th className="num">3Y /yr</th><th className="num">5Y /yr</th><th className="num">Volatility</th><th className="num">Worst fall</th><th className="num" title="Base expense ratio, from AMFI. Hover a figure for the total as published.">Expense</th><th className="num">1Y vs peers</th><th>Data</th>
+                    <th>Scheme</th><th>Basis</th><th className="num">NAV</th><th className="num" title="Base expense ratio, from AMFI. Hover a figure for the total as published.">Expense</th><th className="num">3M</th><th className="num">6M</th>
+                    <th className="num">1Y /yr</th><th className="num">3Y /yr</th><th className="num">5Y /yr</th><th className="num">Volatility</th><th className="num">Worst fall</th><th className="num">1Y vs peers</th><th>Data</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -101,12 +101,12 @@ export function Funds() {
                         <td className="wrap"><strong>{r.name}</strong><div className="muted" style={{ fontSize: "0.78rem" }}>{r.amc ?? ""} · {r.category ?? ""} · code {r.scheme_code}</div></td>
                         <td className="wrap" style={{ fontSize: "0.8rem" }}>{r.basis ? <Chip title={r.basis_text ?? undefined}>{BASIS_SHORT[r.basis]}</Chip> : <span className="muted">{r.lifecycle === "inactive_no_recent_nav" ? "closed / no recent NAV" : "no snapshot"}</span>}</td>
                         <td className="num">{num(r.last_nav, 4)}<div className="muted" style={{ fontSize: "0.72rem" }}>{shortDate(r.last_nav_date)}</div></td>
+                        <td className="num"><ExpenseCell e={r.expense} /></td>
                         <td className="num"><RetCell c={r.returns["3M"]} annual={false} /></td><td className="num"><RetCell c={r.returns["6M"]} annual={false} /></td>
                         <td className="num"><RetCell c={r.returns["1Y"]} annual /></td><td className="num"><RetCell c={r.returns["3Y"]} annual /></td><td className="num"><RetCell c={r.returns["5Y"]} annual />
                         </td>
                         <td className="num">{r.risk.status === "ok" ? pct(r.risk.ann_volatility) : <span className="muted" title={r.risk.detail}>n/a</span>}</td>
                         <td className="num">{r.risk.status === "ok" ? pct(r.risk.max_drawdown) : <span className="muted" title={r.risk.detail}>n/a</span>}</td>
-                        <td className="num"><ExpenseCell e={r.expense} /></td>
                         <td className="num">{pr?.percentile == null ? <span className="muted" title="fewer than 8 like-for-like peers, or not comparable">—</span> : <span title={`ahead of ${pct(pr.percentile, 0)} of ${pr.n} peers`}>{pct(pr.percentile, 0)}</span>}</td>
                         <td><QualityBadge q={r.quality} /></td>
                       </tr>
