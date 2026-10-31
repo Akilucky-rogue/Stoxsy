@@ -155,6 +155,19 @@ def check_fund_ter(today=None, conn=None) -> Check:
     return Check("warn" if age > D.STALE_DAYS or cov["files_waiting"] else "ok", "fund expense ratios", msg)
 
 
+def check_features() -> Check:
+    """Feature snapshots (the Parquet store): newest feature day per version against the newest price session. Warns when the nightly refresh has fallen behind; never FAIL (research input)."""
+    from qsde.features import refresh as R
+
+    parts, level = [], "ok"
+    for v in R.VERSIONS:
+        latest = R.latest_feature_date(v)
+        lv, behind = R.features_status(latest, R.price_sessions_after(latest))
+        level = "warn" if lv == "warn" else level
+        parts.append(f"{v}: no snapshot built (scripts/compute_factors_pit.py)" if latest is None else f"{v}: latest {latest}, {behind} session(s) behind prices")
+    return Check(level, "feature snapshots", "; ".join(parts) + ("" if level == "ok" else " (the nightly step `features_refresh` or `python scripts/refresh_features.py` brings it up to date)"))
+
+
 def run_all() -> list:
     out = [_safe("runtime", check_runtime), _safe("data directory", check_paths), _safe("disk space", check_disk), _safe("database", check_database)]
     for name, fn in (("data freshness", freshness), ("heartbeats", heartbeats)):
@@ -162,7 +175,7 @@ def run_all() -> list:
             out += fn()
         except Exception as e:                                       # noqa: BLE001
             out.append(Check("fail", name, f"could not run: {type(e).__name__}: {str(e)[:160]}"))
-    out += [_safe("fund expense ratios", check_fund_ter), _safe("Kite session", check_kite), _safe("exchange calendar", check_calendar), _safe("alerts", check_alerts)]
+    out += [_safe("fund expense ratios", check_fund_ter), _safe("feature snapshots", check_features), _safe("Kite session", check_kite), _safe("exchange calendar", check_calendar), _safe("alerts", check_alerts)]
     return out
 
 

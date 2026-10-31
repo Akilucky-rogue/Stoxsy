@@ -42,6 +42,7 @@ STEPS = [
     ("resolve", False, "resolve logged predictions whose window has elapsed", [PY, str(HERE / "live_loop.py"), "resolve"]),
     ("amfi_ter_inbox", False, "AMFI TER files waiting in the inbox (manual download; a first-layout file is refused until reviewed)", [PY, str(HERE / "load_amfi_ter.py"), "--inbox"]),
     ("fund_snapshot", False, "fund returns / risk / quality snapshot", [PY, str(HERE / "fund_snapshot.py")]),
+    ("features_refresh", False, "feature snapshots: add the newest sessions to the Parquet feature store as an increment (skips when current; refuses without a full snapshot)", [PY, str(HERE / "refresh_features.py")]),
     ("alerts", False, "evaluate alerts", [PY, str(HERE / "run_alerts.py")]),
 ]
 
