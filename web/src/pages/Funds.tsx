@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { BASIS_SHORT, FundDetailPanel, QualityBadge, RetCell } from "../components/FundDetail";
+import { BASIS_SHORT, ExpenseCell, FundDetailPanel, QualityBadge, RetCell } from "../components/FundDetail";
 import { Chip, Empty, ErrorState, Evidence, PageHead, Segmented, Skeleton } from "../components/ui";
 import { num, pct, shortDate } from "../lib/format";
 import { FUND_PAGE, useFundFacets, useFunds, type FundParams } from "../lib/queries";
@@ -11,7 +11,7 @@ const CLASSES = [
 ];
 const SORTS = [
   { value: "name", label: "Name" }, { value: "ret_1y", label: "1Y return" }, { value: "ret_3y", label: "3Y return" }, { value: "ret_5y", label: "5Y return" },
-  { value: "vol_3y", label: "Volatility" }, { value: "maxdd_3y", label: "Worst fall" },
+  { value: "vol_3y", label: "Volatility" }, { value: "maxdd_3y", label: "Worst fall" }, { value: "ter_base", label: "Expense (base)" }, { value: "ter_total", label: "Expense (total)" },
 ];
 const lbl = (s: string) => s.replace(/_/g, " ");
 
@@ -89,7 +89,7 @@ export function Funds() {
                 <thead>
                   <tr>
                     <th>Scheme</th><th>Basis</th><th className="num">NAV</th><th className="num">3M</th><th className="num">6M</th>
-                    <th className="num">1Y /yr</th><th className="num">3Y /yr</th><th className="num">5Y /yr</th><th className="num">Volatility</th><th className="num">Worst fall</th><th className="num">1Y vs peers</th><th>Data</th>
+                    <th className="num">1Y /yr</th><th className="num">3Y /yr</th><th className="num">5Y /yr</th><th className="num">Volatility</th><th className="num">Worst fall</th><th className="num" title="Base expense ratio, from AMFI. Hover a figure for the total as published.">Expense</th><th className="num">1Y vs peers</th><th>Data</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -106,6 +106,7 @@ export function Funds() {
                         </td>
                         <td className="num">{r.risk.status === "ok" ? pct(r.risk.ann_volatility) : <span className="muted" title={r.risk.detail}>n/a</span>}</td>
                         <td className="num">{r.risk.status === "ok" ? pct(r.risk.max_drawdown) : <span className="muted" title={r.risk.detail}>n/a</span>}</td>
+                        <td className="num"><ExpenseCell e={r.expense} /></td>
                         <td className="num">{pr?.percentile == null ? <span className="muted" title="fewer than 8 like-for-like peers, or not comparable">—</span> : <span title={`ahead of ${pct(pr.percentile, 0)} of ${pr.n} peers`}>{pct(pr.percentile, 0)}</span>}</td>
                         <td><QualityBadge q={r.quality} /></td>
                       </tr>

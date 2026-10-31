@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { FundRow, ReturnCell } from "../lib/api";
+import type { ExpensePoint, FundExpense, FundRow, ReturnCell } from "../lib/api";
 import { dash, num, pct, shortDate, signedPct } from "../lib/format";
 import { useFundDetail } from "../lib/queries";
 import { LineChart } from "./LineChart";
@@ -28,6 +28,67 @@ export function RetCell({ c, annual }: { c: ReturnCell | undefined; annual: bool
   if (c.status !== "ok") return <span className="muted" title={c.detail}>n/a <span style={{ fontSize: "0.7rem" }}>({STATUS_TEXT[c.status]})</span></span>;
   const v = annual && c.annualised != null ? c.annualised : c.cumulative;
   return <span style={{ color: v < 0 ? "var(--down)" : undefined }}>{signedPct(v)}</span>;
+}
+
+/** AMFI publishes expense figures in percent (1.78 means 1.78%): shown with at least 2 and at most 4 decimals, exactly as published. */
+export const ter = (v: number | null | undefined) => (v == null ? dash : `${v.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}%`);
+
+export function ExpenseCell({ e }: { e: FundExpense | null | undefined }) {
+  if (!e) return <span className="muted">{dash}</span>;
+  if (e.status === "not_covered") return <span className="muted" title={e.reason ?? undefined}>no AMFI figure</span>;
+  if (e.status === "not_offered") return <span className="muted" title={e.reason ?? undefined}>not offered</span>;
+  const title = `Total as published ${ter(e.total)} · as of ${shortDate(e.as_of)}${e.reason ? ` · ${e.reason}` : ""}`;
+  return (
+    <span>
+      <span title={title}>{ter(e.base)}</span>
+      {e.status === "stale" && <div className="muted" style={{ fontSize: "0.72rem" }} title={e.reason ?? undefined}>older: {shortDate(e.as_of)}</div>}
+      {e.flags.length > 0 && <Chip tone="warn" title={e.flag_text.join(" ")}>check</Chip>}
+    </span>
+  );
+}
+
+const COST_ROWS: { key: "base" | "brokerage" | "transaction" | "statutory" | "total"; label: string; help: string }[] = [
+  { key: "base", label: "Base expense ratio", help: "the fund's ongoing annual charge" },
+  { key: "brokerage", label: "Brokerage", help: "trading cost the fund paid, averaged for the month; resets every month" },
+  { key: "transaction", label: "Transaction cost", help: "other trade-execution cost, averaged for the month; resets every month" },
+  { key: "statutory", label: "Statutory levies", help: "GST on the base ratio plus trade-related charges" },
+  { key: "total", label: "Total (as published)", help: "AMFI's total of the parts above" },
+];
+
+export function CostsPanel({ fund, history }: { fund: FundRow; history: ExpensePoint[] }) {
+  const e = fund.expense;
+  if (!e) return null;
+  return (
+    <>
+      <h3>Costs (from AMFI)</h3>
+      {(e.status === "not_covered" || e.status === "not_offered") && <p className="muted">{e.reason}</p>}
+      {e.flags.length > 0 && <div className="notice" role="status"><strong>Check this figure:</strong><ul style={{ margin: "4px 0 0", paddingLeft: "1.2em" }}>{e.flag_text.map((x) => <li key={x}>{x}</li>)}</ul></div>}
+      {(e.status === "ok" || e.status === "stale") && (
+        <>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Part</th><th className="num">{e.plan ?? ""} plan</th><th>What it is</th></tr></thead>
+              <tbody>{COST_ROWS.map((r) => <tr key={r.key}><td>{r.label}</td><td className="num">{ter(e[r.key])}</td><td className="muted wrap">{r.help}</td></tr>)}</tbody>
+            </table>
+          </div>
+          <p className="muted" style={{ fontSize: "0.82rem" }}>
+            As of {shortDate(e.as_of)}{e.status === "stale" ? " (an older figure: AMFI has not filed a newer one for this scheme)" : ""}. Brokerage and transaction cost are monthly averages that reset each month, so the total moves at the start of a month even when the base ratio does not.
+          </p>
+        </>
+      )}
+      {history.length > 0 && (
+        <details open>
+          <summary>Month by month</summary>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Month</th><th className="num">Base</th><th className="num">Brokerage</th><th className="num">Transaction</th><th className="num">Statutory</th><th className="num">Total</th></tr></thead>
+              <tbody>{history.map((h) => <tr key={h.month}><td>{h.month}</td><td className="num">{ter(h.base)}</td><td className="num">{ter(h.brokerage)}</td><td className="num">{ter(h.transaction)}</td><td className="num">{ter(h.statutory)}</td><td className="num">{ter(h.total)}</td></tr>)}</tbody>
+            </table>
+          </div>
+        </details>
+      )}
+    </>
+  );
 }
 
 const HORIZONS = ["1D", "1W", "1M", "3M", "6M", "1Y", "3Y", "5Y"];
@@ -84,6 +145,7 @@ export function FundDetailPanel({ fund, onClose }: { fund: FundRow; onClose: () 
               <li className="muted">{r.observations} daily changes, {shortDate(r.start)} to {shortDate(r.end)}.</li>
             </ul>
           ) : <p className="muted">Not shown: {r.detail ?? "no risk figures"}.</p>}
+          <CostsPanel fund={f} history={d.data?.expense_history ?? []} />
           <h3>Peer context</h3>
           {f.peers ? (
             <>
