@@ -1,4 +1,10 @@
-# Clean-up and structure proposal (2026-10-31): nothing has been moved yet
+# Clean-up and structure (2026-10-31): approved and executed on branch `chore/restructure`
+
+**Outcome.** Groups 1 to 4 were executed as approved, with these differences found by checking for live references before moving: 26 of the 41 candidate scripts moved (10 stay because live code imports them or a documented usage note names them, and the 3 hand-run tools stay until the owner says which he still runs); `MCX_ENGINE_SCOPE.md` is archived with a banner saying it is deferred, not obsolete. Verified after the moves: CI-equivalent suite 975 passed, 20 skipped (identical to before), web 50 tests, types and build clean, nightly routine still 16 steps with every script present. Group 5 (secrets, Gemini key) is the owner's. The original proposal follows.
+
+---
+
+# Original proposal: nothing had been moved yet
 
 Owner's choice: **reorganise and archive; delete nothing without an approved list**, done on its own branch. This file is the list for approval. Every move uses `git mv` so history is kept, and every move can be reversed.
 
