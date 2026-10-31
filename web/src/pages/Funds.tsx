@@ -34,7 +34,7 @@ export function Funds() {
       <div className="notice">
         Every figure carries its basis: <strong>total return after expenses</strong> (growth options), <strong>price return only</strong> (IDCW / payout lines: payouts are not in the NAV file) or <strong>ETF price return</strong>.
         Returns up to 6 months are cumulative; 1Y, 3Y and 5Y are per year. A missing figure says why (insufficient history, a unit change inside the window) and is never extrapolated.
-        Expense ratio, holdings overlap and AUM are not loaded. Past performance is not a forecast or advice.
+        The <strong>Expense</strong> column is the base expense ratio from AMFI's monthly files (hover for the total as published; the detail panel shows every part). Holdings overlap and AUM are not loaded. Past performance is not a forecast or advice.
       </div>
 
       <div className="card">

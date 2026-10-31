@@ -1,6 +1,6 @@
 # AMFI expense-ratio (TER) pipeline: how the data flows
 
-Status 2026-10-30. Part A (ingestion) is built and loaded on real data; Parts B (API and Funds page) and C (cost-aware ranking) are not started. Design rules: `AMFI_TER_DESIGN.md`. Progress: `AMFI_TER_PROGRESS.md`. Operator steps: `docs/runbooks/amfi_ter.md`.
+Status 2026-10-31. Part A (ingestion) and Part B (API and Funds page) are built and checked on real data; Part C (cost-aware ranking) is not started. Design rules: `AMFI_TER_DESIGN.md`. Progress: `AMFI_TER_PROGRESS.md`. Operator steps: `docs/runbooks/amfi_ter.md`.
 Real data only: nothing in this pipeline is synthetic, and no AMFI value is committed to the repository.
 
 ## 1. The flow
@@ -33,8 +33,8 @@ Real data only: nothing in this pipeline is synthetic, and no AMFI value is comm
  6  checks   `stoxsy doctor`: "fund expense ratios" (latest COMPLETE day, coverage with 7-day carry-forward, stale after 45 days, files waiting); report data/reports/amfi/amfi_ter.md
         |
         v   (not built yet)
- Part B: API + Funds page   (components shown separately: base ratio, brokerage, transaction cost, GST, total)
- Part C: cost-aware peer ranking (migration 064)
+ Part B (built): API + Funds page   (every part as published: base ratio, brokerage, transaction cost, statutory levies, total; monthly history)
+ Part C: cost-aware peer ranking (migration 065)
 ```
 
 ## 2. What each stage guarantees (and the test that proves it, all on real files)
@@ -57,7 +57,7 @@ Open items, most important first. "Decision" means it changes the data model and
 
 | # | Item | Why it matters | Proposed fix |
 |---|---|---|---|
-| H1 | **Restated values are counted, not kept.** If AMFI changes an already-published value, the first-seen value stays and the new one survives only in the landed raw file. | Part C ranks on these numbers, and the project rule is point-in-time (no lookahead). A revision history is the standard answer. No real restatement has been observed yet (0 in four months). | Decision: add an append-only `mf_ter_revisions` table (old, new, file_id, known_at) written in the same transaction. Small, additive, no change to existing reads. |
+| H1 | **Restated values.** DONE 2026-10-31: migration 064 `mf_ter_revisions` (append-only). The first-seen row in `mf_ter` never changes; a later different value is recorded with old and new values, the file and `known_at`; readers take the newest revision as current. No real restatement has occurred yet (0 in four months of files); the path is tested on real files with a stored value changed inside a rolled-back transaction. | | |
 | H2 | `known_at` is when WE loaded a row, not when AMFI published it (unknowable from the file). | Conservative for no-lookahead, so safe; but a row backfilled for 1 Oct is "known" on 30 Oct. | Keep; state it in Part B and C docs. |
 | H3 | One source (AMFI). No cross-check. | A wrong AMFI figure would pass. | Flags already catch total > 3% and sum mismatch. A second source (fund factsheets) is a later, separate decision. |
 | H4 | Daily rows are mostly repeats (a TER is a standing rate). | 250k rows in 4 months, 57 MB; about 190 MB a year: fine for years. | No change. A change-only table can be derived later. |

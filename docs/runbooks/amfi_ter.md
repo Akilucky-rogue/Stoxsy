@@ -39,6 +39,14 @@ Run from `C:\Stoxsy\stoxsy`:
 
 The daily after-close routine has a step `amfi_ter_inbox` that loads any new file already in the inbox. It never downloads anything, and a first file of a new layout is **refused with a message, not a failure**, until you run the dry run and `--mapping-ok` yourself.
 
+## What the Funds page shows
+
+- **Expense** column: the base expense ratio from AMFI (hover for the total as published and the day). Sort by it with "Sort by".
+- A fund's detail has **Costs (from AMFI)**: base, brokerage, transaction cost, statutory levies and total as published, and a month-by-month table. Brokerage and transaction cost reset every month, so the total moves at the start of a month even when the base ratio does not.
+- Labels: **not offered** (AMFI lists no expense ratio for that plan), **no AMFI figure** (the scheme could not be matched to AMFI's list: closed, not listed, or name not matched), **older** (AMFI's newest row for it is more than 7 days before the latest complete day).
+- A **check** chip means AMFI's own figures look unusual (total above 3%, a Direct plan not cheaper than Regular, or parts not adding to the total). The figure is shown as published; it is never corrected.
+- If AMFI ever changes a figure it already published, the change is kept (table `mf_ter_revisions`) and the page shows the newer figure.
+
 ## What the messages mean
 | Message | Meaning | Do |
 |---|---|---|
