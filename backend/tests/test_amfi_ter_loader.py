@@ -293,3 +293,53 @@ def test_an_already_loaded_file_is_recognised_without_parsing_it_again(world, mo
     monkeypatch.setattr(A, "read_export", boom)
     again = L.load_file(f, dry_run=False, mapping_ok=True, conn=conn, landing=landing)
     assert again["status"] == "already loaded" and again["file_id"] == first["file_id"]
+
+
+def _october_twins():
+    """Real files holding the same October 2026 values as the first workbook (its CSV, the re-downloaded workbook, the fetched one), by name."""
+    return [p for p in real_files() if p.name == "ter-of-mf-schemes.csv" or "(1)" in p.name or p.name.startswith("ter_revised_10-2026")]
+
+
+def test_a_value_that_differs_from_what_is_stored_is_kept_as_a_revision_and_the_first_value_stays(world_october):
+    """Nothing in the real files has been restated yet, so the stored value of three real rows is changed INSIDE the rolled-back transaction; the real CSV twin then contradicts it."""
+    f, conn, landing, _ = world_october
+    csv = f.with_suffix(".csv")
+    if not csv.exists():
+        pytest.skip("no CSV twin of the October workbook in the inbox")
+    L.load_file(f, dry_run=False, mapping_ok=True, conn=conn, landing=landing)
+    cur = conn.cursor()
+    cur.execute("SELECT nsdl_code, ter_date, r_total FROM mf_ter WHERE r_total IS NOT NULL ORDER BY nsdl_code, ter_date LIMIT 3")
+    keep = cur.fetchall()
+    for r in keep:
+        cur.execute("UPDATE mf_ter SET r_total = r_total + 0.0100 WHERE nsdl_code = %s AND ter_date = %s", (r["nsdl_code"], r["ter_date"]))
+    b = L.load_file(csv, dry_run=False, mapping_ok=True, conn=conn, landing=landing)
+    assert b["status"] == "loaded" and b["restatements"] == 3
+    cur.execute("SELECT * FROM mf_ter_revisions WHERE file_id = %s ORDER BY nsdl_code, ter_date", (b["file_id"],))
+    revs = cur.fetchall()
+    assert len(revs) == 3
+    for r, rv in zip(keep, revs):
+        assert rv["nsdl_code"] == r["nsdl_code"] and rv["ter_date"] == r["ter_date"] and rv["changed"] == ["r_total"]
+        assert float(rv["old_values"]["r_total"]) == pytest.approx(float(r["r_total"]) + 0.01) and float(rv["new_values"]["r_total"]) == pytest.approx(float(r["r_total"]))
+        assert rv["known_at"] is not None
+        cur.execute("SELECT r_total FROM mf_ter WHERE nsdl_code = %s AND ter_date = %s", (r["nsdl_code"], r["ter_date"]))
+        assert float(cur.fetchone()["r_total"]) == pytest.approx(float(r["r_total"]) + 0.01)            # the first-seen value is untouched
+    cur.execute("SELECT issues->>'restatements' AS n FROM mf_ter_files WHERE id = %s", (b["file_id"],))
+    assert cur.fetchone()["n"] == "3"
+
+
+def test_the_same_changed_value_in_a_later_file_is_not_a_second_revision(world_october):
+    f, conn, landing, _ = world_october
+    csv = f.with_suffix(".csv")
+    twins = [p for p in _october_twins() if p != csv]
+    if not csv.exists() or not twins:
+        pytest.skip("need the CSV twin and one more real October file in the inbox")
+    L.load_file(f, dry_run=False, mapping_ok=True, conn=conn, landing=landing)
+    cur = conn.cursor()
+    cur.execute("SELECT nsdl_code, ter_date FROM mf_ter WHERE r_total IS NOT NULL ORDER BY nsdl_code, ter_date LIMIT 3")
+    for r in cur.fetchall():
+        cur.execute("UPDATE mf_ter SET r_total = r_total + 0.0100 WHERE nsdl_code = %s AND ter_date = %s", (r["nsdl_code"], r["ter_date"]))
+    assert L.load_file(csv, dry_run=False, mapping_ok=True, conn=conn, landing=landing)["restatements"] == 3
+    c = L.load_file(twins[0], dry_run=False, mapping_ok=True, conn=conn, landing=landing)
+    assert c["status"] == "loaded" and c["restatements"] == 0                                           # AMFI's value now equals the latest known one
+    cur.execute("SELECT count(*) AS n FROM mf_ter_revisions")
+    assert cur.fetchone()["n"] == 3

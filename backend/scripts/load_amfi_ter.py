@@ -112,27 +112,44 @@ def _load(conn, path: Path, payload: bytes, ex, dry_run: bool, mapping_ok: bool,
     cur.execute("""INSERT INTO mf_ter_layouts (layout_hash, headers, approved, approved_at) VALUES (%s, %s, %s, CASE WHEN %s THEN NOW() END)
                    ON CONFLICT (layout_hash) DO UPDATE SET approved = mf_ter_layouts.approved OR EXCLUDED.approved, approved_at = COALESCE(mf_ter_layouts.approved_at, EXCLUDED.approved_at)""",
                 (ex.layout_hash, J(list(ex.mapping) + ex.unmatched_headers), True, True))
-    # restatements: a (code, date) already stored with a different value. Counted before inserting; the stored (first-seen) value stays.
+    # restatements: a (code, date) whose stored value differs from what this file says. "Stored" means the CURRENT value: the newest revision if there is one, else the first-seen row.
+    # Counted before inserting; the first-seen row never changes and each difference is kept in mf_ter_revisions (written below, once the file has an id).
     cur.execute(f"SELECT nsdl_code, ter_date, {', '.join(NUM)} FROM mf_ter WHERE ter_date BETWEEN %s AND %s", (d_min, d_max))
     old = pd.DataFrame(cur.fetchall())
     overlap = restated = 0
+    revisions = []
     if not old.empty:
         old["ter_date"] = pd.to_datetime(old["ter_date"])
         for c in NUM:
             old[c] = pd.to_numeric(old[c])
+        cur.execute("SELECT DISTINCT ON (nsdl_code, ter_date) nsdl_code, ter_date, new_values FROM mf_ter_revisions WHERE ter_date BETWEEN %s AND %s ORDER BY nsdl_code, ter_date, id DESC", (d_min, d_max))
+        latest = {(r["nsdl_code"], pd.Timestamp(r["ter_date"])): r["new_values"] for r in cur.fetchall()}
+        if latest:
+            for i, (code, d) in enumerate(zip(old["nsdl_code"], old["ter_date"])):
+                nv = latest.get((code, d))
+                if nv is not None:
+                    for c in NUM:
+                        old.iat[i, old.columns.get_loc(c)] = float("nan") if nv.get(c) is None else float(nv[c])
         j = frame.merge(old, on=["nsdl_code", "ter_date"], suffixes=("", "_old"))
         overlap = len(j)
-        diff = pd.Series(False, index=j.index)
+        diffs = {}
         for c in NUM:
             a, b = j[c], j[c + "_old"]
-            diff |= (a.isna() != b.isna()) | ((a - b).abs() > RESTATEMENT_TOL)
-        restated = int(diff.sum())
+            diffs[c] = (a.isna() != b.isna()) | ((a - b).abs() > RESTATEMENT_TOL)
+        diff = pd.DataFrame(diffs)
+        any_diff = diff.any(axis=1)
+        restated = int(any_diff.sum())
+        for i in j.index[any_diff]:
+            revisions.append((j.at[i, "nsdl_code"], j.at[i, "ter_date"].date(), {c: _none(j.at[i, c + "_old"]) for c in NUM}, {c: _none(j.at[i, c]) for c in NUM}, [c for c in NUM if diff.at[i, c]]))
     issues = {"rejected_head": ex.rejected[:10], "restatements": restated, "overlap_rows": overlap, "footer_head": ex.footer_head[:200]}
     cur.execute("""INSERT INTO mf_ter_files (sha256, filename, layout_hash, n_data_rows, n_parsed, n_rejected, n_flagged, n_footer_rows, footer_head, date_min, date_max, last_date_partial,
                                              issues, retrieved_at, known_at, landing_path) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
                 (ex.sha256, path.name, ex.layout_hash, ex.n_data_rows, ex.n_parsed, ex.n_rejected, n_flagged, ex.n_footer_rows, ex.footer_head[:200], d_min, d_max,
                  bool(partial and partial[-1] == d_max), J(issues), now, now, str(rec.path)))
     file_id = int(cur.fetchone()["id"])
+    if revisions:
+        psycopg2.extras.execute_values(cur, "INSERT INTO mf_ter_revisions (nsdl_code, ter_date, file_id, known_at, old_values, new_values, changed) VALUES %s",
+                                       [(code, d, file_id, now, J(o), J(n), ch) for code, d, o, n, ch in revisions], page_size=1000)
     s = frame.sort_values("ter_date").groupby("nsdl_code").agg(raw_code=("nsdl_code_raw", "last"), scheme_name=("name", "last"), stype=("scheme_type", "last"), category=("scheme_category", "last"),
                                                               first_d=("ter_date", "min"), last_d=("ter_date", "max"), variants=("name", lambda x: sorted(set(x))))
     psycopg2.extras.execute_values(cur, """INSERT INTO mf_ter_scheme (nsdl_code, nsdl_code_raw, name, scheme_type, scheme_category, first_seen, last_seen, name_variants) VALUES %s
