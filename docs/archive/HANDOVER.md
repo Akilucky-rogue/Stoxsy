@@ -1,3 +1,5 @@
+> **Archived 2026-10-31, kept for history.** This describes an earlier build. The current description of the system is `docs/design/SYSTEM_FLOW.md`; the current plan is `docs/design/PLATFORM_ROADMAP.md`. Do not follow the instructions below without checking them against those.
+
 # Stoxsy — Project Handover
 
 > Single source of truth for picking this project up cold. Last updated 2026-06-26.

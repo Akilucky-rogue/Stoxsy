@@ -1,43 +1,17 @@
 # Database migrations
 
-`infra/init.sql` is the canonical schema and runs automatically the first
-time the TimescaleDB container starts on a fresh volume. After that, schema
-changes go in `infra/migrations/NNN_*.sql` and must be applied manually.
+`infra/init.sql` is the base schema; it runs automatically the first time the TimescaleDB container starts on an empty volume. Every later change is a file `infra/migrations/NNN_*.sql` (currently 001 to 065; the next free number is 066). Migrations are additive and idempotent (`IF NOT EXISTS`, dynamic constraint checks), so running them again is safe.
 
-## Applying a migration
+## Apply them
+From `backend/`, with the project venv (the database settings come from `.env`):
 
-From the project root:
-
-```bash
-docker compose exec -T timescaledb psql -U qsde -d qsde \
-    < infra/migrations/001_phase0_fixes.sql
+```powershell
+..\..\.venv\Scripts\python.exe scripts\apply_migrations.py            # applies every migration in order
+..\..\.venv\Scripts\python.exe scripts\apply_migrations.py --list     # lists them without applying
 ```
+There is no tracking table: the runner applies every file each time, relying on idempotence.
 
-Or, if `psql` is on your host:
-
-```bash
-psql "postgresql://qsde:qsde_dev_2026@localhost:5432/qsde" \
-    -f infra/migrations/001_phase0_fixes.sql
-```
-
-All migrations are idempotent — they use `IF NOT EXISTS` / dynamic
-constraint discovery so re-running is safe.
-
-## Resetting the schema (dev only)
-
-If you have no data worth keeping (Phase 0 typically), the cleanest path
-is to wipe the volume and let `init.sql` rebuild from scratch:
-
-```bash
-docker compose down -v       # -v deletes the named volumes
-docker compose up -d
-```
-
-After this, you do **not** need to apply migrations — `init.sql` already
-contains the post-migration schema.
-
-## Migration history
-
-| File | Date | Notes |
-|---|---|---|
-| `001_phase0_fixes.sql` | 2026-05-10 | Fix audit bugs 2/3/4/5: PIT-correct fundamentals PK (adds `filing_date` to PK), adds `market_cap`/`enterprise_value`/`ev_to_revenue`/`roic`/`fcf_per_share` columns, adds UNIQUE constraint on `bulk_deals` natural key. |
+## Rules
+- Never edit a migration that has been applied to the live database; add a new one (065 fixed 064 this way).
+- Ask the owner before applying a new migration to the live database; CI applies all of them to an empty database on every push.
+- Keep a migration small, with a comment saying why it exists.

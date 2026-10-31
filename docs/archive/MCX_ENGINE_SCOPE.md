@@ -1,3 +1,5 @@
+> **Archived 2026-10-31. Deferred, not obsolete:** MCX commodities are roadmap item 1.12, to be done after equities, funds, F&O research and the product core are stable. The rest of the platform has moved on; see `docs/design/PLATFORM_ROADMAP.md`.
+
 # MCX Commodity-Futures Engine — Scope
 
 > A design scope, not a build. MCX is a **different asset class** from the equity
