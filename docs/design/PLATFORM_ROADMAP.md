@@ -1,7 +1,38 @@
 # Stoxsy platform roadmap: data first, then pipelines, then models, then product, then clients
 
-Status: DRAFT for owner approval, 2026-10-23. Principle for every phase: **raw first, point-in-time (`known_at`), validated before use, evidence-labelled, nothing preset, nothing promoted without the gate.**
+Status: DRAFT for owner approval, 2026-10-23; revised 2026-10-31 (see the revision section below). Principle for every phase: **raw first, point-in-time (`known_at`), validated before use, evidence-labelled, nothing preset, nothing promoted without the gate.**
 "ML and DL for all" means every asset class gets candidate models measured under the same honest harness. It does not mean every model is trusted: each earns RESEARCH, PAPER or APPROVED on evidence, and no engine is approved today.
+
+## Revision 2026-10-31: the goal restated, and what we do for it (APPROVED by the owner 2026-10-31, except the clean-up list, still under review)
+
+**Goal, as confirmed by the owner on 2026-10-31.** Stoxsy is a private research and decision-support assistant that acts like a personal financial advisor.
+- **For whom:** the owner first. It is designed so other people could use it later, but the Phase 5 hard gate is unchanged: nobody else is onboarded and no personalised recommendation is given to anyone else until counsel confirms the regulatory route.
+- **How far the advisor goes:** a full goal-based plan: goals (amount and date), ranges (never a point forecast), a monthly check-in, plain-language explanations, flags, and options with reasons. The owner decides. Every screen says it is not advice. No orders are placed.
+- **Data:** automatic wherever the source allows; whatever stays manual is made as small as possible.
+- **Language model:** Gemini (a paid key created for this project, kept in `.env`, never in the repository) explains numbers the system has already computed. At first it receives public data only (fund figures, prices, alerts). It never produces signals, sizes or promotions, and no number it writes may differ from the numbers it was given.
+- **Models:** the ML layer keeps running as research under the same honest harness; the advisor uses only what has earned trust. Today no model has, so the advisor leans on the risk ranking, fund costs and the plan engine, and says so.
+- **Project hygiene:** one clear structure, current docs, legacy kept in labelled archives, nothing deleted without an approved list (see `CLEANUP_PROPOSAL.md`).
+
+**Decisions kept as recorded:** official and free sources only; no paid news vendor; legal route stays personal use until counsel; Debian always-on host for the pipeline; CLI plus local web UI, never public; Choice for holdings and Kite for live data only; the LLM never produces signals, sizes or promotions.
+
+**One recorded decision this revision touches (owner to confirm).** On 2026-10-25: "local Gemma first; a paid frontier API only as an optional fallback". On 2026-10-31 the owner has a paid Gemini key and wants it used. Proposed reading: Gemini for explanations built from public data; local Gemma reserved for anything that would involve the owner's own holdings or broker files, if that boundary is ever widened.
+
+**Done since 2026-10-23.** 1.1 expense ratios: Part A (ingestion, revisions, `fetch-ter`), Part B (API and Funds page); nightly routine, CLI, doctor and alerts working; broker-file import and lots built; UI reviewed.
+
+**Owner decisions, 2026-10-31.** (1) Assistant model: confirmed as proposed: Gemini for explanations built from public data; a local model for anything private, if that boundary is ever widened. (2) This plan (workstreams A to F, in this order) is approved as written. (3) The clean-up list is under owner review; no file moves until the owner approves it (A is blocked on that review, so B to D are not started). (4) Who it is for: the owner first, others later behind the unchanged Phase 5 gate. (5) Advisor depth: a full goal-based plan.
+
+### Work, in order
+
+| # | Workstream | What we do | Needs from the owner |
+|---|---|---|---|
+| A | **Clean-up and structure** | Reorganise on its own branch: archive legacy and one-off code, fix the docs and CLAUDE.md, add indexes. Nothing deleted without an approved list. | Approve `CLEANUP_PROPOSAL.md` |
+| B | **Fresh data without you** | (1) feature build and model scoring join the nightly routine, with a freshness check in `stoxsy doctor`; (2) the pipeline host: the always-on mini-PC decision stands, and until it exists the laptop must not sleep on battery; (3) schedule `fetch-ter` once AMFI's written permission is in hand; (4) an upload screen for broker files (same dry-run check); (5) failures reach you, not just the log. | AMFI email sent; host purchase |
+| C | **Cost-aware fund ranking** (Part C, migration 066) | Rank funds against like-for-like peers on the base expense ratio, with risk and data quality; flagged figures excluded. Feeds the advisor's fund shortlist. | Review the ranking rules |
+| D | **Advisor layer** | (1) `qsde/advisor/`: a thin model adapter (Gemini now, local Gemma possible), guardrails (every number in the text must appear in the input; no buy or sell; labelled AI-written; every prompt and answer logged); (2) first use: the Alerts page as one-line summaries with details folded; (3) a "Today" home screen on top of the cards, alerts and plan; (4) the **goal-based plan engine** extending the Investor plan: goals, contributions, risk capacity, ranges, a monthly check-in; (5) a UX pass: phone width, keyboard use, plain wording. | Gemini key in `.env`; data boundary (public only to start) |
+| E | **Models (Phase 3)** | Continue under the same harness; the advisor reads only models that have earned PAPER or APPROVED. | none |
+| F | **Others later (gated)** | Per-user data separation audit, data-licence checks (AMFI is personal, non-commercial; NSE and BSE terms for any redistribution), privacy and security review, counsel on the SEBI route. Building does not cross the gate; opening the door does. | counsel |
+
+Dependencies: A first (everything builds on a clear structure); B1 before D3 and D4 (an advisor on stale data misleads); C before the fund shortlist in D4; D1 before D2 to D4; E runs alongside.
 
 ## 0. Where we stand (measured 2026-10-23)
 
@@ -26,7 +57,7 @@ Status: DRAFT for owner approval, 2026-10-23. Principle for every phase: **raw f
 | Operator interface | **CLI-first operator console (`stoxsy`) plus the local web UI** for charts and analysis; the web UI is reachable on the LAN or a private VPN only, never public |
 | Build order | (1) finish and validate the 1.8 adapters, (2) AMFI expense ratios, (3) fund holdings for the 20 largest fund houses, (4) exchange fundamentals and announcements after terms review, (5) unified daily pipeline with scheduler, alerting and backup/restore drills, (6) Phase 3 model candidates |
 | Accounts and holdings (2026-10-26) | Equities are held at **Choice Equity**; **Zerodha Kite is for live market data only**. Holdings come from files via `stoxsy import` (dry run, per-layout approval, per-security pot triage); tax lots and holding-period classes follow. All 12 Choice holdings were assigned to the investment pot by the owner; the trading pot is empty |
-| Assistant model (2026-10-25) | **Local Gemma first** for "Ask Stoxsy"; a paid frontier API (Gemini 4 Argon) only as an optional, opt-in deep-research fallback with minimal retrieved context; the LLM never produces signals, sizes or promotions |
+| Assistant model (2026-10-25) | **Local Gemma first** for "Ask Stoxsy"; a paid frontier API (Gemini 4 Argon) only as an optional, opt-in deep-research fallback with minimal retrieved context; the LLM never produces signals, sizes or promotions. **Revision pending 2026-10-31: see the revision section at the top** |
 | Bucket A rebuild (2026-10-25) | **Approved on the dry-run diff and executed** (Option B); see ADR nineteenth review and `ohlcv_change_report` |
 | Next priorities (2026-10-25) | stream heartbeat before Monday, then the trader risk engine, live-compare resolution of the 978 predictions, then fund expense ratios and holdings, Debian migration; defer DL, paid vendors, MCX |
 | Incident rule | The stream silently stopping when a PC slept is a **production incident**: heartbeat alerts, scheduler health checks and automatic recovery are required |

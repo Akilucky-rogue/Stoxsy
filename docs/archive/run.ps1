@@ -1,3 +1,4 @@
+# SUPERSEDED (archived 2026-10-31): this launcher starts the old Next.js frontend (now archive/frontend-next) and the legacy daily EOD job. The current way to run Stoxsy is in README.md.
 #Requires -Version 5.1
 <#
   Stoxsy launcher — starts the platform in separate terminal windows.

@@ -8,7 +8,9 @@ useDefault = true
 description = "generated build output (not source, never committed)"
 paths = [
   '''frontend/\.next/''',
+  '''archive/frontend-next/\.next/''',
   '''frontend/node_modules/''',
+  '''archive/frontend-next/node_modules/''',
   '''web/node_modules/''',
   '''web/dist/''',
 ]
