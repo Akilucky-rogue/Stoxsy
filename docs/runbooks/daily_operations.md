@@ -17,7 +17,7 @@ Keep the PC **plugged in and awake** until 15:45 IST (Settings > Power: never sl
 ## Every evening (after 19:00 IST)
 **Scheduled (since 2026-10-27):** Windows task *Stoxsy daily after close* runs Mon-Fri at 19:15 as you (you must be signed in and the PC awake; a missed run starts when the PC is next available). `scripts/scheduled_daily.py` skips weekends and NSE holidays and otherwise runs `ingest daily`. You do not need to run step 1 by hand on those days; running it twice is harmless. Check it with `Get-ScheduledTaskInfo "Stoxsy daily after close"` and `stoxsy doctor`. It is a stopgap until the Debian host.
 
-1. **`ingest daily`**: prices, corporate actions, rebuild of the official series, point-in-time universe, signal, prediction logging (before the next 09:15 open), resolution, fund snapshot, alerts. Each step is logged under `data\reports\daily`. Safe to re-run the same day (an identical re-log is not an error).
+1. **`ingest daily`**: prices, corporate actions, rebuild of the official series, point-in-time universe, signal, prediction logging (before the next 09:15 open), resolution, fund snapshot, the feature-store refresh (an increment of the newest sessions; skips when current), alerts. Each step is logged under `data\reports\daily`. Safe to re-run the same day (an identical re-log is not an error).
 2. **`stream stop`** if it is still running, then the after-close reconcile runs as part of the daily routine when bars were streamed.
 3. **`doctor`**, then **`alerts`** to read what is open.
 
@@ -26,6 +26,7 @@ Keep the PC **plugged in and awake** until 15:45 IST (Settings > Power: never sl
 |---|---|---|
 | `heartbeat stream` WARN/FAIL during the session | stream stopped or the machine slept | `stream status`, `stream start`; check the Kite session |
 | a price dataset FAIL in `doctor` | the daily routine has not run | `ingest daily`; the F&O step looks back 10 days by itself |
+| `doctor` warns "feature snapshots ... N session(s) behind prices" | the nightly `features_refresh` step failed or was skipped | `python scripts/refresh_features.py --dry-run` to see what is pending, then without `--dry-run` (several minutes: it computes each symbol's full history). It refuses without a full snapshot: build one first with `scripts/compute_factors_pit.py` |
 | signal date older than prices | the point-in-time universe is stale | `ingest daily --only universe,signal,log_cards` |
 | `Kite session` FAIL | token lapsed | `kite login` |
 | disk below 20 GB | space | clear old reports; check `data\ohlcv_versions` and landing |
